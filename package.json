@@ -25,6 +25,8 @@
     "test:landscape": "node tools/range-landscape-smoke.mjs",
     "test:peaks": "node tools/peak-evidence.mjs",
     "export:bulk": "node tools/bulk-export.mjs",
+    "build:export-runtime": "node tools/build-export-runtime.mjs",
+    "test:mp4export": "node tools/mp4-export-smoke.mjs",
     "test:car": "node tools/car-mode-smoke.mjs",
     "test:settings": "node tools/settings-smoke.mjs",
     "settings:reference": "node tools/settings-reference.mjs",
@@ -65,6 +67,7 @@
     "esbuild": "0.28.2",
     "eslint": "^10.14.0",
     "globals": "^17.14.0",
+    "mediabunny": "1.66.0",
     "playwright": "^1.65.0",
     "pngjs": "7.0.0",
     "three": "0.187.0"

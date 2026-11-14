@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Midio Pixel</title>
   <link rel="stylesheet" href="./src/ui/style.css" />
+  <link rel="stylesheet" href="./src/ui/camera-studio.css" />
 </head>
 <body>
   <div id="app">
@@ -158,6 +159,10 @@
             <!-- Generated from src/config/settingsRegistry.js by src/ui/SettingsPanel.js.
                  Add a setting there, not here (docs/settings.md). -->
             <div id="settingsPanel" class="settingsPanel"></div>
+            <div class="videoExportSetting">
+              <button id="settingsVideoExportBtn" type="button" class="ghostbtn">Export video…</button>
+              <p class="hint">Render the complete song with music as an MP4, from 360p to 4K at 30 or 60 fps.</p>
+            </div>
           </details>
 
           
@@ -178,6 +183,22 @@
 
 
     <dialog id="displaySettingsDialog" aria-label="Settings"><button id="displaySettingsClose" type="button" class="ghostbtn">Close</button><div id="displaySettingsBody"></div></dialog>
+    <dialog id="videoExportDialog" class="videoExportDialog" aria-labelledby="videoExportHeading">
+      <div class="videoExportHeading"><h2 id="videoExportHeading">Export video</h2><button id="videoExportClose" class="ghostbtn" type="button">Close</button></div>
+      <p>Render the complete song with its music and current camera configuration. Every frame is drawn before encoding, so a 4K export can take longer than the song.</p>
+      <fieldset id="videoExportFields" class="videoExportFields">
+        <legend>Output</legend>
+        <label for="videoExportResolution">Resolution</label>
+        <select id="videoExportResolution"><option value="360p">360p · 640 × 360</option><option value="480p">480p · 854 × 480</option><option value="720p">720p · 1280 × 720</option><option value="1080p" selected>1080p · 1920 × 1080</option><option value="1440p">1440p · 2560 × 1440</option><option value="2160p">4K · 3840 × 2160</option></select>
+        <label for="videoExportFps">Frame rate</label>
+        <select id="videoExportFps"><option value="30">30 fps</option><option value="60">60 fps</option></select>
+      </fieldset>
+      <p id="videoExportSummary" class="hint"></p>
+      <p class="hint">H.264 video + AAC audio. Files stay on your device. Scene detail follows General quality; output resolution is independent.</p>
+      <progress id="videoExportProgress" value="0" max="1" aria-label="Video export progress" hidden></progress>
+      <p id="videoExportStatus" role="status" aria-live="polite">Load a song to export it.</p>
+      <div class="videoExportActions"><button id="videoExportStart" type="button" class="ghostbtn">Render MP4</button><button id="videoExportCancel" type="button" class="ghostbtn" hidden>Cancel export</button><a id="videoExportDownload" class="ghostbtn" hidden>Save MP4</a></div>
+    </dialog>
     <div id="hud" class="hidden">
       <div id="hudLeft">
         <div id="btLatencyControl">
@@ -210,6 +231,7 @@
           <button id="rangeRestart" type="button" class="ghostbtn">Restart</button>
         </details>
         <button id="displaySettingsBtn" class="ghostbtn" type="button" title="Settings: display, camera, landscape, performance and playback">Settings</button>
+        <button id="videoExportBtn" class="ghostbtn" type="button" title="Render the complete song as an MP4 with music">Export</button>
         <div id="detailControls" class="detailControls" role="group" aria-label="Pixel detail">
           <span id="detailLevel" class="detailLevel" aria-live="polite">Classic</span>
         </div>
@@ -306,6 +328,7 @@
         <div class="completeActions">
           <button id="replaySameSeedBtn" type="button">Replay seed</button>
           <button id="replayNewSeedBtn" type="button" class="ghostbtn">New seed</button>
+          <button id="completeVideoExportBtn" type="button" class="ghostbtn">Export video</button>
           <button id="completeRandomSongBtn" type="button" class="ghostbtn randomSongBtn">↝ Random song</button>
           <button id="playAgainBtn" type="button" class="ghostbtn">Title</button>
         </div>

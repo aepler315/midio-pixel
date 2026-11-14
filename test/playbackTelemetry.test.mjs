@@ -48,6 +48,7 @@ test('a pre-load fixture pin is applied before the first canvas fit and survives
 function frameRuntime() {
   let clock = 50;
   const context = vm.createContext({ running: true, paused: false, playbackPreparing: false,
+    cameraStudioStatusAt: -Infinity, syncCameraStudio() {},
     lastRafMs: null, lastRenderedWorkMs: null, lastRenderedSyncWaitMs: null,
     renderedFrames: 0, lastRenderAtMs: null, lastFrameTiming: null, sceneEpoch: 1,
     performance: { now: () => clock }, document: { hidden: false },

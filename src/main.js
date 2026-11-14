@@ -102,6 +102,10 @@ import {
 import { stepExportClock, evenExportSize } from './render/BulkExport.js';
 import { rangeUserCamera } from './world/alpine/RangeCamera.js';
 import { attachRangeZoomInput } from './ui/RangeZoomInput.js';
+import { normalizeCameraStudioSettings } from './world/alpine/CameraStudio.js';
+import { CameraStudioPanel, readCameraStudioSettings, writeCameraStudioSettings } from './ui/CameraStudioPanel.js';
+import { VideoExportSession, waitForExport } from './ui/VideoExportSession.js';
+import { MAX_MP4_BUFFER_BYTES, resolveMp4ExportSettings, estimateMp4ExportBytes, mp4ExportFileName, exportMp4, checkMp4ExportSupport } from './render/Mp4Export.js';
 import { MusicLibrary } from './library/MusicLibrary.js';
 import { createSongWorldRecord, describeSongWorld } from './library/SongWorld.js';
 import { folderPickerMode } from './library/FolderPickerMode.js';
@@ -390,6 +394,8 @@ let pendingWorldStart = null;
 let lastFitDiagnostic = null;
 let lastSongName = 'song';
 let lastSongSeed = null; // 32-bit seed used for the run that just finished
+const videoExportSession = new VideoExportSession({ onState: syncVideoExportState });
+let cameraStudioSettings = readCameraStudioSettings(displayStorage());
 
 // Logical composition stays 1280×720. Live output uses the selected pixel
 // grid; exports retain their independently requested output dimensions.
@@ -495,6 +501,58 @@ let rangePresentation = rangeMode.mode === 'v2'
   ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, upgradeIntended: rangeMode.upgradeIntended, shots: rangeMode.shots, shotCandidates: rangeMode.shotCandidates, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
   : null;
 
+const cameraStudioPanel = new CameraStudioPanel({
+  settingsParent: document.getElementById('titleSettings'), hudParent: document.getElementById('app') || document.body,
+  settings: cameraStudioSettings,
+  onChange: settings => {
+    if (videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return;
+    cameraStudioSettings = normalizeCameraStudioSettings(settings);
+    writeCameraStudioSettings(displayStorage(), cameraStudioSettings);
+    if (sim) sim.cameraStudioSettings = cameraStudioSettings;
+    syncCameraStudio();
+    if (paused && sim && renderer) redrawPausedCameraStudio();
+  },
+  onRecenter: () => {
+    if (videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return;
+    rangeUserCamera.reset();
+    if (paused && sim && renderer) redrawPausedCameraStudio();
+  },
+});
+let cameraStudioStatusAt = -Infinity;
+let cameraStudioRedraw = null;
+async function redrawPausedCameraStudio() {
+  cameraStudioRedraw?.abort();
+  const controller = cameraStudioRedraw = new AbortController();
+  const ownedSim = sim, ownedRenderer = renderer, generation = loadGen;
+  const settings = sim?.cameraStudioSettings;
+  const current = () => !controller.signal.aborted && paused && running && !snapshotBusy
+    && !videoExportSession.busy && !bulkExportArmed && !reelSaver.busy
+    && loadGen === generation && sim === ownedSim && renderer === ownedRenderer && sim?.cameraStudioSettings === settings;
+  try {
+    if (!current()) return;
+    ownedRenderer.draw(ownedSim, 1, { preparing: playbackPreparing });
+    syncCameraStudio();
+    const settled = rangePresentation && await rangePresentation.settle({ signal: controller.signal, timeoutMs: 30000 });
+    if (settled && current()) {
+      ownedRenderer.draw(ownedSim, 1, { preparing: playbackPreparing });
+      syncCameraStudio();
+    }
+  } catch (error) {
+    if (current() && error?.name !== 'AbortError') showErrorBanner(`Camera preview could not finish: ${error.message || error}`);
+  } finally { if (cameraStudioRedraw === controller) cameraStudioRedraw = null; }
+}
+function syncCameraStudio() {
+  const status = rangePresentation?.status();
+  const camera = status?.cameraStudio;
+  cameraStudioPanel.setState({ running: running && !bulkExportArmed && !playbackPreparing,
+    available: !!rangePresentation && sim?.biomes?.world?.kind === 'alpine',
+    busy: videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy,
+    positionEnabled: camera?.positionEnabled !== false,
+    effectiveDistanceMax: camera?.effectiveDistanceMax, effectiveFovMaxDeg: camera?.effectiveFovMaxDeg,
+    status: camera?.reason || (cameraStudioSettings.enabled ? 'Custom camera follows song time. Pause to compose a still.' : 'Automatic camera'),
+  });
+}
+
 const rangePaceSelect = document.getElementById('range-pace');
 const rangePaceStatus = document.getElementById('range-pace-status');
 function currentCameraTourMode() {
@@ -538,6 +596,7 @@ function rangeStateSnapshot() {
 }
 function syncRangeTourControl() {
   syncRangePaceControl();
+  settingsPanel.syncRow('rangeTour');
   if (!rangeTourStatus) return;
   const status = currentTourControlState();
   if (rangeTourStatus.textContent !== status.text) rangeTourStatus.textContent = status.text;
@@ -551,12 +610,13 @@ function syncRangeTourControl() {
 function applyTourMode(choice) {
   rangePresentation ||= new RangePresentation({ mode: 'v2', upgradeIntended: rangeMode.upgradeIntended, residency: sharedResidency(), budget: residencyBudgetFor().name });
   if (renderer) renderer.rangePresentation = rangePresentation;
-  applyTerrainTourPolicy(lastTimelineData?.terrain, choice, getWorld(lastTimelineData?.worldId)?.kind);
+  applyTerrainTourPolicy(lastTimelineData?.terrain, choice, lastTimelineData?.worldId ? getWorld(lastTimelineData.worldId)?.kind : null);
   rangePresentation.setTourMode(choice === 'off' ? null : choice);
   cameraRun?.forgetTours();
   rebuildSceneInPlace();
   settings.markApplied(['scene']);
   syncRangeTourControl();
+  syncCameraStudio();
 }
 
 /** The one in-place rebuild: the running song restarts its scene at the
@@ -573,6 +633,7 @@ function rebuildSceneInPlace(overrides = {}) {
   if (wasPaused) { paused = true; updatePauseButtonUI(); }
   return true;
 }
+
 syncRangeTourControl();
 // Downloads/workers can settle while the audio is paused and no scenic
 // frames are drawn. Poll only lightweight status, and announce changed text.
@@ -889,6 +950,7 @@ function settingBlockedReason(id) {
   try {
     if ((id === 'pixelGrid' || id === 'buildPixelDetail' || id === 'scaling') && snapshotBusy) return 'Unavailable while snapshots are being saved.';
     if (id === 'rangePace' && (bulkExportArmed || reelSaver.busy)) return 'Unavailable while frames are being exported or saved.';
+    if (videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return 'Unavailable while video or snapshots are being saved.';
     return null;
   } catch { return null; } // Called during boot, before that state exists.
 }
@@ -1010,6 +1072,7 @@ async function saveDetailSnapshots() {
   // Busy from here: the Display menu, Pause, Record and Sync wait (Stop
   // cancels), so all captured files are this one moment.
   snapshotBusy = true;
+  syncCameraStudio();
   syncDetailControls();
   const savedPrefs = displayPrefs, savedPresentation = presentation;
   snapshotPlayerPrefs = savedPrefs;
@@ -1060,6 +1123,7 @@ async function saveDetailSnapshots() {
     presentation = savedPresentation;
     snapshotPlayerPrefs = null;
     snapshotBusy = false;
+    syncCameraStudio();
     syncDisplayControls();
     fitCanvas();
     if (!stopped()) {
@@ -1270,6 +1334,7 @@ function stopTimeline({ preservePause = false, keepAudio = false } = {}) {
   playbackPreparing = false;
   if (!keepAudio) terrainRecordingHold = null;
   running = false;
+  syncCameraStudio();
   syncKeepAwake();
   recalibration.stop();
   // conductor is a single instance shared across every song (see its
@@ -1332,6 +1397,7 @@ function updatePauseButtonUI() {
  *  in place with nothing extra to track, and resuming picks up exactly
  *  where it left off. */
 function togglePause() {
+  if (videoExportSession.busy) return;
   if (!running || !sim || !audioEngine) return;
   if (renderPlayback.status === 'failed') return;
   paused = !paused;
@@ -1352,6 +1418,7 @@ function togglePause() {
 
 /** Back to the title/drop screen so a different song can be chosen. */
 function backToTitle({ cancelContinuous = true } = {}) {
+  videoExportSession.cancel();
   if (cancelContinuous) continuousPlayback.cancel();
   // Any in-flight analysis belongs to the discarded song. Its progress or
   // failure must not redraw this title screen later.
@@ -1555,7 +1622,7 @@ function abortBulkExport() {
 /** Rebuild the current song at an exact frame size and arm the export clock.
  *  The seed and the decoded buffer carry over, so each resolution is the
  *  same performance. */
-function beginBulkExport({ width, height, presentation: override, qualityLevel = null, cameraSchedule = undefined, cameraTourMode = undefined } = {}) {
+function beginBulkExport({ width, height, presentation: override, qualityLevel = null, cameraSchedule = undefined, cameraTourMode = undefined, cameraStudio = cameraStudioSettings } = {}) {
   continuousPlayback.cancel();
   const size = evenExportSize({ w: width, h: height });
   if (!size) throw new Error(`Export size must be even and at least 2×2 (got ${width}×${height}).`);
@@ -1568,6 +1635,7 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
     exportMode: true,
     cameraSchedule: cameraSchedule === undefined ? cameraRun?.scheduleFor(cameraScheduleKey()) || null : cameraSchedule,
     cameraTourMode: cameraTourMode ?? currentCameraTourMode(),
+    cameraStudioSettings: normalizeCameraStudioSettings(cameraStudio),
     exportSize: size,
     exportPresentation: override ? resolvePresentation(resolveDisplayPrefs({ saved: override })) : { ...effectivePresentation() },
     exportQualityLevel: Number.isInteger(qualityLevel) && qualityLevel >= 0 ? qualityLevel : perfGovernor?.level ?? perfStartLevel,
@@ -1741,7 +1809,7 @@ function startTimeline(timelineData, extra = {}) {
     exportMode: exportModeFlag = false, exportSize = null, keepAudio = false,
   } = extra;
   lastStartExtra = { ...extra, automaticTicket: undefined, continuationWorldId: undefined, onAutomaticStart: undefined,
-    cameraSchedule: undefined, cameraTourMode: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false, heardTours: undefined };
+    cameraSchedule: undefined, cameraTourMode: undefined, cameraStudioSettings: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false, heardTours: undefined };
   // The world decides the presentation, before anything below reads it.
   timelineData.worldId = resolveWorldId(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID);
   // A new song picks up renderer-lifecycle settings changed since the
@@ -1901,12 +1969,14 @@ function startTimeline(timelineData, extra = {}) {
       displayPrefs: { ...(snapshotPlayerPrefs || displayPrefs) },
       qualityLevel: renderQualityLevel(generalQuality),
       sceneStartMs, continued, analysis, cameraTourMode, cameraSchedule: cameraRun?.scheduleFor(scheduleKey) || null,
+      cameraStudioSettings: normalizeCameraStudioSettings(sim.cameraStudioSettings),
     });
   }
   // The listener's zoom (scroll wheel, pinch) is live-only: exports and
   // captures draw the authored camera. A new song starts unzoomed; a seek
   // or a mid-song rebuild keeps the zoom where it is.
   sim.userCameraEnabled = !captureMode;
+  sim.cameraStudioSettings = normalizeCameraStudioSettings(extra.cameraStudioSettings ?? cameraStudioSettings);
   // Seeks (to 0 too) and the mid-song full-analysis rebuild say so with
   // keepUserCamera; a new song or a replay starts unzoomed.
   if (!extra.keepUserCamera) rangeUserCamera.reset();
@@ -2142,6 +2212,8 @@ function startTimeline(timelineData, extra = {}) {
     get lastFrameTiming() { return lastFrameTiming ? { ...lastFrameTiming } : null; },
     get sceneIdentity() { return sceneIdentitySnapshot(); },
     get playbackState() { return { running, paused, preparing: playbackPreparing, status: renderPlayback.status }; },
+    get videoExportState() { return videoExportSession.state; },
+    get cameraStudioSettings() { return sim?.cameraStudioSettings || cameraStudioSettings; },
     setFixtureLevel,
     get fixtureLevel() { return fixturePerfLevel; },
     // Device probes: what bounds delivered frames (the FPS cap) and whether
@@ -2493,6 +2565,7 @@ async function resolveLyricsForAudio(identity, durationSec, vocalStem = null, { 
  *  stems of one song -- summed into a mix for analysis/playback, with each
  *  file's NAME casting its notes to a character (see Casting.js). */
 function beginAudioSelection(source, automaticTicket = null) {
+  videoExportSession.cancel();
   if (!automaticTicket) continuousPlayback.cancel();
   const ticket = audioSelections.begin(source);
   selectionExportSettings.set(ticket, exportSetup.snapshot());
@@ -3455,6 +3528,7 @@ function callbackWorkMs(workMs, syncWaitMs) {
 
 function frame(tRaf) {
   if (!running) return;
+  if (tRaf - cameraStudioStatusAt > 500) { cameraStudioStatusAt = tRaf; syncCameraStudio(); }
   if (paused || playbackPreparing) { lastRenderedWorkMs = null; lastRenderedSyncWaitMs = null; rafHandle = requestAnimationFrame(frame); return; }
   const workStartMs = performance.now();
   const rafDeltaMs = lastRafMs === null ? null : tRaf - lastRafMs;
@@ -3828,6 +3902,7 @@ function adoptFullAnalysisLive(data) {
  * teardown/construction lifecycle as replay so no effect pool, timestamp,
  * subscription or renderer history can survive from the discarded future. */
 function seekSong(ms) {
+  if (videoExportSession.busy || bulkExportArmed) return;
   if (songRecorder?.recording || songRecorder?.finalizing || pendingCaptureOptions) {
     showErrorBanner('Finish or cancel the recording before seeking.');
     return;
@@ -4106,6 +4181,7 @@ function isTextEntry(el) {
 
 window.addEventListener('keydown', (e) => {
   if (e.defaultPrevented) return;
+  if (document.getElementById('videoExportDialog')?.open) return;
   // A modal chooser owns keyboard input; every key retains native
   // dialog/button behavior, including Escape.
   if (document.getElementById('plexLibraryPanel')?.open) return;
@@ -4300,6 +4376,7 @@ updateBtLatencyBtnUI();
 
 function onSongComplete() {
   running = false;
+  syncCameraStudio();
   hudEl.classList.add('hidden');
   // Silence audio under the complete panel (otherwise the buffer keeps going).
   audioEngine?.pause();
@@ -4317,7 +4394,7 @@ function onSongComplete() {
   // A full-song export ends where the song does. Awaiting it here would
   // hold up the panel, so it saves itself and writes its own line.
   const recordingReady = songRecorder?.recording ? finishRecording() : recordingFinalization;
-  queueContinuousPlayback(recordingReady);
+  if (!videoExportSession.busy) queueContinuousPlayback(recordingReady);
 }
 
 /** A completed live show may advance; exports and borrowed stages never do. */
@@ -4362,7 +4439,7 @@ async function startNextLibraryTrack(ticket, worldId) {
  *  the song-derived default. Explicit completion-screen seeds still override it. */
 function replaySong({ songSeed } = {}) {
   // A 4K reel save is drawing on the stage; its buttons say so (disabled).
-  if (reelSaver.busy) return;
+  if (reelSaver.busy || videoExportSession.busy) return;
   continuousPlayback.cancel();
   if (!lastTimelineData) { window.location.reload(); return; }
   // Capture buffer before rebuild — startTimeline stops the AudioContext source
@@ -4483,7 +4560,8 @@ function beginReelRender(data, group, size, restore) {
   lastSongSeed = group.songSeed;
   try {
     beginBulkExport({ width: size.w, height: size.h, presentation: { ...group.displayPrefs, scaling: 'fit' },
-      qualityLevel: group.qualityLevel, cameraSchedule: group.cameraSchedule, cameraTourMode: group.cameraTourMode });
+      qualityLevel: group.qualityLevel, cameraSchedule: group.cameraSchedule, cameraTourMode: group.cameraTourMode,
+      cameraStudio: group.cameraStudioSettings || normalizeCameraStudioSettings() });
   } catch (err) {
     throw classifyArmError(err, { armed: !!sim && bulkExportArmed, stage: { w: canvas.width, h: canvas.height }, size });
   }
@@ -5114,6 +5192,181 @@ musicLibrary.init().catch((err) => console.warn('[library] could not be loaded',
 // back VP9 in an MP4 wrapper, which a head unit refuses. What the player is
 // told comes from the bytes of the finished file, not the extension.
 // ===================================================================
+
+// Frame-by-frame export is separate from the retired real-time recorder below.
+// It uses the same immutable performance and fixed clock as offline rendering.
+const videoDialog = document.getElementById('videoExportDialog');
+const videoStatus = document.getElementById('videoExportStatus');
+const videoProgress = document.getElementById('videoExportProgress');
+const videoStart = document.getElementById('videoExportStart');
+const videoCancel = document.getElementById('videoExportCancel');
+const videoResolution = document.getElementById('videoExportResolution');
+const videoFps = document.getElementById('videoExportFps');
+const videoDownload = document.getElementById('videoExportDownload');
+let videoDownloadUrl = null;
+try {
+  const saved = resolveMp4ExportSettings(JSON.parse(displayStorage()?.getItem('midio.mp4Export.v1') || '{}'));
+  videoResolution.value = saved.resolutionId; videoFps.value = String(saved.fps);
+} catch { /* Invalid or denied storage keeps the HTML defaults. */ }
+
+function videoOutputSettings() {
+  return resolveMp4ExportSettings({ resolutionId: videoResolution.value, fps: videoFps.value });
+}
+function syncVideoOutputSettings() {
+  const settings = videoOutputSettings();
+  const durationMs = lastAudioBuffer ? lastAudioBuffer.length / lastAudioBuffer.sampleRate * 1000 : 0;
+  document.getElementById('videoExportSummary').textContent = `${settings.width} × ${settings.height} · ${settings.fps} fps`
+    + (durationMs ? ` · ${formatDuration(durationMs)} · about ${formatBytes(estimateMp4ExportBytes(settings, durationMs))}` : ' · Load a song first');
+  videoStart.disabled = videoExportSession.busy || !lastAudioBuffer || !lastTimelineData;
+  try { displayStorage()?.setItem('midio.mp4Export.v1', JSON.stringify(settings)); } catch { /* Session settings still work. */ }
+}
+function syncVideoExportState(state) {
+  document.getElementById('videoExportFields').disabled = state.busy;
+  videoStart.disabled = state.busy || !lastAudioBuffer || !lastTimelineData;
+  videoCancel.hidden = !state.busy;
+  document.getElementById('videoExportClose').textContent = state.busy ? 'Cancel export' : 'Close';
+  videoProgress.hidden = !state.busy;
+  videoProgress.value = state.progress || 0;
+  const messages = { preparing: 'Preparing the complete song and checking H.264/AAC support…',
+    encoding: `Rendering frame ${state.frame || 0} of ${state.totalFrames || '…'} · ${Math.floor((state.progress || 0) * 100)}%`,
+    finalizing: 'Finishing the MP4…', restoring: 'Restoring playback…',
+    cancelled: 'Export cancelled. Playback restored.', complete: 'MP4 ready.', error: state.error };
+  videoStatus.textContent = messages[state.phase] || '';
+  syncCameraStudio();
+}
+for (const id of ['settingsVideoExportBtn', 'videoExportBtn', 'completeVideoExportBtn']) {
+  document.getElementById(id)?.addEventListener('click', () => {
+    continuousPlayback.cancel();
+    if (displayDialog?.open) displayDialog.close();
+    syncVideoOutputSettings();
+    if (!videoExportSession.busy) videoStatus.textContent = lastAudioBuffer
+      ? 'Your current scene, camera, seed and detail settings will be used for the whole song.'
+      : 'Load a song with audio, then open Export video again.';
+    if (!videoDialog.open) videoDialog.showModal();
+  });
+}
+for (const control of [videoResolution, videoFps]) control.addEventListener('change', syncVideoOutputSettings);
+videoDialog.addEventListener('keydown', event => event.stopPropagation());
+videoDialog.addEventListener('cancel', event => {
+  if (videoExportSession.busy) { event.preventDefault(); videoExportSession.cancel(); }
+});
+document.getElementById('videoExportClose').addEventListener('click', () => {
+  if (videoExportSession.busy) videoExportSession.cancel(); else videoDialog.close();
+});
+videoCancel.addEventListener('click', () => videoExportSession.cancel());
+videoStart.addEventListener('click', () => { renderSongMp4(); });
+
+async function renderSongMp4() {
+  if (videoExportSession.busy || reelSaver.busy || snapshotBusy || bulkExportArmed) return;
+  if (!lastAudioBuffer || !lastTimelineData) { videoStatus.textContent = 'Load a song with audio before exporting.'; return; }
+  const data = lastTimelineData, audioBuffer = lastAudioBuffer, generation = loadGen;
+  const settings = videoOutputSettings();
+  const studio = normalizeCameraStudioSettings(cameraStudioSettings);
+  const display = { ...effectivePresentation() }, qualityLevel = renderQualityLevel(generalQuality);
+  const filename = mp4ExportFileName({ songName: sessionSongName(data, lastSongName), settings });
+  // Invoke the picker during the click's user activation. The writable itself
+  // is opened after codec/analysis readiness, and aborted on unsuccessful work.
+  let fileChoice;
+  try {
+    fileChoice = typeof window.showSaveFilePicker === 'function' ? window.showSaveFilePicker({
+      suggestedName: filename, types: [{ description: 'MP4 video', accept: { 'video/mp4': ['.mp4'] } }],
+    }) : Promise.resolve(null);
+    fileChoice.catch(() => {});
+  } catch (error) { videoStatus.textContent = error.message; return; }
+  continuousPlayback.cancel();
+  videoDownload.hidden = true;
+  let restore = null, ownSim = null, touched = false, writable = null, encoderOwnsFile = false;
+  const isCurrent = () => loadGen === generation && lastTimelineData === data && (!ownSim || sim === ownSim || !sim);
+  const check = signal => { if (signal.aborted || !isCurrent()) throw new DOMException('Video export cancelled.', 'AbortError'); };
+  try {
+    const result = await videoExportSession.run({ isCurrent,
+      prepare: async signal => {
+        const handle = await waitForExport(fileChoice, signal);
+        check(signal);
+        if (!handle && estimateMp4ExportBytes(settings, audioBuffer.duration * 1000) > MAX_MP4_BUFFER_BYTES)
+          throw Error('This export exceeds the 512 MiB encoded-output limit. Choose a smaller resolution or use a browser that can save directly to a file.');
+        await waitForExport(checkMp4ExportSupport({ settings, audioBuffer }), signal);
+        if (fullAnalysisPending) await waitForExport(fullAnalysisPending, signal);
+        check(signal);
+        if (data.opening) throw Error('The whole-song analysis is not ready. Try again after analysis finishes.');
+        if (data.terrain?.whenAll) await waitForExport(data.terrain.whenAll, signal);
+        check(signal);
+        restore = { terrainTourState: captureTourTerrainState(data.terrain), worldId: data.worldId,
+          hadChapter: Object.hasOwn(data, 'chapterState'), chapterState: data.chapterState,
+          cameraRun, activeCameraSchedule, cameraTourMode: currentCameraTourMode(),
+          hadCameraSchedule: Object.hasOwn(data, 'cameraSchedule'), cameraSchedule: data.cameraSchedule,
+          hadRangeNarrative: Object.hasOwn(data, 'rangeNarrative'), rangeNarrative: data.rangeNarrative,
+          lastStartExtra, lastSongSeed, paused, running, atMs: Math.max(0, audioEngine.nowMs),
+          loaderHidden: loaderEl.classList.contains('hidden'), ctxRunning: audioEngine.ctx.state === 'running',
+          gain: audioEngine.master.gain.value, studio, hudInFrame: renderer?.hudInFrame,
+        };
+        if (handle) writable = await handle.createWritable();
+        check(signal);
+        touched = true;
+        beginBulkExport({ width: settings.width, height: settings.height, presentation: display, qualityLevel,
+          cameraSchedule: restore.cameraRun?.scheduleFor(cameraScheduleKey()) || null,
+          cameraTourMode: restore.cameraTourMode, cameraStudio: studio });
+        ownSim = sim;
+        running = false; syncKeepAwake(); syncCameraStudio();
+        hudEl.classList.add('hidden'); rangeNavigationEl?.classList.add('hidden');
+        if (rangePresentation) await waitForExport(rangePresentation.whenReady({ timeoutMs: 120000 }), signal);
+        check(signal);
+        return { settings, writable };
+      },
+      encode: async (context, { signal, onProgress }) => {
+        encoderOwnsFile = true;
+        return exportMp4({ canvas, audioBuffer, ...context, signal, onProgress,
+          renderFrame: async timeMs => {
+            check(signal);
+            let frame = renderExportFrame(timeMs);
+            if (rangePresentation && await waitForExport(rangePresentation.settle({ timeoutMs: 120000 }), signal)) {
+              check(signal); frame = renderExportFrame(timeMs);
+            }
+            check(signal); return frame;
+          },
+        });
+      },
+      restore: async () => {
+        if (!touched || !restore) return;
+        endReelRender(data, restore);
+        if (restore.running) {
+          startTimeline(data, { ...restore.lastStartExtra, songSeed: restore.lastSongSeed, playBuffer: audioBuffer,
+            startAtMs: Math.min(restore.atMs, audioBuffer.duration * 1000 - 1), preservePause: restore.paused,
+            cameraRunIntent: 'preserve', keepUserCamera: true, cameraStudioSettings: restore.studio });
+          ownSim = sim;
+          renderer.hudInFrame = restore.hudInFrame;
+          await renderReadyPromise;
+          if (loadGen !== generation || lastTimelineData !== data || sim !== ownSim) return;
+          if (restore.paused) { paused = true; await audioEngine.ctx.suspend(); updatePauseButtonUI(); }
+          if (Number.isFinite(restore.gain)) audioEngine.master.gain.value = restore.gain;
+        }
+        syncCameraStudio();
+      },
+      discard: async () => {
+        // A newer load may fail before it builds a replacement simulation.
+        // Release the old export's stage in that case, without rebuilding its
+        // song or touching a renderer that a newer selection already owns.
+        if (!touched || (sim && sim !== ownSim)) return;
+        bulkExportArmed = false; bulkExportSize = null; bulkPresentation = null;
+        stopTimeline({ preservePause: true });
+        paused = false;
+        if (audioEngine?.ctx?.state === 'suspended') await audioEngine.ctx.resume();
+        updatePauseButtonUI(); fitCanvas(); syncCameraStudio();
+      },
+    });
+    if (!result) return;
+    if (result.blob) {
+      if (videoDownloadUrl) URL.revokeObjectURL(videoDownloadUrl);
+      videoDownloadUrl = URL.createObjectURL(result.blob);
+      videoDownload.href = videoDownloadUrl; videoDownload.download = filename;
+      videoDownload.hidden = false; videoDownload.click();
+    }
+    videoStatus.textContent = `${result.blob ? 'MP4 ready to save' : 'MP4 saved'} · ${result.width} × ${result.height} · ${result.fps} fps · ${result.frames.toLocaleString()} frames with music · ${formatBytes(result.bytes)}`;
+  } catch (error) { videoStatus.textContent = `Export failed: ${error.message || error}`; }
+  finally {
+    if (writable && !encoderOwnsFile) { try { await writable.abort(); } catch { /* The file was never committed. */ } }
+  }
+}
 
 const recordBtnEl = document.getElementById('recordBtn');
 const recordStatusEl = document.getElementById('recordStatus');

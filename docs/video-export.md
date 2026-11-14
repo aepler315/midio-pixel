@@ -1,4 +1,47 @@
-# Video export implementation notes (historical)
+# MP4 video export
+
+Choose **Export** in the playback HUD, **Export video** on the completion screen,
+or **Settings → Export video** after loading a song with audio. Select 360p,
+480p, 720p, 1080p, 1440p or 4K, and 30 or 60 fps. **Render MP4** saves the complete
+song with its decoded original audio, current seed, camera, display settings and
+General quality ceiling. These choices are frozen for the render. HUD controls
+are excluded from the file.
+
+This is an offline frame-by-frame render. The simulation advances on its fixed
+song clock, waits for scenery, and encodes each completed frame with an exact
+timestamp. Slow drawing extends the wait instead of dropping video frames.
+Full-song analysis and terrain must finish first. H.264 video and AAC audio are
+checked for the requested output before rebuilding the song; unsupported
+encoders produce an explicit message. WebCodecs encoding is required. There is
+no silent format, size or FPS fallback.
+
+Where supported, choose a file at the beginning: encoding streams to disk and
+commits only on success. Otherwise an in-memory MP4 is offered as a download,
+with a **Save MP4** link to retry. The fallback limits encoded output to 512 MiB;
+canvas, encoder, muxer and Blob overhead use additional memory. Resolution
+controls output pixels; General quality controls scene detail separately.
+Estimates are approximate. A 4K export can take longer than the song. No audio
+or frames are uploaded.
+
+Progress and **Cancel export** remain available throughout the job. Cancellation
+discards incomplete output. Playback returns to its previous source position
+and pause state after success, failure or cancellation. A newly selected song
+supersedes an old job and cannot be overwritten by its cleanup. Camera Studio
+uses its current configuration for the whole song, rather than recording live
+control edits.
+
+The locally served, pinned Mediabunny runtime muxes the MP4; WebCodecs compresses
+it. Check the runtime with `npm run build:export-runtime -- --check`.
+`npm run test:mp4export` encodes a small synthetic fixture at all six resolutions
+and both rates, verifies the files, and checks direct-file cancellation. It
+establishes codec plumbing and cadence, not physical-device performance or
+whole-song artistic quality. The native ffmpeg `npm run export:bulk` tool remains
+available.
+
+## Historical real-time recorder notes
+
+The notes below describe a retired interface. The frame-by-frame exporter above
+does not restore that MediaRecorder interface.
 
 The browser video-export UI and recording controls have been removed. The
 recorder notes below describe the former interface; the offline bulk-rendering

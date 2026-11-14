@@ -32,4 +32,5 @@ Historical conflicts: `landscape-review.md` still described Pixel as default and
 both grids, while current CLI defaults are Cinematic/Detailed; the command help
 and current source govern. `pixel-presentation.md` contains historical Depth,
 Pixel and Palette passages; current behavior above supersedes those options.
-Removed flowing-water, cast/performer and video-recording ideas stay retired.
+Removed flowing-water, cast/performer and real-time video-recording ideas stay
+retired. Optional Camera Studio and deterministic MP4 export are current features.

@@ -14,6 +14,19 @@ const frame = (atMs, over = {}) => ({
   moment: { songSeed: 7, worldId: 'range', displayPrefs: prefs, qualityLevel: 0, atMs, sceneStartMs: 0, continued: false, analysis: 'full' }, ...over,
 });
 
+test('highlight redraw groups retain the camera studio configuration of each moment', () => {
+  const a = frame(1000), b = frame(2000), c = frame(3000);
+  a.moment.cameraStudioSettings = { enabled: true, preset: 'orbit', distance: .7 };
+  b.moment.cameraStudioSettings = { enabled: true, preset: 'orbit', distance: 1.2 };
+  c.moment.cameraStudioSettings = { enabled: true, preset: 'orbit', distance: .7 };
+  const plan = planReelRenders([a, b, c]);
+  assert.equal(plan.groups.length, 2);
+  assert.equal(plan.groups[0].cameraStudioSettings.distance, .7);
+  assert.equal(plan.groups[1].cameraStudioSettings.distance, 1.2);
+  assert.equal(Object.isFrozen(plan.groups[0].cameraStudioSettings), true);
+  assert.deepEqual(plan.groups[0].items.map(item => item.index), [0, 2]);
+});
+
 test('the target is true 4K and the ladder steps down through the bulk export sizes', () => {
   assert.deepEqual(REEL_TARGET_SIZE, { w: 3840, h: 2160 });
   assert.deepEqual(REEL_SIZES, [{ w: 3840, h: 2160 }, { w: 2560, h: 1440 }, { w: 1920, h: 1080 }]);

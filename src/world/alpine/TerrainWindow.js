@@ -7,9 +7,64 @@ import { LAND_MAX_DISPLACEMENT_M, LAND_TOUR_FADE_END_M, landDetailErrorM } from 
 import { risenHeight } from './LandRise.js';
 import { landRiseCamera } from './LandRiseCamera.js';
 import { terrainHeightAt } from './TerrainMesh.js';
+import { cameraStudioTour, normalizeCameraStudioSettings } from './CameraStudio.js';
 
 const dot = (a, b) => a.reduce((n, v, i) => n + v * b[i], 0);
 const ceil = n => Math.ceil(n * 64) / 64;
+const studioTours = new WeakMap();
+const studioPolicies = new WeakMap();
+
+/** Plain data travels with worker requests. Full-coverage tours orbit the
+ * terrain package's center, with altitude sampled from the same DEM. */
+export function terrainWindowStudio(data, tour, settings, waterLevelM = null) {
+  const s = normalizeCameraStudioSettings(settings);
+  if (!s.enabled || !tour) return null;
+  let referencePose = tour.poseAt(tour.durationMs / 2);
+  const grid = data?.grid;
+  if (grid?.width > 1 && grid?.height > 1) {
+    const x = grid.originM[0] + (grid.width - 1) * grid.cellSizeM / 2;
+    const z = grid.originM[1] + (grid.height - 1) * grid.cellSizeM / 2;
+    const y = terrainHeightAt(data, x, z);
+    referencePose = { ...referencePose, targetM: [x, Number.isFinite(y) ? y : referencePose.targetM[1], z] };
+  }
+  return { settings: s, referencePose, waterLevelM, sampleStepM: grid?.cellSizeM || 30 };
+}
+
+/** Renderer, terrain detail and forest placement consume exactly one path. */
+export function terrainWindowTour(data, tour, options = {}) {
+  const studio = options.cameraStudio;
+  if (options.studioFallback || !studio?.settings?.enabled) return tour;
+  const cached = studioTours.get(studio);
+  if (cached?.tour === tour && cached.data === data) return cached.route;
+  const route = cameraStudioTour(tour, studio.settings, { ...studio,
+    heightAt: data ? (x, z) => terrainHeightAt(data, x, z) : null });
+  studioTours.set(studio, { tour, data, route });
+  return route;
+}
+
+/** One route choice per source/settings/quality, reconstructed the same way
+ * on a seek or export. The small cache retains summaries, not all meshes or
+ * window plans. Very long routes conservatively retain authored framing. */
+function studioCameraPolicy(data, tour, options) {
+  let byTour = studioPolicies.get(data);
+  if (!byTour) studioPolicies.set(data, byTour = new WeakMap());
+  let cache = byTour.get(tour);
+  if (!cache) byTour.set(tour, cache = new Map());
+  const key = JSON.stringify({ ...options, bias: 1 });
+  if (cache.has(key)) return cache.get(key);
+  const count = Math.max(1, Math.ceil(tour.durationMs / 8000));
+  const policy = { fallback: count > 256, preflightWindows: 0, requestedMaxErrorPx: 0, requestedSummitMaxErrorPx: 0 };
+  if (!policy.fallback) for (let index = 0; index < count; index++) {
+    const plan = planTerrainWindow(data, tour, index, { ...options, bias: 1, studioPreflight: true });
+    policy.preflightWindows++;
+    policy.requestedMaxErrorPx = Math.max(policy.requestedMaxErrorPx, plan.studioRequestedMaxErrorPx ?? plan.maxErrorPx);
+    policy.requestedSummitMaxErrorPx = Math.max(policy.requestedSummitMaxErrorPx, plan.studioRequestedSummitMaxErrorPx ?? plan.summitMaxErrorPx);
+    if (plan.studioFallback) { policy.fallback = true; break; }
+  }
+  if (cache.size >= 4) cache.delete(cache.keys().next().value);
+  cache.set(key, Object.freeze(policy));
+  return policy;
+}
 
 /** Envelope over the song, from its flattest terrain to full relief.
  *  Peaks can move down and terrain below the base can move up. */
@@ -210,13 +265,26 @@ function expandedTangents(p, framing) {
 }
 
 /** The coarsest measured-error-safe grid over an eight-second route window. */
-export function planTerrainWindow(data, tour, index, {
+export function planTerrainWindow(data, tour, index, options = {}) {
+  let {
   budget = 'desktop', heightPx = 1080, aspect = 16 / 9, bias = 1,
   pixelLimit = budget === 'mobile' ? 2 : 1, coverage = null, coverageRevision = 0,
   protectedTileIds = [],
   pixelHeightPx = null, pixelErrorPx = .25, pixelProtectedTileIds = [],
-  mirrorLevelM = null, riseSink = 0, riseBaseM = 0,
-} = {}) {
+  mirrorLevelM = null, riseSink = 0, riseBaseM = 0, cameraStudio = null, studioPreflight = false,
+  } = options;
+  const authoredTour = tour;
+  if (cameraStudio?.settings?.enabled && !studioPreflight) {
+    const policy = studioCameraPolicy(data, tour, options);
+    if (policy.fallback) {
+      const fallback = planTerrainWindow(data, tour, index, { ...options, cameraStudio: null, studioPreflight: true });
+      return { ...fallback, studioFallback: true, studioDetailAdjusted: false, studioQualityCeilingPx: 16,
+        studioPreflightWindows: policy.preflightWindows,
+        studioRequestedMaxErrorPx: policy.requestedMaxErrorPx, studioRequestedSummitMaxErrorPx: policy.requestedSummitMaxErrorPx,
+        detailNote: 'Requested camera exceeds the terrain budget; using safe framing for this camera setup.' };
+    }
+  }
+  tour = terrainWindowTour(data, tour, { cameraStudio });
   const summits = new Set(protectedTileIds);
   const startMs = index * 8000, endMs = Math.min(tour.durationMs, startMs + 8000);
   const times = [];
@@ -298,11 +366,26 @@ export function planTerrainWindow(data, tour, index, {
   // Frustum work happens once. Budget retries only rescan the small error
   // tables, so admission and a seek reconstruction do not repeat it.
   const cap = budget === 'mobile' ? 1000000 : 1500000, requestedLimit = pixelLimit;
+  const studioActive = cameraStudio?.settings?.enabled === true;
+  // Bound arbitrary Studio cameras by both geometry and visible quality.
+  // A request beyond 16 pixels on the actual terrain grid uses its safe
+  // authored camera; a wide/near view never buys coverage by erasing peaks.
+  const studioScale = pixelHeightPx > 0 ? pixelHeightPx / heightPx : 1;
+  const studioCeiling = 16 / studioScale;
+  if (studioActive) pixelLimit = Math.min(pixelLimit, studioCeiling);
+  const safeFraming = (requestedMaxErrorPx, requestedSummitMaxErrorPx) => {
+    const fallback = planTerrainWindow(data, authoredTour, index, { budget, heightPx, aspect, bias,
+      pixelLimit: requestedLimit, coverage, coverageRevision, protectedTileIds, pixelHeightPx, pixelErrorPx,
+      pixelProtectedTileIds, mirrorLevelM, riseSink, riseBaseM });
+    return { ...fallback, studioFallback: true, studioDetailAdjusted: false, studioQualityCeilingPx: 16,
+      studioRequestedMaxErrorPx: requestedMaxErrorPx, studioRequestedSummitMaxErrorPx: requestedSummitMaxErrorPx,
+      detailNote: 'Requested camera exceeds the terrain budget; using safe framing.' };
+  };
   for (;;) {
     const strides = new Map(); let triangles = 0, maxErrorPx = 0, summitMaxErrorPx = 0, protectedTiles = 0;
     for (const tile of data.tiles.values()) {
       const ppm = requirements.get(tile.id), summit = summits.has(tile.id);
-      const tileLimit = summit ? Math.min(8, pixelLimit) : pixelLimit;
+      const tileLimit = summit && !studioActive ? Math.min(8, pixelLimit) : pixelLimit;
       let stride = data.cells;
       if (ppm) {
         stride = tile.stride;
@@ -312,7 +395,7 @@ export function planTerrainWindow(data, tour, index, {
           if (Number.isFinite(error) && error * ppm <= tileLimit) stride = s;
         }
       }
-      stride = Math.min(data.cells, Math.max(tile.stride, stride * (summit ? 1 : bias)));
+      stride = Math.min(data.cells, Math.max(tile.stride, stride * (summit || studioActive ? 1 : bias)));
       strides.set(tile.id, stride); triangles += 2 * (data.cells / stride) ** 2;
       if (ppm) {
         const error = (tile.errorsM?.[stride] || 0) * ppm;
@@ -320,16 +403,28 @@ export function planTerrainWindow(data, tour, index, {
         if (summit) { protectedTiles++; summitMaxErrorPx = Math.max(summitMaxErrorPx, error); }
       }
     }
-    if (triangles <= cap) return pixelTerrainPlan({ index, startMs, endMs, strides, visible, triangles, maxErrorPx, pixelLimit,
+    if (triangles <= cap) {
+      const plan = pixelTerrainPlan({ index, startMs, endMs, strides, visible, triangles, maxErrorPx, pixelLimit,
       coarse: bias > 1, coverage: framing, coverageRevision, poses,
-      protectedTiles, summitMaxErrorPx, summitPixelLimit: Math.min(8, pixelLimit),
-      ...(pixelLimit > requestedLimit ? { detailNote: `Triangle cap required ${pixelLimit}px surrounding terrain / ${Math.min(8, pixelLimit)}px summit detail (requested ${requestedLimit}px)` } : {}) },
-    data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses, riseSink, riseBaseM });
+      protectedTiles, summitMaxErrorPx, summitPixelLimit: studioActive ? pixelLimit : Math.min(8, pixelLimit),
+      ...(studioActive ? { studioDetailAdjusted: pixelLimit > requestedLimit, studioQualityCeilingPx: 16 } : {}),
+      ...(pixelLimit > requestedLimit ? { detailNote: studioActive
+        ? `Camera Studio adaptive terrain detail: ${pixelLimit}px (requested ${requestedLimit}px; ${cap} triangle cap)`
+        : `Triangle cap required ${pixelLimit}px surrounding terrain / ${Math.min(8, pixelLimit)}px summit detail (requested ${requestedLimit}px)` } : {}) },
+      data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses, riseSink, riseBaseM });
+      // Some source tiles were baked at a coarse base stride. Their actual
+      // residual can exceed the requested tolerance even at finest storage.
+      if (studioActive && (plan.maxErrorPx > 16 || plan.summitMaxErrorPx > 16)) return safeFraming(plan.maxErrorPx, plan.summitMaxErrorPx);
+      return plan;
+    }
     // Wide views can expose more terrain than the original 8px ceiling
     // permits within the triangle cap. Keep that ceiling for every summit;
     // only surrounding terrain may use the additional measured levels.
-    if (pixelLimit >= (summits.size ? 32 : 8)) throw new Error(`Tour window ${index} exceeds triangle cap (${triangles})`);
-    pixelLimit *= 2;
+    if (pixelLimit >= (studioActive ? studioCeiling : summits.size ? 32 : 8)) {
+      if (!studioActive) throw new Error(`Tour window ${index} exceeds triangle cap (${triangles})`);
+      return safeFraming(maxErrorPx * studioScale, summitMaxErrorPx * studioScale);
+    }
+    pixelLimit = studioActive ? Math.min(studioCeiling, pixelLimit * 2) : pixelLimit * 2;
   }
 }
 

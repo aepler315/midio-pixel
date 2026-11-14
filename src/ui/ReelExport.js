@@ -6,6 +6,7 @@
 // can be tested on its own: which moments to draw and in what order, the
 // size ladder, the stepping chunks and the file names.
 import { sceneRailPlanFromSnapshot } from '../world/terrain/SceneRailPlan.js';
+import { normalizeCameraStudioSettings } from '../world/alpine/CameraStudio.js';
 import { BULK_RESOLUTIONS } from '../render/BulkExport.js';
 
 /** Output sizes, largest first: 3840x2160, then 2560x1440, then 1920x1080. */
@@ -93,6 +94,7 @@ export function reelMoment(frame) {
     atMs,
     ...(cameraSchedule ? { cameraSchedule } : {}),
     ...(['off', 'shots', 'tetons'].includes(m.cameraTourMode) ? { cameraTourMode: m.cameraTourMode } : {}),
+    ...(m.cameraStudioSettings ? { cameraStudioSettings: normalizeCameraStudioSettings(m.cameraStudioSettings) } : {}),
     songSeed: m.songSeed,
     worldId: m.worldId,
     displayPrefs: { ...m.displayPrefs },
@@ -134,7 +136,8 @@ const stable = (value) => (value && typeof value === 'object' && !Array.isArray(
 
 /** Frames drawn in one rebuild share a run (seed, world) and a look. */
 export function momentKey(moment) {
-  return stable({ songSeed: moment.songSeed, worldId: moment.worldId, displayPrefs: moment.displayPrefs, qualityLevel: moment.qualityLevel, cameraScheduleId: moment.cameraSchedule?.id ?? null, cameraTourMode: moment.cameraTourMode ?? null });
+  return stable({ songSeed: moment.songSeed, worldId: moment.worldId, displayPrefs: moment.displayPrefs, qualityLevel: moment.qualityLevel, cameraScheduleId: moment.cameraSchedule?.id ?? null, cameraTourMode: moment.cameraTourMode ?? null,
+    cameraStudioSettings: moment.cameraStudioSettings ?? null });
 }
 
 /**
@@ -160,7 +163,8 @@ export function planReelRenders(frames, { indices = null, analysis = 'full' } = 
     const key = momentKey(moment);
     if (!groups.has(key)) {
       groups.set(key, { songSeed: moment.songSeed, worldId: moment.worldId, displayPrefs: moment.displayPrefs,
-        qualityLevel: moment.qualityLevel, cameraSchedule: moment.cameraSchedule || null, cameraTourMode: moment.cameraTourMode, items: [] });
+        qualityLevel: moment.qualityLevel, cameraSchedule: moment.cameraSchedule || null, cameraTourMode: moment.cameraTourMode,
+        ...(moment.cameraStudioSettings ? { cameraStudioSettings: moment.cameraStudioSettings } : {}), items: [] });
     }
     groups.get(key).items.push({ index, atMs: moment.atMs, frame: list[index],
       approximate: approximationReasons(moment, { analysis }) });

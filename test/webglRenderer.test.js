@@ -136,7 +136,7 @@ test('seek reconstruction preserves explicitly visible debug strip and selected 
   const seekSource = source.slice(start, source.indexOf('/** The player', start));
   for (const mode of ['canvas', 'webgl']) {
     const state = { running: true, paused: false, playbackPreparing: false,
-      songRecorder: null, pendingCaptureOptions: null,
+      songRecorder: null, pendingCaptureOptions: null, videoExportSession: { busy: false }, bulkExportArmed: false,
       sim: { songSeed: 7, conductor: { durationMs: 60000 }, showSectionLabels: true },
       audioEngine: { nowMs: 1000 }, lastTimelineData: {}, lastAudioBuffer: null,
       renderer: createRenderer(makeCanvasStub(), mode), updatePauseButtonUI() {} };

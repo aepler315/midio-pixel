@@ -38,7 +38,7 @@ function harness() {
     AUDIO_LOAD_LIMITS, accumulateDecodedAudioBytes, accumulateDecodedByteLength, decodedAudioByteLength,
     accumulateEncodedAudioBytes, audioAbortError, validateAudioFiles, validateDecodedAudioBuffer, validateDecodedByteLength,
     AbortController, URLSearchParams, audioSelections: createAudioSelection(), normalizeSourceMetadata, ...sessionIdentity,
-    continuousPlayback: new ContinuousPlayback(),
+    continuousPlayback: new ContinuousPlayback(), videoExportSession: { cancel() {} },
     selectionExportSettings: new WeakMap(), exportSetup: { snapshot: () => null },
     cancelUrlLoad() {}, buildLyricSections: () => null,
     loadGen: 0, groove: new GrooveFingerprint(), lyricsDisabled: true,

@@ -1,0 +1,139 @@
+/* Camera Studio is DOM chrome, separate from the fading HUD and scene canvas. */
+.cameraStudioSetting {
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  text-align: left;
+}
+.cameraStudioSettingLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.cameraStudioSetting .hint { margin: var(--space-2) 0 0; line-height: 1.4; }
+.cameraStudioSetting input, .cameraStudioEnabled input { accent-color: var(--spec-gold); }
+
+.cameraStudioPanel {
+  position: fixed;
+  top: calc(72px + env(safe-area-inset-top, 0px));
+  right: max(var(--space-4), env(safe-area-inset-right, 0px));
+  z-index: 8;
+  width: min(332px, calc(100vw - 32px));
+  max-height: calc(100vh - 88px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  max-height: calc(100dvh - 88px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: rgba(12, 16, 28, 0.96);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: auto;
+}
+.cameraStudioPanel[hidden], .cameraStudioBody[hidden] { display: none; }
+.cameraStudioHeader {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+.cameraStudioHeader h2 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--spec-gold);
+}
+.cameraStudioHeaderActions, .cameraStudioEnabled {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.cameraStudioEnabled { gap: var(--space-1); cursor: pointer; color: var(--text-secondary); }
+.cameraStudioEnabled input { margin: 0; }
+.cameraStudioPanel .ghostbtn {
+  min-height: 32px;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+.cameraStudioBody {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--space-3) var(--space-3);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.cameraStudioStatus, .cameraStudioPresetDescription {
+  margin: 0 0 var(--space-3);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.cameraStudioPresets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+.cameraStudioPresets button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--spec-gold) 70%, transparent);
+  background: color-mix(in srgb, var(--spec-gold) 14%, transparent);
+  color: var(--spec-gold);
+}
+.cameraStudioGroup {
+  min-width: 0;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+.cameraStudioGroup legend { padding: 0 var(--space-1); font-size: 0.7rem; color: var(--text-secondary); }
+.cameraStudioFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.cameraStudioField { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.cameraStudioFieldWide { grid-column: 1 / -1; }
+.cameraStudioField span { color: var(--text-secondary); font-size: 0.69rem; }
+.cameraStudioField input, .cameraStudioField select {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  margin: 0;
+  padding: 6px var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-surface-3);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.cameraStudioField select option { background: #0c101c; }
+.cameraStudioPanel :is(button, input, select):focus-visible {
+  outline: 2px solid var(--spec-cool);
+  outline-offset: 2px;
+}
+.cameraStudioPanel :is(button, input, select):disabled { opacity: 0.45; cursor: default; }
+.cameraStudioActions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.cameraStudioActions button { flex: 1; }
+
+@media (max-width: 540px) {
+  .cameraStudioPanel {
+    right: max(var(--space-3), env(safe-area-inset-right, 0px));
+    width: min(306px, calc(100vw - 24px));
+  }
+  .cameraStudioPanel .ghostbtn { min-height: 36px; }
+  .cameraStudioField input, .cameraStudioField select { min-height: 38px; font-size: 1rem; }
+}
+@media (max-height: 480px) and (min-width: 541px) {
+  .cameraStudioPanel { top: 60px; max-height: calc(100dvh - 72px); }
+}

@@ -18,6 +18,7 @@ import { scenePoseAt, cameraBasis } from '../terrain/SceneTravel.js';
 import { loadTourPackage } from '../terrain/TourPackage.js';
 import { prepareTourTimeline } from '../terrain/TourRuntime.js';
 import { applyCameraMoves } from './RangeCamera.js';
+import { cameraStudioStatus } from './CameraStudio.js';
 import { skyTurn, projectRangeCelestials, projectRailCelestials } from './RangeSkyComposition.js';
 import { convertLightBetween } from './LightSpace.js';
 import { lightDirTo } from '../../render/LightField.js';
@@ -1135,7 +1136,7 @@ export class RangePresentation {
    *  handoff between views never jumps the clouds. */
   _skyPan(view, incoming, frame) {
     const still = { x: 0, y: 0 };
-    if (!frame?.cameraMove || !frame.scenicViewport) return still;
+    if ((!frame?.cameraMove && !frame?.cameraStudio?.enabled) || !frame.scenicViewport) return still;
     const vp = frame.scenicViewport;
     const one = (v, side) => {
       const sideFrame = this._sideFrames?.[side] || frame;
@@ -1912,6 +1913,8 @@ export class RangePresentation {
       cameraRails: { scheduleId: this.cameraSchedule?.id ?? null, requestedMultiplier: this.cameraSchedule?.requestedMultiplier ?? 3,
         from: active ? this.frame?.railSides?.A ?? null : null, to: active ? this.frame?.railSides?.B ?? null : null },
       shotTours: { enabled: this.shots.enabled, active: this.active && this.cameraTourActive, views: this.shots.status() },
+      cameraStudio: this.scene?.cameraStudioStatus?.(active ? this.viewId : selectedViewId, this.frame?.cameraStudio)
+        || cameraStudioStatus(this.frame?.cameraStudio, { fullCoverage: !!this.tourMode }),
     };
   }
 
