@@ -368,9 +368,12 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
       params,
       el(doc, 'div', { className: 'settingsActions' }, [copyConfig, copyLink, resetAll]), link, status, ...report);
     details.addEventListener('toggle', () => { if (details.open) refreshDiagnostics(); });
+    // Render before the disclosure opens (toggle fires a task later), so the
+    // page does not grow under someone who scrolls right after opening it.
+    summary.addEventListener('click', () => refreshDiagnostics(true));
 
-    function refreshDiagnostics() {
-      if (!details.open) return;
+    function refreshDiagnostics(force = false) {
+      if (!details.open && !force) return;
       const facts = runtime() || {};
       engine.replaceChildren(...Object.entries(facts).filter(([, v]) => v != null && v !== '').flatMap(([k, v]) => [el(doc, 'dt', { text: k }), el(doc, 'dd', { text: String(v) })]));
       const rowsOut = [];

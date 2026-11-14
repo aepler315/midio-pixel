@@ -2743,3 +2743,10 @@ html, body {
   .settingsNav .chipbtn { flex: 0 0 auto; min-height: 36px; }
   .settingsSection { scroll-margin-top: 48px; }
 }
+/* The title card centres its children, which sizes the Settings well to its
+   content's min-content width: keep the panel within the card instead. */
+#titleSettings { width: 100%; max-width: 100%; box-sizing: border-box; min-width: 0; }
+.settingsPanel { min-width: 0; max-width: 100%; }
+.settingsFacts { grid-template-columns: minmax(6em, auto) minmax(0, 1fr); }
+.settingsTable { table-layout: fixed; }
+.settingsTable th[scope="col"]:first-child { width: 40%; }

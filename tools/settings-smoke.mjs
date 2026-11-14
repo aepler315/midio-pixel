@@ -125,6 +125,11 @@ async function exercise(browser, base, scenario) {
   });
   await check('share link carries only non-default settings', async () => {
     await page.locator('#graphicsTroubleshooting > summary').click();
+    const overflow = await page.evaluate(() => {
+      const panel = document.getElementById('settingsPanel').getBoundingClientRect();
+      return { left: panel.left, right: panel.right - innerWidth };
+    });
+    assert.ok(overflow.left >= -1 && overflow.right <= 1, `diagnostics overflow the viewport: ${JSON.stringify(overflow)}`);
     await page.locator('#copySettingsLink').click();
     const href = await page.locator('.settingsLink').inputValue();
     const params = new URL(href).searchParams;
