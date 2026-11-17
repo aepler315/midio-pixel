@@ -1709,6 +1709,13 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
 // 'Preparing landscape…' loader covers it (offerWorldsThenStart); a slow
 // network must not hold the song longer.
 const LYRICS_START_WAIT_MS = 2000;
+// How long a long song's start waits, past its opening's analysis, for the
+// analysis-cache lookup to finish. None: the fingerprint takes seconds on a
+// long song (3.4 s for 2.5 minutes on an RTX 3060 desktop), far longer than
+// the opening's analysis, so a wait would only delay songs never played. The
+// lookup still starts with the opening, so a hit usually lands while the
+// start is pending, where the hand-off is a cheap restart.
+const EARLY_LOOKUP_GRACE_MS = 0;
 
 function confirmWorld(id) {
   const pending = pendingWorldStart;
@@ -2845,27 +2852,38 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
           data = await analysis;
         }
       } else {
-        data = asOpening(await analysis, audioBuffer.duration * 1000);
-        // The whole song, in the background, once the picker has had a moment
-        // to paint. The cache lookup runs behind the picker too; a hit brings
-        // the song's cached whole-song identity and finishes the pass early.
-        // The opening only drives a provisional look until then.
-        // The analysis takes turns with the page rather than holding it
-        // (cooperative), and lands on the same data object the picker and
-        // the running song hold (adoptFullAnalysis).
-        fullAnalysis = new Promise((resolve) => setTimeout(resolve, 150)).then(async () => {
-          if (analysisAbort.signal.aborted) throw audioAbortError();
-          const whole = audioToTimeline(audioBuffer, {
-            groove: analysisGroove, signal: analysisAbort.signal, cooperative: true,
+        // The cache lookup starts alongside the opening's analysis: a song
+        // played before comes back whole, with its identity, and starts on it
+        // outright -- no provisional look to hand off. A slower lookup is
+        // not waited for; it finishes the whole-song pass early instead.
+        const early = lookUp();
+        early.catch(() => {});
+        const openingResult = await analysis;
+        const hit = await Promise.race([early, new Promise((resolve) => setTimeout(() => resolve(null), EARLY_LOOKUP_GRACE_MS))]);
+        if (hit) {
+          data = hit;
+          cancelAnalysis();
+        } else {
+          data = asOpening(openingResult, audioBuffer.duration * 1000);
+          // The whole song, in the background, once the picker has had a
+          // moment to paint. The opening only drives a provisional look
+          // until it lands. The analysis takes turns with the page rather
+          // than holding it (cooperative), and lands on the same data object
+          // the picker and the running song hold (adoptFullAnalysis).
+          fullAnalysis = new Promise((resolve) => setTimeout(resolve, 150)).then(async () => {
+            if (analysisAbort.signal.aborted) throw audioAbortError();
+            const whole = audioToTimeline(audioBuffer, {
+              groove: analysisGroove, signal: analysisAbort.signal, cooperative: true,
+            });
+            whole.catch(() => {});
+            const restored = await early;
+            if (restored) {
+              cancelAnalysis();
+              return restored;
+            }
+            return whole;
           });
-          whole.catch(() => {});
-          const restored = await lookUp();
-          if (restored) {
-            cancelAnalysis();
-            return restored;
-          }
-          return whole;
-        });
+        }
       }
     } finally {
       if (!fullAnalysis) signal.removeEventListener('abort', cancelAnalysis);
