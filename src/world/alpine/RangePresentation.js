@@ -1120,7 +1120,7 @@ export class RangePresentation {
     this.active = true;
     this.reason = null;
     this._signatureBudgetRefusals.delete(view.id);
-    if (!this.shown.has(view.id) && !this.forced && !this.exportMode && !inputs.sim.exportMode) {
+    if (!this.shown.has(view.id) && !this.forced && !this.exportMode && !inputs.sim.exportMode && !inputs.sim.identityProvisional) {
       this.shown.add(view.id);
       noteViewShown(view);
     }

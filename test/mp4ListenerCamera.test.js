@@ -37,7 +37,7 @@ for (const outcome of ['complete', 'cancelled', 'error']) {
       mp4ExportFileName: () => 'test.mp4', sessionSongName: () => 'test', lastSongName: 'test',
       window: {}, continuousPlayback: { cancel() {} }, waitForExport, DOMException,
       estimateMp4ExportBytes: () => 1, MAX_MP4_BUFFER_BYTES: 512 * 1024 * 1024,
-      checkMp4ExportSupport: async () => {}, fullAnalysisPending: null,
+      checkMp4ExportSupport: async () => {}, fullAnalysisPending: null, identityProvisional: data => !!(data?.opening || data?.identityPending),
       captureTourTerrainState: () => null, lastStartExtra: {}, lastSongSeed: 315,
       cameraRun: null, activeCameraSchedule: null, currentCameraTourMode: () => 'off',
       paused: true, running: true, audioEngine: { nowMs: 5000, ctx: { state: 'suspended', suspend: async () => {} }, master: { gain: { value: 1 } } },

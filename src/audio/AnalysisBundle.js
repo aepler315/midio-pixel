@@ -38,8 +38,12 @@ import { buildSongProfile, snapshotSongProfile, PROFILE_VERSION, validSongProfil
 /** Bump when the shape changes incompatibly. `unpackBundle` refuses a
  *  version it does not know rather than misreading it, because a bundle
  *  silently decoded under the wrong layout produces a show that is subtly,
- *  inexplicably wrong instead of an error anyone can act on. */
-export const BUNDLE_VERSION = 4;
+ *  inexplicably wrong instead of an error anyone can act on.
+ *
+ *  5: a bundle's songIdentity is the whole song's (WholeSongIdentity.js).
+ *  Version 4 bundles could carry an identity taken from a song's opening;
+ *  they are refused, so every song is analysed and identified afresh once. */
+export const BUNDLE_VERSION = 5;
 
 const ROLES = [Role.MELODY, Role.RHYTHM, Role.BASS, Role.PAD];
 const LANES = [null, Lane.MIDASUS, Lane.MIDIO, Lane.BROSHI];
@@ -254,10 +258,10 @@ export function packBundle(data, { fingerprint, name = '', identity = null } = {
         return null;
       }
     })(),
-    // Optional. How the song LOOKS -- its seed, the profile its world is
-    // tailored and its ranges matched from, its custom biome -- as first
-    // made, from the song's opening when it started on one
-    // (OpeningAnalysis.js), so every later play looks the same.
+    // Optional. How the song LOOKS -- its seed and the profile its world is
+    // tailored and its ranges matched from -- frozen from the whole song
+    // (WholeSongIdentity.js), so every later play looks the same. The
+    // customBiome field is vestigial (always null) and kept for the layout.
     songIdentity: (() => {
       const id = data.songIdentity;
       if (!id) return null;
@@ -429,12 +433,15 @@ export function unpackBundle(bundle) {
         : null,
       stems: bundle.stems || null,
       songProfile: bundle.songProfile?.version === PROFILE_VERSION ? bundle.songProfile : null,
-      songIdentity: bundle.songIdentity
+      // An identity is a seed and a profile together. One whose profile is
+      // from another profile version is dropped whole -- keeping its seed
+      // with a rebuilt profile would make a look no analysis ever made -- and
+      // the identity is then rebuilt from the restored whole-song analysis.
+      songIdentity: bundle.songIdentity && Number.isFinite(bundle.songIdentity.seed)
+        && bundle.songIdentity.songProfile?.version === PROFILE_VERSION
         ? {
-          seed: Number.isFinite(bundle.songIdentity.seed) ? bundle.songIdentity.seed >>> 0 : null,
-          // A profile from another profile version is dropped; the world is
-          // then chosen from the song's own profile, as for an old bundle.
-          songProfile: bundle.songIdentity.songProfile?.version === PROFILE_VERSION ? bundle.songIdentity.songProfile : null,
+          seed: bundle.songIdentity.seed >>> 0,
+          songProfile: bundle.songIdentity.songProfile,
           customBiome: bundle.songIdentity.customBiome || null,
         }
         : null,

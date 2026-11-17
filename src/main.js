@@ -26,6 +26,7 @@ import { DebugOverlay } from './ui/DebugOverlay.js';
 import { FileChooserSupport } from './ui/FileChooserProbe.js';
 import { prepareSongTerrain } from './world/terrain/RangeLibrary.js';
 import { dualSummitsSelection } from './world/alpine/DualSummitsMusic.js';
+import { buildSongIdentity, identityProvisional, provisionalIdentity } from './audio/WholeSongIdentity.js';
 import {
   openAudioUrl, UrlAudioError, fetchAudioAsFile, classifyUrl,
 } from './net/UrlAudioSource.js';
@@ -73,7 +74,7 @@ import {
 } from './ui/KeepAwake.js';
 import { cssVarMap } from './render/spectral.js';
 import { resolveDurationMs } from './core/SongDuration.js';
-import { formatSeed, parseSeed, resolveSongSeed } from './utils/seed.js';
+import { formatSeed, parseSeed } from './utils/seed.js';
 import { groundLyrics, hasUsableLyrics } from './lyrics/LyricGrounding.js';
 import { fetchLyricsCached } from './lyrics/LyricsClient.js';
 import { toBlocks, labelBlocks } from './lyrics/LyricStructure.js';
@@ -85,7 +86,6 @@ import {
   PHASE_EAR, PHASE_EYE,
 } from './sim/SyncCalibrator.js';
 import { buildWorldVariant, scoreWorlds, formatFitDiagnostic } from './world/WorldScore.js';
-import { buildSongProfile, PROFILE_VERSION } from './audio/SongProfile.js';
 import {
   DEFAULT_WORLD_ID, setCustomWorld, clearCustomWorld, getCustomWorld, getWorld, listWorlds, resolveWorldId,
 } from './world/Worlds.js';
@@ -391,6 +391,9 @@ let activeCameraSchedule = null;
 let requestedRailPace = settings.get('rangePace');
 let lastAudioBuffer = null;
 let lastWorldId = DEFAULT_WORLD_ID;
+// The stock world the song's tailored world was built on (playSelectedWorld),
+// so the whole-song identity hand-off can tailor it again.
+let lastBaseWorldId = null;
 let pendingWorldStart = null;
 let lastFitDiagnostic = null;
 let lastSongName = 'song';
@@ -1499,33 +1502,24 @@ function offerWorldsThenStart(data, extra = {}) {
   };
   try {
     clearCustomWorld();
-    // A song's look comes from its identity when it has one: the opening's
-    // profile and seed, kept for every later play (OpeningAnalysis.js).
-    const identity = data.songIdentity || null;
-    const identityProfile = identity?.songProfile?.version === PROFILE_VERSION ? identity.songProfile : null;
-    const profile = identityProfile || (data.songProfile?.version === PROFILE_VERSION ? data.songProfile : buildSongProfile({
-      energyCurves: data.energyCurves,
-      durationMs: data.durationMs,
-      bpm: data.bpm,
-      beatPeriodMs: data.beatPeriodMs,
-      confidence: data.confidence,
-      freeTime: data.freeTime,
-      analysis: data.analysis,
-      structure: data.structure,
-      timeline: data.timeline,
-      barGrid: data.barGrid,
-    }));
+    // A song's look comes from its whole-song identity (WholeSongIdentity.js).
+    // A song still on its opening plays a provisional look built from the
+    // opening, which is never stored anywhere; it is handed off when the
+    // whole song is in (adoptWholeSongIdentity).
+    const provisional = !!data.opening;
+    const identity = provisional ? provisionalIdentity(data) : buildSongIdentity(data);
+    const profile = identity.songProfile;
     const features = profile.watch;
-    const autoSeed = Number.isFinite(identity?.seed)
-      ? identity.seed >>> 0
-      : resolveSongSeed({ timeline: data.timeline, durationMs: data.durationMs }, null);
-    const seed = autoSeed;
-    if (extra.localTrack) {
-      const world = createSongWorldRecord(profile, seed);
-      if (world) musicLibrary.noteSongWorld(extra.localTrack, world).catch(error => console.warn('[library] could not remember song world', error));
+    const seed = identity.seed;
+    if (provisional) data.provisionalSeed = seed;
+    else {
+      data.songIdentity = { seed, songProfile: profile };
+      if (extra.localTrack) noteLibrarySongWorld(extra.localTrack, profile, seed);
+      // Terrain prepared for the provisional look is not the song's: a start
+      // on the identity that misses the terrain race uses the stand-in.
+      if (data.terrainProvisional) { delete data.terrain; delete data.terrainProvisional; }
     }
-    if (!identity) data.songIdentity = { seed: autoSeed, songProfile: profile };
-    pendingWorldStart = { data, extra, features, seed, profile };
+    pendingWorldStart = { data, extra, features, seed, profile, provisional };
     // The song's real mountain range (RangeLibrary): matched and loaded in
     // the background. Kept on the song's data so it survives the rebuilds a
     // song goes through (seek, replay, export).
@@ -1534,12 +1528,17 @@ function offerWorldsThenStart(data, extra = {}) {
     const signature = dualSummitsSelection({ durationMs: data.durationMs, sourceSha256: data.sourceSha256 });
     // A composed range gets a bounded wait (SONG_RANGE_WAIT_MS) so the home
     // terrain is always ready by BIOME_WAIT_MS; exports wait for all of it.
+    // Only the latest preparation may land: a provisional look's terrain
+    // that resolves after the whole-song identity's must not replace it.
+    const terrainToken = data.terrainToken = {};
     pendingForRange.terrainReady = prepareSongTerrain(profile, seed, undefined,
       { ...(exporting ? { songRangeWaitMs: Infinity } : {}), signature }).then((terrain) => {
-      if (terrain?.signaturePerformance) terrain.signaturePerformance = {
-        ...terrain.signaturePerformance, sourceSha256: data.sourceSha256 || null,
-      };
-      pendingForRange.data.terrain = terrain;
+      withSignatureSource(terrain, data);
+      if (data.terrainToken === terrainToken) {
+        data.terrain = terrain;
+        if (provisional) data.terrainProvisional = true;
+        else delete data.terrainProvisional;
+      }
       return terrain;
     });
     lastFitDiagnostic = recordFitDiagnostic(features, profile);
@@ -1558,11 +1557,26 @@ function offerWorldsThenStart(data, extra = {}) {
   } catch (err) {
     // A tailored world is a convenience; analysis failing must still start a song.
     console.error('[world start]', err);
-    pendingWorldStart = { data, extra };
+    // The seed still comes from the identity when there is one, so this
+    // start draws what the cache and the library remember.
+    pendingWorldStart = { data, extra, provisional: !!data.opening,
+      seed: data.opening ? undefined : data.songIdentity?.seed };
     lastFitDiagnostic = null;
     coverStart();
     confirmWorld(data.worldId || lastWorldId || DEFAULT_WORLD_ID);
   }
+}
+
+function noteLibrarySongWorld(localTrack, profile, seed) {
+  const world = createSongWorldRecord(profile, seed);
+  if (world) musicLibrary.noteSongWorld(localTrack, world).catch(error => console.warn('[library] could not remember song world', error));
+}
+
+function withSignatureSource(terrain, data) {
+  if (terrain?.signaturePerformance) terrain.signaturePerformance = {
+    ...terrain.signaturePerformance, sourceSha256: data.sourceSha256 || null,
+  };
+  return terrain;
 }
 
 function playSelectedWorld(baseWorldId) {
@@ -1580,12 +1594,14 @@ function playSelectedWorld(baseWorldId) {
     });
     const current = getCustomWorld();
     if (current?.instanceId !== world.instanceId) setCustomWorld(world);
+    lastBaseWorldId = baseWorldId;
     confirmWorld(world.id);
   } catch (err) {
     // A tailored palette or terrain is additive. If it cannot be made, the
     // player still gets the world they selected instead of a dead-end picker.
     console.warn('[world variant] failed; starting stock world:', err);
     clearCustomWorld();
+    lastBaseWorldId = null;
     confirmWorld(baseWorldId);
   }
 }
@@ -1657,7 +1673,7 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
   if (!size) throw new Error(`Export size must be even and at least 2×2 (got ${width}×${height}).`);
   if (!lastTimelineData) throw new Error('Load a song before exporting.');
   // An export is the whole song: never render one from its opening alone.
-  if (lastTimelineData.opening) throw new Error('Still analysing the whole song. Try the export again in a few seconds.');
+  if (identityProvisional(lastTimelineData)) throw new Error('Still analysing the whole song. Try the export again in a few seconds.');
   if (lastTimelineData.terrain && !lastTimelineData.terrain.allLoaded) throw new Error('Still loading the song\'s biomes. Try the export again in a few seconds.');
   const extra = {
     playBuffer: lastAudioBuffer || undefined,
@@ -1713,6 +1729,13 @@ function confirmWorld(id) {
 
 function startConfirmedWorld(pending, id) {
   if (pending.extra?.automaticTicket && !continuousPlayback.isCurrent(pending.extra.automaticTicket)) return;
+  // The whole song landed while this provisional start waited on lyrics:
+  // start over on its identity rather than build the provisional look only
+  // to replace it a moment later.
+  if (pending.provisional && pending.data.songIdentity && !pending.data.opening) {
+    offerWorldsThenStart(pending.data, withoutRecording(pending.extra));
+    return;
+  }
   id = resolveWorldId(id);
   lastWorldId = id;
   pending.data.worldId = id;
@@ -1816,7 +1839,7 @@ function applyRangeCaptions(timelineData, exportMode) {
     sim.rangeCaptions = caption ? [{ atMs: TITLE_CARD_END_MS, caption }] : null;
     if (caption) shown.push(terrain?.ranges?.near, terrain?.ranges?.mid, terrain?.range);
   }
-  if (!exportMode && (!renderer?.voxelRange || renderer.voxelRange.state === 'unavailable')) {
+  if (!exportMode && !identityProvisional(timelineData) && (!renderer?.voxelRange || renderer.voxelRange.state === 'unavailable')) {
     for (const r of shown) if (r?.id) noteRangeShown(r.id);
   }
   syncCaptionDetails();
@@ -1995,7 +2018,9 @@ function startTimeline(timelineData, extra = {}) {
     // (the song object is upgraded in place when the whole analysis lands).
     const sceneStartMs = Math.max(0, startAtMs || 0);
     const continued = !!extra.chapterState;
-    const analysis = timelineData.opening ? 'opening' : 'full';
+    // A scene drawn on the provisional look counts as the opening's: its
+    // seed and ranges are not the song's.
+    const analysis = identityProvisional(timelineData) ? 'opening' : 'full';
     sim.highlightReel.describeMoment = () => ({
       songSeed: runSeed, worldId: runWorldId,
       displayPrefs: { ...(snapshotPlayerPrefs || displayPrefs) },
@@ -2013,6 +2038,8 @@ function startTimeline(timelineData, extra = {}) {
   // keepUserCamera; a new song or a replay starts unzoomed.
   if (!extra.keepUserCamera) rangeUserCamera.reset();
   sim.analysisOpening = timelineData.opening || null;
+  // Provisional ranges and views stay out of the player's range history.
+  sim.identityProvisional = identityProvisional(timelineData);
   sceneEpoch++;
   sceneGeneration = loadGen;
   sceneStartMs = Math.max(0, startAtMs || 0);
@@ -2820,9 +2847,9 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
       } else {
         data = asOpening(await analysis, audioBuffer.duration * 1000);
         // The whole song, in the background, once the picker has had a moment
-        // to paint. The cache lookup runs behind the picker too: the opening
-        // is analysed the same way every time, so the song looks the same
-        // cached or not, and a hit just finishes the whole-song pass early.
+        // to paint. The cache lookup runs behind the picker too; a hit brings
+        // the song's cached whole-song identity and finishes the pass early.
+        // The opening only drives a provisional look until then.
         // The analysis takes turns with the page rather than holding it
         // (cooperative), and lands on the same data object the picker and
         // the running song hold (adoptFullAnalysis).
@@ -2856,18 +2883,21 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     data.audioOverview = buildAudioOverview(audioBuffer);
     const opened = data;
     preparedData = data;
-    const wholeSong = fullAnalysis
+    // The whole analysis lands on the song (and freezes its identity), then
+    // the provisional look is handed off. The cache is written once the
+    // analysis is in; exports wait for the hand-off too, so they never render
+    // a provisional look.
+    let handoff = null;
+    const adopted = fullAnalysis
       ? fullAnalysis.then((full) => {
         if (!canUpdatePrepared()) return null;
         upgradeRidgeMusicSession(opened, full,
           running && sim && lastTimelineData === opened && !bulkExportArmed ? sim.heardTimeMs : null,
           `load-${myGen}:final`);
         adoptAudioSessionAnalysis(opened, full);
-        if (fullAnalysisPending === wholeSong) fullAnalysisPending = null;
-        adoptFullAnalysisLive(opened);
+        handoff = adoptWholeSongIdentity(opened);
         return opened;
       }).catch((err) => {
-        if (fullAnalysisPending === wholeSong) fullAnalysisPending = null;
         if (!canUpdatePrepared()) return null;
         // The opening stands: the song plays on what it has.
         if (err?.name !== 'AbortError') {
@@ -2876,6 +2906,11 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
         }
         return null;
       }).finally(() => signal.removeEventListener('abort', cancelAnalysis))
+      : null;
+    const wholeSong = adopted
+      ? adopted.then((result) => Promise.resolve(handoff)
+        .catch((err) => console.error('[identity] whole-song hand-off failed', err)).then(() => result))
+        .finally(() => { if (fullAnalysisPending === wholeSong) fullAnalysisPending = null; })
       : null;
     fullAnalysisPending = wholeSong;
     // Lyrics no longer hold up the world picker: the lookup is network work
@@ -2895,7 +2930,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
       const lyricIdentity = result.identity;
       // Cached once the whole song is in (the key may only be known then,
       // too): an opening would be restored next time as if it were the song.
-      Promise.resolve(wholeSong).then(() => {
+      Promise.resolve(adopted).then(() => {
         if (!canUpdatePrepared() || !cacheKey || data.fromBundle || data.opening) return null;
         return putBundle(cacheKey, packBundle(data, {
           fingerprint, name: selectedFiles[0].name || '', identity: lyricIdentity,
@@ -3900,30 +3935,138 @@ canvas.addEventListener('pointermove', (e) => {
   sim.setPointer(p.x, p.y);
 });
 
+// The identity's terrain normally loads well inside the first wait. Past it,
+// the running show is rebuilt on the whole analysis (keeping the provisional
+// look) so it does not play on the opening's 15 s of notes; past the second,
+// the identity is committed on the bundled stand-in terrain, the same one a
+// start that misses BIOME_WAIT_MS gets, so exports are never held hostage.
+const IDENTITY_TERRAIN_WAIT_MS = BIOME_WAIT_MS;
+const IDENTITY_TERRAIN_GIVE_UP_MS = 30000;
+// A composed range gets most of that second wait; the catalog terrain falls
+// back inside it.
+const IDENTITY_SONG_RANGE_WAIT_MS = 20000;
+const LATE = Symbol('late');
+
 /**
  * The whole-song analysis has landed on a song that started on its opening
- * (OpeningAnalysis.js). Still on the picker, or waiting on lyrics: nothing to
- * do -- the song will start on the whole analysis. Already playing: rebuild
- * the show on it at the moment the music has reached, with the music, the
- * pause state and any recording left running (a seek without the seek).
+ * (OpeningAnalysis.js), and with it the song's identity (WholeSongIdentity.js).
+ * Hand the provisional look off to it:
+ * - still waiting to start (the terrain race, or confirmWorld's lyrics wait):
+ *   start over on the identity (startConfirmedWorld for the lyrics wait);
+ * - playing, paused or on the Complete screen: prepare the identity's
+ *   terrain while the provisional look plays on, then commit it -- the
+ *   tailored world, the seed, the library record -- and, if the song is
+ *   playing, rebuild once at the moment the music has reached, on the whole
+ *   analysis and the identity together. Nothing carries over from the
+ *   provisional scene (chapter plan, camera run, landscape history), so the
+ *   rebuilt scene is what the song draws from any start at that moment.
+ * Returns the hand-off's promise, settled once it has committed or been
+ * superseded.
  */
-function adoptFullAnalysisLive(data) {
-  if (!running || !sim || !audioEngine || lastTimelineData !== data) return;
-  if (bulkExportArmed) return;
+function adoptWholeSongIdentity(data) {
+  const identity = data?.songIdentity;
+  if (!identity || data.opening) return null;
+  const pending = pendingWorldStart;
+  if (pending?.data === data) {
+    if (pending.provisional) offerWorldsThenStart(data, withoutRecording(pending.extra));
+    return null;
+  }
+  // confirmWorld has taken the provisional start and waits on lyrics: it
+  // starts over on the identity (startConfirmedWorld).
+  if (lastTimelineData !== data) return null;
+  data.identityPending = true;
+  const token = data.terrainToken = {};
+  const current = () => lastTimelineData === data && data.terrainToken === token;
+  const { seed, songProfile: profile } = identity;
+  const signature = dualSummitsSelection({ durationMs: data.durationMs, sourceSha256: data.sourceSha256 });
+  const terrain = prepareSongTerrain(profile, seed, undefined, { songRangeWaitMs: IDENTITY_SONG_RANGE_WAIT_MS, signature })
+    .then((t) => withSignatureSource(t, data))
+    .catch((err) => {
+      console.warn('[identity] terrain for the whole-song identity failed; using the stand-in', err);
+      return null;
+    });
+  const after = (ms) => new Promise((resolve) => setTimeout(() => resolve(LATE), ms));
+  let committed = false;
+  const commit = (t) => {
+    if (committed || !current()) return;
+    committed = true;
+    data.terrain = t;
+    delete data.identityPending;
+    commitWholeSongIdentity(data, identity);
+  };
+  // A terrain that arrives after a stand-in commit is kept for the next
+  // rebuild (seek, replay, export), as a late start's terrain is.
+  terrain.then((t) => { if (committed && current() && t) data.terrain = t; });
+  return Promise.race([terrain, after(IDENTITY_TERRAIN_WAIT_MS)]).then((first) => {
+    if (first !== LATE) return commit(first);
+    if (current()) rebuildOnWholeAnalysis(data);
+    return Promise.race([terrain, after(IDENTITY_TERRAIN_GIVE_UP_MS - IDENTITY_TERRAIN_WAIT_MS)])
+      .then((t) => commit(t === LATE ? null : t));
+  });
+}
+function withoutRecording(extra = {}) {
+  const out = { ...extra };
+  delete out.recordingSettings;
+  return out;
+}
+
+/** The running show, rebuilt on the whole analysis at the heard moment with
+ *  its look (seed, world, terrain) unchanged. */
+function rebuildOnWholeAnalysis(data) {
+  if (!running || !sim || !audioEngine || bulkExportArmed || lastTimelineData !== data) return;
+  const wasPaused = paused;
+  delete data.chapterState;
+  startTimeline(data, {
+    ...lastStartExtra, songSeed: sim.songSeed, startAtMs: Math.max(0, audioEngine.nowMs),
+    keepAudio: true, keepUserCamera: true, cameraRunIntent: 'adopt', preservePause: wasPaused,
+    fitDiagnostic: sim.fitDiagnostic, chapterState: null,
+  });
+  if (!running || !sim) return;
+  if (wasPaused) { paused = true; updatePauseButtonUI(); }
+  renderer.draw(sim, 1, { preparing: playbackPreparing });
+}
+
+function commitWholeSongIdentity(data, { seed, songProfile: profile }) {
+  const features = profile.watch;
+  if (lastStartExtra?.localTrack) noteLibrarySongWorld(lastStartExtra.localTrack, profile, seed);
+  lastFitDiagnostic = recordFitDiagnostic(features, profile);
+  // The tailored world reads the analysis it was built on, so it is tailored
+  // again on the whole song. A stock world the listener chose stays.
+  const custom = getCustomWorld();
+  if (lastBaseWorldId && custom && data.worldId === custom.id) {
+    try {
+      const { world } = buildWorldVariant(lastBaseWorldId, features, { ...data, profile });
+      setCustomWorld(world);
+      data.worldId = world.id;
+      lastWorldId = world.id;
+    } catch (err) {
+      console.warn('[identity] could not tailor the world to the whole song; keeping the provisional one', err);
+    }
+  }
+  delete data.chapterState;
+  delete data.cameraSchedule;
+  // A seed the listener chose since the provisional start (a replay with a
+  // new or typed seed) is theirs; only the provisional seed is replaced.
+  const userSeed = sim && Number.isFinite(data.provisionalSeed) && sim.songSeed !== data.provisionalSeed ? sim.songSeed : null;
+  const runSeed = userSeed ?? seed;
+  if (!running || !sim || !audioEngine || bulkExportArmed) {
+    if (userSeed == null) {
+      lastSongSeed = seed;
+      if (!running && completeSeedEl) completeSeedEl.textContent = formatSeed(seed);
+    }
+    return;
+  }
   const wasPaused = paused;
   startTimeline(data, {
     ...lastStartExtra,
-    songSeed: sim.songSeed,
+    songSeed: runSeed,
     startAtMs: Math.max(0, audioEngine.nowMs),
     keepAudio: true,
     keepUserCamera: true,
-    cameraRunIntent: 'adopt',
+    cameraRunIntent: 'fresh',
     preservePause: wasPaused,
-    fitDiagnostic: sim.fitDiagnostic,
-    chapterState: { previous: sim.biomes.chapterPlan, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs, landSections: sim.biomes.sections,
-      cameraTours: rangePresentation?.cameraContinuation?.(Math.max(cameraRun?.highWaterMs ?? 0, sim.heardTimeMs ?? audioEngine.nowMs)) || null,
-      landscapeHistory: { previous: sim.biomes.landscapeScore, moodScore: sim.biomes.moodScore || null,
-        committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs } },
+    fitDiagnostic: lastFitDiagnostic,
+    chapterState: null,
   });
   if (!running || !sim) return;
   if (wasPaused) { paused = true; updatePauseButtonUI(); }
@@ -4691,7 +4834,7 @@ async function saveReelFrames(indices = null) {
     showErrorBanner('Highlights are saved in 4K from the Complete screen, once the song and any recording have finished.');
     return;
   }
-  if (lastTimelineData.opening) {
+  if (identityProvisional(lastTimelineData)) {
     showErrorBanner('Still analysing the whole song. Try the 4K save again in a few seconds.');
     return;
   }
@@ -5326,7 +5469,7 @@ async function renderSongMp4() {
         await waitForExport(checkMp4ExportSupport({ settings, audioBuffer }), signal);
         if (fullAnalysisPending) await waitForExport(fullAnalysisPending, signal);
         check(signal);
-        if (data.opening) throw Error('The whole-song analysis is not ready. Try again after analysis finishes.');
+        if (identityProvisional(data)) throw Error('The whole-song analysis is not ready. Try again after analysis finishes.');
         if (data.terrain?.whenAll) await waitForExport(data.terrain.whenAll, signal);
         check(signal);
         restore = { terrainTourState: captureTourTerrainState(data.terrain), worldId: data.worldId,

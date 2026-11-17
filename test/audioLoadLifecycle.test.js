@@ -34,7 +34,7 @@ function harness() {
     ...cache, fingerprintBuffer, GrooveFingerprint, ...opening, ensureRidgeMusicSession, upgradeRidgeMusicSession,
     running: false, sim: null, lastTimelineData: null, bulkExportArmed: false,
     fingerprintBufferOffThread: async (buffer) => fingerprintBuffer(buffer),
-    readBulkExportFromUrl: () => null, rangeListening: false, fullAnalysisPending: null, adoptFullAnalysisLive() {},
+    readBulkExportFromUrl: () => null, rangeListening: false, fullAnalysisPending: null, adoptWholeSongIdentity() {},
     AUDIO_LOAD_LIMITS, accumulateDecodedAudioBytes, accumulateDecodedByteLength, decodedAudioByteLength,
     accumulateEncodedAudioBytes, audioAbortError, validateAudioFiles, validateDecodedAudioBuffer, validateDecodedByteLength,
     AbortController, URLSearchParams, audioSelections: createAudioSelection(), normalizeSourceMetadata, ...sessionIdentity,

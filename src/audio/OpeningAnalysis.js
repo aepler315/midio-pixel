@@ -7,14 +7,15 @@
 // playing in well under a second, and then the whole song, in the
 // background. When the whole-song analysis lands, the song's data is
 // upgraded in place (adoptFullAnalysis) and a song already playing is
-// rebuilt at the moment it has reached, with the music left running.
+// rebuilt at the moment it has reached.
 //
-// A song's LOOK -- its seed, the profile its world is tailored and its
-// ranges matched from, its custom biome -- comes from the opening pass and
-// stays put. Swapping it at the upgrade would repaint the world mid-song,
-// and deriving it from the whole song on a later play would make a song look
-// different the second time. So it is kept as `songIdentity` and cached with
-// the analysis (AnalysisBundle), and every later play reuses it.
+// A song's LOOK -- its seed and the profile its world is tailored and its
+// ranges matched from -- comes from the WHOLE song (WholeSongIdentity.js).
+// The opening only drives a provisional look, which is never cached; the
+// identity is frozen when the whole-song analysis lands, so a song looks the
+// same live, exported, from stems or from the cache.
+
+import { buildSongIdentity } from './WholeSongIdentity.js';
 
 export const OPENING_SECONDS = 15;
 // Below this the whole song analyses about as fast as its opening would.
@@ -92,18 +93,19 @@ export function asOpening(result, fullDurationMs) {
 
 /**
  * Upgrade `data` (the object the picker and the running song hold) in place
- * to the whole-song analysis. Everything the analysis produced is replaced;
- * what was built on top of it -- the song's identity, its world, its matched
- * ranges, its lyrics -- is not in `full` and so is left as it is.
+ * to the whole-song analysis. Everything the analysis produced is replaced,
+ * and the song's identity is frozen from the whole song: the cached one a
+ * restored bundle carries, else one built from the whole analysis. What was
+ * built on top of the opening -- its provisional world and ranges, lyrics --
+ * is left for the caller to hand off.
  */
 export function adoptFullAnalysis(data, full) {
   if (!data || !full) return data;
-  // A cached whole-song analysis carries the identity it was first made
-  // with; the song already has the same one, from the same opening.
   const analysis = { ...full };
   delete analysis.songIdentity;
   Object.assign(data, analysis);
   delete data.opening;
+  data.songIdentity = buildSongIdentity({ ...data, songIdentity: full.songIdentity });
   return data;
 }
 
