@@ -13,7 +13,7 @@ const fn = (name) => {
   return main.slice(at, main.indexOf('\n}\n', at) + 3);
 };
 const constants = main.split('\n').filter(line => /^const (IDENTITY_[A-Z_]+|LATE) = /.test(line)).join('\n');
-const source = [constants, ...['adoptWholeSongIdentity', 'withoutRecording', 'rebuildOnWholeAnalysis', 'commitWholeSongIdentity'].map(fn)].join('\n');
+const source = [constants, ...['adoptWholeSongIdentity', 'provisionalStillPreparing', 'withoutRecording', 'rebuildOnWholeAnalysis', 'commitWholeSongIdentity'].map(fn)].join('\n');
 
 const profile = { version: 2, watch: { drive: 0.6 } };
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -30,6 +30,7 @@ function setup({ running = true, songSeed = 11 } = {}) {
     dualSummitsSelection: () => null, withSignatureSource: t => t,
     prepareSongTerrain: (p, seed, recent, options) => new Promise((resolve) => terrains.push({ seed, options, resolve })),
     running, sim: { songSeed, fitDiagnostic: 'provisional' }, audioEngine: { nowMs: 61000 }, bulkExportArmed: false, paused: false,
+    sceneStartMs: 0, stopTimeline: () => { context.running = false; context.stopped = true; },
     startTimeline: (d, extra) => { starts.push({ d, extra }); context.sim = { songSeed: extra.songSeed }; },
     lastStartExtra: { localTrack: { key: 'song' }, playBuffer: {} },
     noteLibrarySongWorld: (track, p, seed) => library.push({ track, seed }),
@@ -144,6 +145,28 @@ test('on the Complete screen the identity is committed for the replay and shown'
   assert.equal(context.lastSongSeed, 42);
   assert.equal(context.completeSeedEl.textContent, 'seed:42');
   assert.equal(data.identityPending, undefined);
+});
+
+test('a provisional scene still preparing its start is dropped for the identity', () => {
+  const { context, data, offers, terrains } = setup();
+  Object.assign(context, { playbackPreparing: true, sceneStartMs: 0, audioEngine: { nowMs: 0 } });
+  context.lastStartExtra = { playBuffer: {}, songSeed: 11, startAtMs: 0, recordingSettings: {} };
+  assert.equal(context.adoptWholeSongIdentity(data), null);
+  assert.equal(context.stopped, true, 'the provisional preparation is abandoned');
+  assert.equal(offers.length, 1);
+  assert.deepEqual(Object.keys(offers[0].extra), ['playBuffer'], 'the restart takes the identity seed, from the top');
+  assert.equal(terrains.length, 0);
+  assert.equal(data.identityPending, undefined);
+});
+
+test('a scene already playing, or preparing a seek, is handed off in place', async () => {
+  for (const state of [{ playbackPreparing: false }, { playbackPreparing: true, sceneStartMs: 30000 }]) {
+    const { context, data, offers, terrains } = setup();
+    Object.assign(context, state);
+    context.adoptWholeSongIdentity(data);
+    assert.equal(offers.length, 0);
+    assert.equal(terrains.length, 1);
+  }
 });
 
 test('an opening has nothing to hand off', () => {

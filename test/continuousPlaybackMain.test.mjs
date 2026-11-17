@@ -60,7 +60,7 @@ test('an owned continuation keeps its world and skips the world picker', async (
     noteLibrarySongWorld() {}, withSignatureSource: terrain => terrain,
     prepareSongTerrain: async () => null, dualSummitsSelection,
     recordFitDiagnostic: () => null, lastFitDiagnostic: null, pendingWorldStart: null,
-    readBulkExportFromUrl: () => null, URL_PICKS_WORLD: false, experience: 'landscape', BIOME_WAIT_MS: 1,
+    readBulkExportFromUrl: () => null, URL_PICKS_WORLD: false, experience: 'landscape', BIOME_WAIT_MS: 1, IDENTITY_START_HOLD_MS: 1,
     worldForExperience: () => 'range', worldExperience: () => 'trio',
     continuousPlayback: { isCurrent: candidate => candidate === ticket },
     playSelectedWorld: id => { played = id; }, renderWorldGrid: () => { offered++; },

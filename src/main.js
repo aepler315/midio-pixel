@@ -92,7 +92,9 @@ import {
 import { fingerprintBufferOffThread } from './audio/FingerprintWorkerClient.js';
 import { readVisionConfig, persistVisionConfig } from './vision/config.js';
 import { packBundle, unpackBundle } from './audio/AnalysisBundle.js';
-import { analysisCacheKey, getBundle, putBundle } from './audio/AnalysisCache.js';
+import {
+  analysisCacheKey, fileSignature, getBundle, putBundle, recallFingerprint, rememberFingerprint,
+} from './audio/AnalysisCache.js';
 import { SongRecorder, recordingBudgetBytes } from './render/SongRecorder.js';
 import { readRenderQuality, writeRenderQuality, renderQualityLevel } from './render/RenderQuality.js';
 import {
@@ -1547,7 +1549,15 @@ function offerWorldsThenStart(data, extra = {}) {
     // export waits for every biome, so its frames never depend on load timing.
     const mine = pendingWorldStart, worldId = extra.continuationWorldId || DEFAULT_WORLD_ID;
     const ready = mine.terrainReady.then((t) => (exporting && t?.whenAll ? t.whenAll.then(() => t) : t));
-    const wait = exporting ? ready : Promise.race([ready, new Promise((r) => setTimeout(r, BIOME_WAIT_MS))]);
+    const terrainWait = exporting ? ready : Promise.race([ready, new Promise((r) => setTimeout(r, BIOME_WAIT_MS))]);
+    // A provisional look is held back briefly for the whole song: preparing
+    // a scene is the heaviest work a start does, and building the opening's
+    // only to replace it costs a second preparation mid-song. When the whole
+    // song lands inside the hold, the start goes over to its identity
+    // (adoptWholeSongIdentity); past it, the opening starts as before.
+    const wait = provisional
+      ? Promise.all([terrainWait, new Promise((r) => setTimeout(r, IDENTITY_START_HOLD_MS))])
+      : terrainWait;
     coverStart();
     wait.then(() => {
       if (pendingWorldStart !== mine) return;
@@ -1709,6 +1719,10 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
 // 'Preparing landscape…' loader covers it (offerWorldsThenStart); a slow
 // network must not hold the song longer.
 const LYRICS_START_WAIT_MS = 2000;
+// How long a long song's start waits for its whole-song identity before
+// starting on its opening's provisional look (offerWorldsThenStart). The
+// whole pass takes about 3.8 s for five minutes on a fast desktop.
+const IDENTITY_START_HOLD_MS = 5000;
 // How long a long song's start waits, past its opening's analysis, for the
 // analysis-cache lookup to finish. None: the fingerprint takes seconds on a
 // long song (3.4 s for 2.5 minutes on an RTX 3060 desktop), far longer than
@@ -2821,10 +2835,28 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     analysis.catch(() => {});
     // Fingerprint the song and look it up in the analysis cache. A hit is the
     // whole-song analysis, ready-made.
+    const fileSig = isStemDrop ? null : fileSignature(selectedFiles[0], audioBuffer);
     const lookUp = async () => {
       try {
+        // A file opened before is looked up at once by its remembered
+        // fingerprint summary (AnalysisCache.js); on a miss the fingerprint
+        // is taken, which takes seconds on a long song.
+        const recalled = recallFingerprint(fileSig);
+        if (recalled) {
+          const key = analysisCacheKey(recalled, { stems: [], groove: analysisGroove });
+          const cached = key ? await getBundle(key) : null;
+          if (!canUpdatePrepared()) throw audioAbortError();
+          const restored = cached ? unpackBundle(cached) : null;
+          if (restored) {
+            fingerprint = recalled;
+            cacheKey = key;
+            console.info('[analysis] restored from cache by file:', recalled.key);
+            return restored;
+          }
+        }
         fingerprint = await fingerprintBufferOffThread(audioBuffer, { signal });
         if (!canUpdatePrepared()) throw audioAbortError();
+        rememberFingerprint(fileSig, fingerprint);
         cacheKey = analysisCacheKey(fingerprint, { stems: isStemDrop ? decoded : [], groove: analysisGroove });
         const cached = cacheKey ? await getBundle(cacheKey) : null;
         if (!canUpdatePrepared()) throw audioAbortError();
@@ -3992,6 +4024,16 @@ function adoptWholeSongIdentity(data) {
   // confirmWorld has taken the provisional start and waits on lyrics: it
   // starts over on the identity (startConfirmedWorld).
   if (lastTimelineData !== data) return null;
+  // The provisional scene is still being prepared and no music has played:
+  // start over on the identity rather than reveal a look about to change.
+  if (provisionalStillPreparing(data)) {
+    const extra = withoutRecording(lastStartExtra);
+    delete extra.songSeed;
+    delete extra.startAtMs;
+    stopTimeline();
+    offerWorldsThenStart(data, extra);
+    return null;
+  }
   data.identityPending = true;
   const token = data.terrainToken = {};
   const current = () => lastTimelineData === data && data.terrainToken === token;
@@ -4022,6 +4064,11 @@ function adoptWholeSongIdentity(data) {
       .then((t) => commit(t === LATE ? null : t));
   });
 }
+function provisionalStillPreparing(data) {
+  return !!(running && playbackPreparing && sim && Number.isFinite(data.provisionalSeed)
+    && sim.songSeed === data.provisionalSeed && sceneStartMs === 0 && !(audioEngine?.nowMs > 0));
+}
+
 function withoutRecording(extra = {}) {
   const out = { ...extra };
   delete out.recordingSettings;

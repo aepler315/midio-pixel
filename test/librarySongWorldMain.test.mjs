@@ -27,7 +27,7 @@ function setup({ rejectStorage = false } = {}) {
     musicLibrary: { async noteSongWorld(track, record) { calls.push({ track, record }); if (rejectStorage) throw Error('storage unavailable'); } },
     prepareSongTerrain: async (p, seed) => { const plan = planSongScenes(p, seed); plans.push(plan); return plan; },
     pendingWorldStart: null, lastFitDiagnostic: null, recordFitDiagnostic: () => null,
-    readBulkExportFromUrl: () => null, DEFAULT_WORLD_ID: 'alpine', BIOME_WAIT_MS: 2500,
+    readBulkExportFromUrl: () => null, DEFAULT_WORLD_ID: 'alpine', BIOME_WAIT_MS: 2500, IDENTITY_START_HOLD_MS: 5000,
     setTimeout: () => 0, continuousPlayback: { isCurrent: () => true }, playSelectedWorld() {},
     console: { warn: (...values) => warnings.push(values), error: (...values) => { throw Error(values.join(' ')); } },
   });
