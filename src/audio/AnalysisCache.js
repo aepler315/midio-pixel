@@ -210,3 +210,50 @@ export function analysisCacheKey(fingerprint, { stems = [], groove = null } = {}
   return JSON.stringify([ANALYSIS_REVISION, fingerprint.key, fingerprint.durationMs, fingerprint.signal,
     stemKeys, groove?.toJSON() ?? null]);
 }
+
+// A song played before is recognised before its fingerprint is taken.
+//
+// Fingerprinting a long song takes seconds (3.4 s for 2.5 minutes on an RTX
+// 3060 desktop), and a long song starts on its opening and waits for its
+// whole-song identity, so that wait was the whole of a cached song's start.
+// What the cache key needs from a fingerprint -- its key, length and signal
+// -- is remembered here against the file it came from: name, byte size,
+// modification time, decoded length and rate. The same file opened again
+// finds its bundle in one IndexedDB read. Any mismatch is just a miss: the
+// fingerprint is then taken as before.
+const FILE_INDEX_KEY = 'smw:fingerprintIndex';
+export const MAX_FILE_INDEX = 300;
+
+/** The signature a single decoded file is recognised by, or null. */
+export function fileSignature(file, buffer) {
+  if (!file || !buffer || !Number.isFinite(file.size) || !(buffer.length > 0)) return null;
+  return [file.name || '', file.size, file.lastModified || 0, buffer.length, buffer.sampleRate || 0].join('|');
+}
+
+function readFileIndex(storage) {
+  try {
+    const parsed = JSON.parse(storage?.getItem(FILE_INDEX_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The remembered fingerprint summary for `signature`, or null. */
+export function recallFingerprint(signature, storage = globalThis.localStorage) {
+  if (!signature) return null;
+  const hit = readFileIndex(storage).find((entry) => entry?.[0] === signature)?.[1];
+  return hit && typeof hit.key === 'string' && Number.isFinite(hit.durationMs) ? { ...hit, recalled: true } : null;
+}
+
+/** Remember the fingerprint summary taken from the file `signature` names. */
+export function rememberFingerprint(signature, fingerprint, storage = globalThis.localStorage) {
+  if (!signature || !fingerprint?.key || fingerprint.recalled) return;
+  const entry = [signature, { key: fingerprint.key, durationMs: fingerprint.durationMs, signal: fingerprint.signal ?? null }];
+  const rest = readFileIndex(storage).filter((e) => e?.[0] !== signature);
+  try {
+    storage?.setItem(FILE_INDEX_KEY, JSON.stringify([entry, ...rest].slice(0, MAX_FILE_INDEX)));
+  } catch {
+    // Storage full or unavailable: the next play fingerprints, as before.
+  }
+}

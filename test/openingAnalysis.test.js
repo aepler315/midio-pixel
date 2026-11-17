@@ -8,6 +8,8 @@ import {
 } from '../src/audio/OpeningAnalysis.js';
 import { ComposerStrip } from '../src/render/ComposerStrip.js';
 import { EnergyCurves } from '../src/audio/EnergyCurves.js';
+import { PROFILE_VERSION } from '../src/audio/SongProfile.js';
+import { identitySeed } from '../src/audio/WholeSongIdentity.js';
 
 test('only a single long file starts on its opening', () => {
   assert.equal(OPENING_SECONDS, 15);
@@ -65,24 +67,38 @@ test('an opening stands for the whole song until the whole analysis lands', () =
   assert.ok(data.barGrid.length > 100);
   assert.ok(data.energyCurves.sample(0, 60000) > 0.5, 'past the opening the energy holds rather than falling silent');
 
+  assert.equal(data.songIdentity, undefined, 'an opening has no identity of its own');
+
   // The picker and the running song hold this object; the upgrade lands on it.
-  data.songIdentity = { seed: 7 };
   data.terrain = { range: { id: 'tetons' } };
-  const full = { timeline: [{ tMs: 100 }, { tMs: 200000 }], durationMs: 240100, barGrid: [], songProfile: { version: 1, watch: { drive: 0.7 } } };
+  const wholeProfile = { version: PROFILE_VERSION, watch: { drive: 0.7 } };
+  const full = { timeline: [{ tMs: 100 }, { tMs: 200000 }], durationMs: 240100, barGrid: [], songProfile: wholeProfile };
   const same = adoptFullAnalysis(data, full);
   assert.equal(same, data);
   assert.equal(data.timeline.length, 2);
   assert.equal(data.durationMs, 240100);
   assert.equal(data.opening, undefined, 'no longer an opening');
-  assert.deepEqual([data.songIdentity, data.terrain], [{ seed: 7 }, { range: { id: 'tetons' } }],
-    'what was built on the opening is left as it is');
+  assert.deepEqual(data.songIdentity, { seed: identitySeed(full), songProfile: wholeProfile },
+    'the identity is frozen from the whole song');
+  assert.deepEqual(data.terrain, { range: { id: 'tetons' } }, 'the provisional terrain waits for the hand-off');
 });
 
-test('a cached whole-song analysis does not replace the identity the song already has', () => {
-  const data = { opening: { analyzedMs: 15000 }, songIdentity: { seed: 7 } };
-  adoptFullAnalysis(data, { timeline: [], fromBundle: true, songIdentity: null });
-  assert.deepEqual(data.songIdentity, { seed: 7 });
+test('a cached whole-song analysis brings the identity it was cached with', () => {
+  const songProfile = { version: PROFILE_VERSION, watch: { drive: 0.5 } };
+  const data = { opening: { analyzedMs: 15000 } };
+  adoptFullAnalysis(data, { timeline: [], songProfile, fromBundle: true, songIdentity: { seed: 315, songProfile } });
+  assert.deepEqual(data.songIdentity, { seed: 315, songProfile });
   assert.equal(data.fromBundle, true, 'and is known to be cached, so it is not written back');
+});
+
+test('a cached analysis without an identity is identified as a fresh one would be', () => {
+  const songProfile = { version: PROFILE_VERSION, watch: { drive: 0.5 } };
+  // A bundle stores note times as Float32; the seed must not notice.
+  const fresh = { timeline: [{ tMs: 429.5691609977324 }, { tMs: 181234.56789 }], durationMs: 240100, songProfile };
+  const cached = { ...fresh, timeline: fresh.timeline.map(e => ({ tMs: Math.fround(e.tMs) })), fromBundle: true, songIdentity: null };
+  const a = adoptFullAnalysis({ opening: {} }, fresh);
+  const b = adoptFullAnalysis({ opening: {} }, cached);
+  assert.deepEqual(b.songIdentity, a.songIdentity);
 });
 
 test('a long recording has an overview beyond its 15-second analysis opening', () => {

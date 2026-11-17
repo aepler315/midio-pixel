@@ -8,7 +8,8 @@ import { dualSummitsSelection } from '../src/world/alpine/DualSummitsMusic.js';
 
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const start = main.indexOf('function offerWorldsThenStart(');
-const source = main.slice(start, main.indexOf('\n}\n', start) + 3);
+const fn = (name) => { const at = main.indexOf(`function ${name}(`); return main.slice(at, main.indexOf('\n}\n', at) + 3); };
+const source = [main.slice(start, main.indexOf('\n}\n', start) + 3), fn('noteLibrarySongWorld'), fn('withSignatureSource')].join('\n');
 const profile = { version: 2, watch: { drive: .7, onset: .55, texture: .6, arc: .7, contrast: .6 } };
 
 function element(hidden) {
@@ -21,11 +22,12 @@ function setup({ rejectStorage = false } = {}) {
   const ui = { progress: [], loader: element(true), hud: element(false), nav: element(false) };
   const context = vm.createContext({ clearCustomWorld() {}, PROFILE_VERSION: 2, createSongWorldRecord,
     showProgress: (text) => ui.progress.push(text), loaderEl: ui.loader, hudEl: ui.hud, rangeNavigationEl: ui.nav,
-    buildSongProfile: () => profile, resolveSongSeed: () => 88, dualSummitsSelection,
+    buildSongIdentity: (d) => (d.songIdentity?.songProfile ? { ...d.songIdentity } : { seed: 88, songProfile: profile }),
+    provisionalIdentity: () => ({ seed: 99, songProfile: profile, provisional: true }), dualSummitsSelection,
     musicLibrary: { async noteSongWorld(track, record) { calls.push({ track, record }); if (rejectStorage) throw Error('storage unavailable'); } },
     prepareSongTerrain: async (p, seed) => { const plan = planSongScenes(p, seed); plans.push(plan); return plan; },
     pendingWorldStart: null, lastFitDiagnostic: null, recordFitDiagnostic: () => null,
-    readBulkExportFromUrl: () => null, DEFAULT_WORLD_ID: 'alpine', BIOME_WAIT_MS: 2500,
+    readBulkExportFromUrl: () => null, DEFAULT_WORLD_ID: 'alpine', BIOME_WAIT_MS: 2500, IDENTITY_START_HOLD_MS: 5000,
     setTimeout: () => 0, continuousPlayback: { isCurrent: () => true }, playSelectedWorld() {},
     console: { warn: (...values) => warnings.push(values), error: (...values) => { throw Error(values.join(' ')); } },
   });
@@ -63,6 +65,34 @@ test('the actual world start records a newly built identity and storage failure 
   assert.equal(data.songIdentity.seed, 88);
   assert.equal(context.pendingWorldStart.data, data);
   assert.equal(warnings.length, 1);
+});
+
+test('an opening plays a provisional look that is never stored', async () => {
+  const { context, calls } = setup();
+  const data = { durationMs: 240000, timeline: [], opening: { analyzedMs: 15000 } };
+  context.offerWorldsThenStart(data, { localTrack: { key: 'song' } });
+  await context.pendingWorldStart.terrainReady;
+  assert.equal(data.songIdentity, undefined, 'no identity is frozen from the opening');
+  assert.equal(calls.length, 0, 'and none reaches the library');
+  assert.equal(context.pendingWorldStart.provisional, true);
+  assert.equal(context.pendingWorldStart.seed, 99);
+});
+
+test('only the latest terrain preparation lands on the song', async () => {
+  const { context } = setup();
+  const resolvers = [];
+  context.prepareSongTerrain = () => new Promise(resolve => resolvers.push(resolve));
+  const data = { durationMs: 240000, timeline: [], opening: { analyzedMs: 15000 } };
+  context.offerWorldsThenStart(data);
+  const first = context.pendingWorldStart.terrainReady;
+  delete data.opening;
+  context.offerWorldsThenStart(data);
+  const second = context.pendingWorldStart.terrainReady;
+  resolvers[1]({ id: 'whole' });
+  await second;
+  resolvers[0]({ id: 'provisional' });
+  await first;
+  assert.deepEqual(data.terrain, { id: 'whole' }, 'a late provisional terrain cannot clobber the identity\'s');
 });
 
 test('a dropped song does not overwrite an unrelated library row', () => {

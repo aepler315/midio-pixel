@@ -56,10 +56,11 @@ test('an owned continuation keeps its world and skips the world picker', async (
   let played = null, offered = 0;
   const ticket = {};
   const context = production('offerWorldsThenStart', {
-    clearCustomWorld() {}, PROFILE_VERSION: 1, buildSongProfile: () => assert.fail('identity already exists'),
-    resolveSongSeed: () => 7, prepareSongTerrain: async () => null, dualSummitsSelection,
+    clearCustomWorld() {}, buildSongIdentity: (d) => ({ ...d.songIdentity }), provisionalIdentity: () => assert.fail('not an opening'),
+    noteLibrarySongWorld() {}, withSignatureSource: terrain => terrain,
+    prepareSongTerrain: async () => null, dualSummitsSelection,
     recordFitDiagnostic: () => null, lastFitDiagnostic: null, pendingWorldStart: null,
-    readBulkExportFromUrl: () => null, URL_PICKS_WORLD: false, experience: 'landscape', BIOME_WAIT_MS: 1,
+    readBulkExportFromUrl: () => null, URL_PICKS_WORLD: false, experience: 'landscape', BIOME_WAIT_MS: 1, IDENTITY_START_HOLD_MS: 1,
     worldForExperience: () => 'range', worldExperience: () => 'trio',
     continuousPlayback: { isCurrent: candidate => candidate === ticket },
     playSelectedWorld: id => { played = id; }, renderWorldGrid: () => { offered++; },
