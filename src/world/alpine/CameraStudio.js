@@ -74,6 +74,18 @@ const floorAt = (heightAt, waterLevelM, x, z) => {
 const clearanceFor = pose => Math.max(250, Math.hypot(...pose.eyeM.map((v, i) => v - pose.targetM[i])) * .01)
   + LAND_MAX_DISPLACEMENT_M + 50;
 
+function studioClearance(pose, source, { heightAt, waterLevelM }) {
+  const normal = clearanceFor(pose);
+  if (!source.tour) return normal;
+  const ground = heightAt?.(source.eyeM[0], source.eyeM[2]);
+  if (!Number.isFinite(ground)) return normal;
+  const above = source.eyeM[1] - Math.max(ground, Number.isFinite(waterLevelM) ? waterLevelM : -Infinity);
+  // Keep a valid low authored tour low. Tour deformation is already zero
+  // within 1.5 km of the eye, so the local floor only needs the tree pad.
+  // Unknown or obstructed source stations retain the conservative margin.
+  return above > 0 ? Math.min(normal, Math.max(50, above)) : normal;
+}
+
 /** Apply a Studio shot. A pruned package can change only its projection:
  * retaining its eye and aim prevents revealing occluded, omitted terrain. */
 export function applyCameraStudio(pose, settings, { timeMs = 0, referencePose = pose, fullCoverage = false,
@@ -96,8 +108,9 @@ export function applyCameraStudio(pose, settings, { timeMs = 0, referencePose = 
   const eyeM = [targetM[0] + Math.sin(yaw) * Math.cos(pitch) * distance,
     targetM[1] + Math.sin(pitch) * distance, targetM[2] + Math.cos(yaw) * Math.cos(pitch) * distance];
   const result = { ...pose, eyeM, targetM, fovYDeg: s.fovDeg };
-  eyeM[1] = Math.max(eyeM[1], floorAt(heightAt, waterLevelM, eyeM[0], eyeM[2]) + clearanceFor(result));
-  return { pose: result, status };
+  const clearanceM = studioClearance(result, ref, { heightAt, waterLevelM });
+  eyeM[1] = Math.max(eyeM[1], floorAt(heightAt, waterLevelM, eyeM[0], eyeM[2]) + clearanceM);
+  return { pose: result, status, clearanceM };
 }
 
 /** A canonical 100ms pose lattice shared by render, terrain planning and
@@ -109,12 +122,15 @@ export function cameraStudioTour(tour, settings, { referencePose = tour.poseAt(t
   if (!s.enabled) return tour;
   const durationMs = Math.max(0, tour.durationMs || 0), cache = new Map();
   const rawAt = timeMs => applyCameraStudio(tour.poseAt(timeMs), s,
-    { timeMs, referencePose, fullCoverage: true, heightAt, waterLevelM }).pose;
+    { timeMs, referencePose, fullCoverage: true, heightAt, waterLevelM });
   const stationAt = timeMs => {
     if (cache.has(timeMs)) return cache.get(timeMs);
-    const pose = rawAt(timeMs), clearance = clearanceFor(pose);
-    for (const otherMs of [Math.max(0, timeMs - 100), Math.min(durationMs, timeMs + 100)]) {
-      const other = rawAt(otherMs), length = Math.hypot(pose.eyeM[0] - other.eyeM[0], pose.eyeM[2] - other.eyeM[2]);
+    const { pose, clearanceM } = rawAt(timeMs);
+    const prevMs = Math.max(0, (Math.ceil(timeMs / 100) - 1) * 100);
+    for (const otherMs of [prevMs, Math.min(durationMs, timeMs + 100)]) {
+      const { pose: other, clearanceM: otherClearance } = rawAt(otherMs);
+      const clearance = Math.max(clearanceM, otherClearance);
+      const length = Math.hypot(pose.eyeM[0] - other.eyeM[0], pose.eyeM[2] - other.eyeM[2]);
       const steps = Math.min(4096, Math.max(1, Math.ceil(length / Math.max(1, sampleStepM / 2))));
       for (let i = 0; i <= steps; i++) {
         const u = i / steps, x = mix(pose.eyeM[0], other.eyeM[0], u), z = mix(pose.eyeM[2], other.eyeM[2], u);
