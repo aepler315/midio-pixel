@@ -356,8 +356,12 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
     const at = clamp(t / laneStep, 0, lane.length - 1), a = Math.floor(at), b = Math.min(lane.length - 1, a + 1);
     return T.flowCalm + (T.flowEnergetic - T.flowCalm) * (lane[a] + (lane[b] - lane[a]) * (at - a));
   };
+  // `limitBreaches` is the machine-readable twin of the "over the limit"
+  // notes: { kind, value, limit, message }. CameraChoice reads it instead of
+  // matching the notes' wording, so rewording a note cannot disable the check.
   const d = { maxSpeedMps: 0, maxProgressSpeedMps: 0, maxAccelMps2: 0, maxLateralAccelMps2: 0, maxProgressAccelMps2: 0, maxYawDegPerSec: 0, maxPitchDegPerSec: 0, maxClimbMps: 0, maxClimbAtMs: null,
-    maxFlowRadPerSec: 0, maxFlowRatio: 0, minSpeedMps: Infinity, payoffErrorMs: 0, notes };
+    maxFlowRadPerSec: 0, maxFlowRatio: 0, minSpeedMps: Infinity, payoffErrorMs: 0, notes, limitBreaches: [] };
+  const breach = (kind, value, limit, message) => { notes.push(message); d.limitBreaches.push({ kind, value, limit, message }); };
   const h = 50, from = Math.max(t0, lastFrozen >= 0 ? keyTime(lastFrozen) : 0);
   let prev = null, prev2 = null, prevSpeed = null;
   for (let t = from; ; t = Math.min(durationMs, t + h)) {
@@ -386,8 +390,8 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
   d.maxClimbMps = climb.max; d.maxClimbAtMs = climb.atMs;
   if (!Number.isFinite(d.minSpeedMps)) d.minSpeedMps = 0;
   for (const p of payoffs.slice(keptPayoffs.length)) d.payoffErrorMs = Math.max(d.payoffErrorMs, Number.isFinite(p.actualMs) ? Math.abs(p.actualMs - p.plannedMs) : Infinity);
-  if (d.maxProgressAccelMps2 > T.maxAccelMps2 + 1e-6) notes.push(`progress acceleration ${d.maxProgressAccelMps2.toFixed(2)} m/s2 over the limit`);
-  if (d.maxAccelMps2 > T.maxAccelMps2 * 1.05) notes.push(`eye acceleration ${d.maxAccelMps2.toFixed(2)} m/s2 over the limit`);
+  if (d.maxProgressAccelMps2 > T.maxAccelMps2 + 1e-6) breach('progressAccel', d.maxProgressAccelMps2, T.maxAccelMps2, `progress acceleration ${d.maxProgressAccelMps2.toFixed(2)} m/s2 over the limit`);
+  if (d.maxAccelMps2 > T.maxAccelMps2 * 1.05) breach('eyeAccel', d.maxAccelMps2, T.maxAccelMps2 * 1.05, `eye acceleration ${d.maxAccelMps2.toFixed(2)} m/s2 over the limit`);
   if (d.maxClimbMps > T.maxClimbMps + 1e-6) {
     const message = `eye climb ${d.maxClimbMps.toFixed(6)} m/s over the limit ${T.maxClimbMps}`;
     // A checked source path can still overshoot after Float32 key rounding
@@ -399,7 +403,7 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
       }
       throw new Error(message);
     }
-    notes.push(message);
+    breach('eyeClimb', d.maxClimbMps, T.maxClimbMps, message);
   }
   if (d.maxFlowRatio > 1.05) notes.push(`image flow ${d.maxFlowRatio.toFixed(2)}x its comfort limit`);
 
