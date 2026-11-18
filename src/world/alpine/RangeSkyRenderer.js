@@ -1,4 +1,3 @@
-import { CanvasBuffers } from '../../render/CanvasResidency.js';
 import { cameraBasis } from '../terrain/SceneTravel.js';
 import { projectSkyDirection, tourSkyDirection } from './RangeSkyComposition.js';
 import { CelestialPainter } from './CelestialPainter.js';

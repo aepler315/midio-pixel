@@ -191,6 +191,28 @@ export function projectRangeCelestials(state, pose, lensScale = 1, solar = null,
   return Object.freeze({ ...state, ...bodies });
 }
 
+/** Blend one travel's sky anchor without switching projections at its midpoint.
+ * Tour entries are world directions; rail entries are reference-image fractions.
+ * The caller supplies the already-resolved direction for each rail anchor. */
+export function blendTravelSkyAnchor(tour, rail, mix = 0) {
+  const k = Math.max(0, Math.min(1, Number.isFinite(mix) ? mix : 0));
+  const direction = rail?.direction;
+  if (!direction?.every(Number.isFinite)) return tour;
+  const tourDirection = tour?.direction;
+  if (!tourDirection?.every(Number.isFinite)) return null;
+  const length = Math.hypot(...direction) || 1;
+  const d = direction.map(v => v / length), dot = dot3(tourDirection, d);
+  const difference = d.map((v, i) => v - tourDirection[i] * dot);
+  const sine = Math.hypot(...difference);
+  const angle = Math.atan2(sine, Math.max(-1, Math.min(1, dot)));
+  const scale = sine > 1e-8 ? Math.sin(k * angle) / sine : k;
+  const world = tourDirection.map((v, i) => Math.cos(k * angle) * v + scale * difference[i]);
+  const norm = Math.hypot(...world) || 1;
+  return { xFrac: (tour.xFrac ?? .5) + ((rail.xFrac ?? .5) - (tour.xFrac ?? .5)) * k,
+    yFrac: (tour.yFrac ?? .5) + ((rail.yFrac ?? .5) - (tour.yFrac ?? .5)) * k,
+    direction: world.map(v => v / norm), mix: k };
+}
+
 const hash = (i, salt) => {
   const s = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
   return s - Math.floor(s);
@@ -201,10 +223,10 @@ export function drawMoonMaria(ctx, cx, cy, R, alpha = 1) {
   const basins = [[-0.28, -0.22, 0.34], [0.12, -0.3, 0.22], [-0.05, 0.1, 0.28], [0.3, 0.18, 0.16], [-0.35, 0.28, 0.14]];
   ctx.save();
   ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.arc(cx, cy, R, 0, TAU);
   ctx.clip();
   for (const [dx, dy, r] of basins) {
-    const g = ctx.createRadialGradient(cx + dx * R, cy + dy * R, 0, cx + dx * R, cy + dy * R, r * R);
+    const g = ctx.createRadialGradient(cx + dx * R, cy + dy * R, 0, cx + dy * R, cy + dy * R, r * R);
     g.addColorStop(0, `rgba(96,104,122,${(0.28 * alpha).toFixed(3)})`);
     g.addColorStop(1, 'rgba(96,104,122,0)');
     ctx.fillStyle = g;
@@ -275,7 +297,7 @@ export function drawRangeClouds(ctx, banks, { dark = [52, 60, 78], lit = [196, 1
         ctx.scale(1, ry / rx);
         ctx.translate(-ox, -oy);
         ctx.beginPath();
-        ctx.arc(ox, oy, rx, 0, Math.PI * 2);
+        ctx.arc(ox, oy, rx, 0, TAU);
         ctx.fill();
         ctx.restore();
       }
