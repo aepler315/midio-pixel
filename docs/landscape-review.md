@@ -119,6 +119,14 @@ equality gate. Historical reports missing pace or tour cannot be relabelled as
 an explicit matched request. Do not edit saved baseline settings to make them
 match.
 
+When both matched captures have MP4 previews, open **Blind listening review**
+from the candidate index, or open `comparison-<grid>/blind.html` directly.
+The page randomizes which revision is A when the comparison is built. Both
+buttons replay the same passage with audio. Record where your eye went and
+which musical event drew it there, then reveal the revision key. For a timing
+review, choose a 10–15 second passage around a section entrance or climax.
+With stills or `--no-mp4`, the technical comparison remains available.
+
 Optional live timing uses a separate real upload and waits for `renderReady`
 before measuring delivered frames. It uses the same pace, tour and view controls
 as the fixed-clock clips and the first selected grid:

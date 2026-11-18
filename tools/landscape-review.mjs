@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Background review of actual Landscape output. Never opens a report or a window.
 import assert from 'node:assert/strict';
+import { randomInt } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -202,6 +203,61 @@ async function auroraAblation(page,dir,frame,point,settings) {
   const restored=await renderEvaluationFrame(page,point,settings),bytes=Buffer.from(restored.pngData,'base64');result.restored='aurora-restored.png';result.restoredMatches=sha256(bytes)===frame.sha256;await fs.writeFile(path.join(dir,result.restored),bytes);
   result.status=result.repeatMatches&&result.restoredMatches&&result.sameControls?'matched-ablation':'unmatched-history';await json(path.join(dir,'aurora-ablation.json'),result);return result;
 }
+/** Package the audio-backed previews after the comparison has verified matching controls. */
+export async function writeBlindMotionReview(out, baseline, candidate, candidateFirst = randomInt(2) === 1) {
+  const previews = candidateFirst ? [candidate, baseline] : [baseline, candidate];
+  if (previews.some(({ report }) => report.media?.mp4 !== 'motion.mp4')) return null;
+
+  const clips = [];
+  for (const { dir, report } of previews) {
+    const file = await fs.realpath(path.join(dir, 'motion.mp4'));
+    assert.equal(path.dirname(file), await fs.realpath(dir), 'motion preview must be inside its capture directory');
+    const bytes = await fs.readFile(file);
+    assert.equal(sha256(bytes), report.media.sha256?.['motion.mp4'], 'motion preview hash mismatch');
+    clips.push(bytes);
+  }
+  await fs.writeFile(path.join(out, 'a.mp4'), clips[0]);
+  await fs.writeFile(path.join(out, 'b.mp4'), clips[1]);
+  await json(path.join(out, 'blind-key.json'), candidateFirst
+    ? { A: 'candidate', B: 'baseline' } : { A: 'baseline', B: 'candidate' });
+  await fs.writeFile(path.join(out, 'blind.html'), `<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Landscape listening review</title>
+<style>
+body{font:16px system-ui;color:#e8edf4;background:#111722;max-width:1000px;margin:24px auto;padding:0 16px}
+video{display:block;width:100%;aspect-ratio:16/9;background:#000}button,textarea{font:inherit}
+button{padding:8px 14px;margin:0 8px 12px 0}label{display:block;margin:18px 0}
+textarea{display:block;box-sizing:border-box;width:100%;margin-top:6px}a{color:#9bd9ff}
+</style>
+<h1>Landscape listening review</h1>
+<p>Play both versions with sound. Each button restarts the same musical passage.</p>
+<button type="button" data-clip="a.mp4">Play A</button>
+<button type="button" data-clip="b.mp4">Play B</button>
+<video controls playsinline preload="none" aria-label="Landscape motion preview"></video>
+<p role="status" id="status"></p>
+<label>A · Where did your eye go, and which sound brought it there?<textarea rows="3"></textarea></label>
+<label>B · Where did your eye go, and which sound brought it there?<textarea rows="3"></textarea></label>
+<p>Copy your notes before leaving this page. <a href="blind-key.json" target="_blank" rel="noopener">Reveal the versions</a></p>
+<script>
+const player = document.querySelector('video');
+const status = document.getElementById('status');
+let selection = 0;
+for (const button of document.querySelectorAll('[data-clip]')) {
+  button.addEventListener('click', async () => {
+    const current = ++selection;
+    player.pause();
+    player.src = button.dataset.clip;
+    status.textContent = button.textContent;
+    try { await player.play(); }
+    catch {
+      if (current === selection) status.textContent = 'Could not play this clip.';
+    }
+  });
+}
+</script></html>`);
+  return 'blind.html';
+}
+
 async function saveMedia(page, dir, row, settings, mp4, owner) {
   const selected = Array.from({ length: Math.min(8, row.frames.length) }, (_, i) => row.frames[Math.round(i * (row.frames.length - 1) / Math.max(1, Math.min(8, row.frames.length) - 1))]);
   const images = await Promise.all(selected.map(async f => ({ timeMs: f.timeMs, data: (await fs.readFile(path.join(dir, f.png))).toString('base64') })));
@@ -344,7 +400,12 @@ export async function runLandscapeReview(args, { launch = options => chromium.la
           }
           for (const s of data.songs) { assert.equal(sha256(await fs.readFile(path.join(destination, s.audio))), s.audioSha256); for (const f of s.frames) assert.equal(sha256(await fs.readFile(path.join(destination, f.png))), f.sha256); }
         }
-        await json(path.join(comparison, 'comparison.json'), diff); await fs.writeFile(path.join(comparison, 'index.html'), renderComparisonReport(diff, before, run)); report.grids.at(-1).comparison = 'comparison-' + grid + '/index.html';
+        await json(path.join(comparison, 'comparison.json'), diff);
+        await fs.writeFile(path.join(comparison, 'index.html'), renderComparisonReport(diff, before, run));
+        const gridReport = report.grids.at(-1);
+        gridReport.comparison = 'comparison-' + grid + '/index.html';
+        const blind = await writeBlindMotionReview(comparison, { dir: beforeDir, report: before }, { dir, report: run });
+        if (blind) gridReport.blindReview = 'comparison-' + grid + '/' + blind;
       }
     }
     if (args.liveSeconds) {report.livePath='live-report.json';report.live = await liveReview(browser, server.url, sharedAudio, args, out);}
@@ -363,7 +424,7 @@ export async function runLandscapeReview(args, { launch = options => chromium.la
       report.failure = { message: owner.error.message, signal: owner.error.signal, exitCode: owner.error.exitCode };
     }
     report.finishedAt = new Date().toISOString(); await json(path.join(out, 'report.json'), report);
-    await fs.writeFile(path.join(out, 'index.html'), `<!doctype html><meta charset="utf-8"><title>Landscape review</title><style>body{font:16px system-ui;background:#15202d;color:#e8eff7;max-width:1400px;margin:28px auto;line-height:1.6}a{color:#a4d9ff}img,video{max-width:100%}</style><h1>Background Landscape review</h1><p>Technical status: ${escape(report.status)}. Artistic judgment: unreviewed. Headless ${args.hardware ? 'verified hardware required' : 'software WebGL'}; actual renderer is in each report.</p><p>Frozen runtime digest: ${escape(report.source?.digest)}</p>${report.grids.map(v => `<section><h2>${v.grid}</h2><a href="${v.path}">Exact consecutive PNGs and matching-audio frame player</a> · <a href="${v.report}">Controls, source, time/pose, sky, lifecycle and absence checks</a>${v.comparison ? ` · <a href="${v.comparison}">Paired comparison</a>` : ''}${v.media?.contactSheet ? `<p><img src="${v.grid}/contact-sheet.png" alt="Time-labelled contact sheet"></p>` : ''}${v.media?.mp4 ? `<video controls preload="metadata" src="${v.grid}/motion.mp4"></video>` : ''}</section>`).join('')}<p><a href="report.json">Complete review report</a>${report.livePath ? ' · <a href="live-report.json">Separate live readiness/delivery trace</a>' : ''}</p><ul>${report.limitations.map(v => `<li>${escape(v)}</li>`).join('')}</ul>`);
+    await fs.writeFile(path.join(out, 'index.html'), `<!doctype html><meta charset="utf-8"><title>Landscape review</title><style>body{font:16px system-ui;background:#15202d;color:#e8eff7;max-width:1400px;margin:28px auto;line-height:1.6}a{color:#a4d9ff}img,video{max-width:100%}</style><h1>Background Landscape review</h1><p>Technical status: ${escape(report.status)}. Artistic judgment: unreviewed. Headless ${args.hardware ? 'verified hardware required' : 'software WebGL'}; actual renderer is in each report.</p><p>Frozen runtime digest: ${escape(report.source?.digest)}</p>${report.grids.map(v => `<section><h2>${v.grid}</h2><a href="${v.path}">Exact consecutive PNGs and matching-audio frame player</a> · <a href="${v.report}">Controls, source, time/pose, sky, lifecycle and absence checks</a>${v.blindReview ? ` · <a href="${v.blindReview}">Blind listening review</a>` : ''}${v.comparison ? ` · <a href="${v.comparison}">Technical comparison</a>` : ''}${v.media?.contactSheet ? `<p><img src="${v.grid}/contact-sheet.png" alt="Time-labelled contact sheet"></p>` : ''}${v.media?.mp4 ? `<video controls preload="metadata" src="${v.grid}/motion.mp4"></video>` : ''}</section>`).join('')}<p><a href="report.json">Complete review report</a>${report.livePath ? ' · <a href="live-report.json">Separate live readiness/delivery trace</a>' : ''}</p><ul>${report.limitations.map(v => `<li>${escape(v)}</li>`).join('')}</ul>`);
   }
   owner.check();
   assert.equal(report.status, 'passed', 'review cleanup failed');
