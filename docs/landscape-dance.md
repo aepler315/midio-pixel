@@ -51,7 +51,10 @@ Two channels, added to the existing field in the same vertex function
   scaled by relief. (The first version heaved 75 % on the kick at 32 m;
   Ashton found it read as the ridges retching.) A gate walks down the ridge
   orders with energy: quiet music moves only the highest-order spines, a
-  loud section or a section change opens every spur.
+  loud section or a section change opens the gate farther down the ridge
+  orders. The gate's lower bound is 0.30, and the band is ridge order ×
+  convexity; weak, low-order spurs can therefore remain still even when loud.
+  "Opens every spur" is not the implementation's guarantee.
 - **Downstream wave.** `relief · sin(k·d + φ)` with `d` the flow distance and
   `φ = 2π · beats / 16`: a 6 km wave runs down every drainage, one
   wavelength per four bars, locked to the song's beat transport (heard time, so
