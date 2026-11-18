@@ -230,14 +230,17 @@ export function landMotion(music, moment01, { tSec = 0, seed = 0 } = {}) {
 
 /** Land dance along the ridge/drainage hierarchy (TerrainHierarchy.js,
  *  docs/landscape-dance.md). `dance01` 0 returns `land` untouched. Above
- *  0 the section swell gives up half its share at full dance, and the
- *  freed metres go to two channels, so the summed bound stays inside
- *  RANGE_MOTION_REFERENCE_M and every bound downstream of it holds:
- *   - spine: ridge spines heave on the kick and the groove. Quiet music
- *     moves only the highest-order spines; energy and the section moment
- *     open the gate down the ridge orders.
- *   - drain: a wave runs down every drainage, one wavelength per bar,
- *     locked to the song's beat. Valley floors and water never move. */
+ *  0 the section swell gives up `LAND_DANCE.swellYield` (15%) of its share
+ *  at full dance, and the freed metres go to two channels, so the summed
+ *  bound stays inside RANGE_MOTION_REFERENCE_M and every bound downstream
+ *  of it holds:
+ *   - spine: ridge spines breathe with sustained energy and the section
+ *     moment, with only a trace of the kick. Quiet music moves only the
+ *     highest-order spines; energy and the section moment open the gate
+ *     down the ridge orders.
+ *   - drain: a wave runs down every drainage, one wavelength per four bars
+ *     (`LAND_DANCE.beatsPerWave` beats), locked to the song's beat. Valley
+ *     floors and water never move. */
 // Ashton (2026-11-03): the first cut (spines 32 m on every kick, a 2.2 km
 // wave once per bar) read as the ridges retching. Now a breath, not a pulse:
 // small metres, the spines follow energy and the section moment rather than
