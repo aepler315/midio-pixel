@@ -35,6 +35,22 @@ test('a tour beats the rail only with a timed payoff, little transit and comfort
   assert.equal(tourBeatsRail(planned({ isLink: (t) => t < 40000 }), null, loose).ok, true);
 });
 
+test('a structured limit breach keeps the rail whatever its message says', () => {
+  const breach = { kind: 'eyeAccel', value: 4.2, limit: 3.675, message: 'eye acceleration 4.20 m/s2 beyond its bound' };
+  const verdict = tourBeatsRail(planned({ diagnostics: { limitBreaches: [breach] }, notes: [breach.message] }));
+  assert.equal(verdict.ok, false, 'the check must not depend on the words "over the limit"');
+  assert.equal(verdict.reason, breach.message);
+  assert.deepEqual(tourMetrics(planned({ diagnostics: { limitBreaches: [breach] } })).overLimit, [breach.message]);
+});
+
+test('an empty limitBreaches list is authoritative; only timelines without the field use note wording', () => {
+  const note = 'eye acceleration 3.10 m/s2 over the limit';
+  assert.equal(tourBeatsRail(planned({ diagnostics: { limitBreaches: [] }, notes: [note] })).ok, true,
+    'a timeline that reports no breaches is not failed by a stray note');
+  assert.equal(tourBeatsRail(planned({ diagnostics: {}, notes: [note] })).ok, false,
+    'a timeline saved before limitBreaches existed still fails on its note');
+});
+
 test('?rangeTourGate=off is the only way to skip the comparison', () => {
   assert.equal(autoGateEnabled(''), true);
   assert.equal(autoGateEnabled('?rangeTourGate=on'), true);
