@@ -14,7 +14,7 @@ Lifecycle is the honest one after this change (see the registry).
 
 | Parameter | Values (default) | Parser → consumer | Prior UI | Lifecycle | Status | Disposition |
 | --- | --- | --- | --- | --- | --- | --- |
-| `rangePace` | 1–4 (3) | CameraRun.readRailPace → CameraRun/RangePresentation | select | next landscape | F | basic; UI no longer rewrites the URL |
+| `rangePace` | 1–4 (4) | CameraRun.readRailPace → CameraRun/RangePresentation | select | next landscape | F | basic; UI no longer rewrites the URL |
 | `rangeTour` | shots/off/tetons (shots) | RangePresentation.resolveRangeMode | on/off checkbox | scene | F | basic; Teton tour now selectable |
 | `rangeRenderer` | v2/legacy (v2) | resolveRangeMode → main presentation | — | renderer | F | advanced (Performance) |
 | `rangeView` | view id (none) | resolveRangeMode → forcedSceneChoice | — | renderer | F (diagnostic) | advanced, catalog list |

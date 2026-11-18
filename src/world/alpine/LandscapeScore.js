@@ -2,6 +2,7 @@
 // Nothing here advances on draw, dispatches notes or owns graphics resources.
 import { rangeCameraMoveAt, FINALE_MS } from './RangeCamera.js';
 import { compileLandRise, compileStageRise } from './LandRise.js';
+import { compileCinematicPulse } from './CinematicPulse.js';
 import { compileDualSummitsPerformance } from './DualSummitsPerformance.js';
 import { compileDualSummitsMusic } from './DualSummitsMusic.js';
 import { lastAudibleMs, sectionTrust } from './EffectsMusic.js';
@@ -115,10 +116,14 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     .map((c, index) => c.index === index ? c : Object.freeze({ ...c, index })));
   // The music's own end: the closing camera move arrives on it, not on padding.
   const cadenceMs = lastAudibleMs(energyCurves, duration);
+  // One heard-time pulse for the camera and the build alike. It stops at the
+  // closing move, and cues already heard at a re-analysis keep their side.
+  const pulse = compileCinematicPulse({ sections: phrases, read, durationMs: duration,
+    throughMs: Math.max(0, cadenceMs - FINALE_MS), previous: previous?.pulse || null, freezeThroughMs });
   // The range rises with the song and stands complete before the closing
   // move (LandRise.js); a re-analysis continues the climb from where it is.
   const rise = compileLandRise({ read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
-    previous: previous?.riseProgressAt || null, freezeThroughMs });
+    previous: previous?.riseProgressAt || null, freezeThroughMs, paceAt: pulse.paceAt });
   // A composed stage's slots each climb with their part of the song.
   // Its form comes from every section with a meaningful label, as
   // SectionRoles reads it (a weak boundary still carries its label), and
@@ -128,7 +133,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     && Number.isFinite(s.startMs) && Number.isFinite(s.endMs) && s.endMs > s.startMs) : [];
   const stageRise = stage?.slots?.length ? compileStageRise({ slots: stage.slots, principal: stage.principal,
     sections: formed, read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
-    previous: previous?.stageRise?.progressAt || null,
+    previous: previous?.stageRise?.progressAt || null, paceAt: pulse.paceAt,
     previousScalar: previous && !previous.stageRise ? previous.riseProgressAt || null : null, freezeThroughMs }) : null;
   const heldSlots = (value) => Object.freeze(Object.fromEntries(stageRise.slotIds.map((id) => [id, value])));
   const protectedEpisodes = previous ? previous.episodes.filter(e => e.startMs - 6000 <= freezeThroughMs) : [];
@@ -141,7 +146,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     const phrase = phrases.find(p => t >= p.startMs && t < p.endMs);
     const energy01 = unit(read(t));
     const camera = { ...rangeCameraMoveAt({ timeMs: t, sections: phrases, durationMs: duration, seed,
-      cadenceMs, preview: !!options.preview }) };
+      cadenceMs, preview: !!options.preview, pulse }) };
     if (previous && t < freezeThroughMs + 6000) {
       const old = previous.at(t, options).camera, k = ease((t - freezeThroughMs) / 6000);
       for (const key of ['dolly', 'yaw', 'crane', 'truck']) camera[key] = old[key] + (camera[key] - old[key]) * k;
@@ -164,7 +169,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     return { rise01: sum / stageRise.slotIds.length, slotRise01 };
   };
   return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
-    riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, stageRise, signatureScore, at: stateAt });
+    pulse, riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, stageRise, signatureScore, at: stateAt });
 }
 
 const cache = new WeakMap();

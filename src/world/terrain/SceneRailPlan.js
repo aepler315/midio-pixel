@@ -1,7 +1,7 @@
 import { travelMs } from '../BiomeSchedule.js';
 import { sceneFitRate, sceneProgressAt } from './SceneTravel.js';
 
-export const DEFAULT_RAIL_PACE = 3;
+export const DEFAULT_RAIL_PACE = 4;
 export const RAIL_PACES = Object.freeze([1, 2, 3, 4]);
 const STEP_MS = 20;
 // Version 2 occurrences record their natural travel. Version 1 fits, saved or

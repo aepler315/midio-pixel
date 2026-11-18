@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
-  LAND_RISE_START, LAND_RISE_GLSL, LAND_RISE_MIN_END, LAND_RISE_CATCH_UP_MS, risenSphere,
+  LAND_RISE_START, LAND_RISE_GLSL, LAND_RISE_CATCH_UP_MS, risenSphere,
   compileLandRise, landRiseLift, risenFloor, risenHeight, riseFromUniforms,
 } from '../src/world/alpine/LandRise.js';
 import { compileLandscapeScore } from '../src/world/alpine/LandscapeScore.js';
@@ -30,11 +30,11 @@ test('the affine rise starts on one flat base and moves land below the eye too',
   assert.deepEqual(riseFromUniforms({ uLandRise: { value: { x: .5, y: -150 } } }), { sink: .5, baseM: -150 });
 });
 
-test('the range starts one-third built and stands complete before the closing move', () => {
+test('the range starts low-built and stands complete before the closing move', () => {
   const read = t => .5 + .5 * Math.sin(t / 7000);
   const rise = compileLandRise({ read, durationMs: 240000, cadenceMs: 230000, finaleMs: FINALE_MS });
   assert.equal(rise.endMs, 230000 - FINALE_MS);
-  assert.equal(LAND_RISE_START, 1 / 3);
+  assert.equal(LAND_RISE_START, 0.18);
   assert.ok(Math.abs(rise.at(0) - LAND_RISE_START) < 1e-12);
   let prev = -Infinity;
   for (let t = 0; t <= 240000; t += 50) {
@@ -45,7 +45,7 @@ test('the range starts one-third built and stands complete before the closing mo
     prev = s;
   }
   for (const t of [rise.endMs, rise.endMs + 1, 230000, 240000, 1e9]) assert.equal(rise.at(t), 1, `${t} ms`);
-  assert.ok(Math.abs(rise.at(0) - 1 / 3) < 1e-12, 'rewinding restores the partly built opening');
+  assert.ok(Math.abs(rise.at(0) - LAND_RISE_START) < 1e-12, 'rewinding restores the partly built opening');
   // The landing is gentle: the last stretch climbs slower than the middle.
   const late = rise.at(rise.endMs) - rise.at(rise.endMs - 5000), mid = rise.at(105000) - rise.at(100000);
   assert.ok(late < mid / 2, `landing ${late} vs ${mid}`);
@@ -53,7 +53,7 @@ test('the range starts one-third built and stands complete before the closing mo
 
 test('a short song still rises over most of its length; no song or a preview stands complete', () => {
   const short = compileLandRise({ read: () => .4, durationMs: 40000, cadenceMs: 39000, finaleMs: FINALE_MS });
-  assert.equal(short.endMs, LAND_RISE_MIN_END * 39000);
+  assert.equal(short.endMs, 39000 - FINALE_MS);
   assert.ok(short.at(10000) > LAND_RISE_START && short.at(10000) < 1);
   for (const durationMs of [0, -5, NaN]) {
     const none = compileLandRise({ durationMs });

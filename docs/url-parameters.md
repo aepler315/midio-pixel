@@ -54,7 +54,7 @@ Lifecycle: when a change reaches a running page.
 | `cameraStudioDelaySec` | Camera start delay | 0–10 | `0` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `cameraStudioOvershoot` | Camera overshoot | 0–0.5 | `0.15` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `rangeTour` | Camera tours | `shots`, `off`, `tetons` | `shots` | Scene rebuild | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `rangePace` | Landscape pace | `1`, `2`, `3`, `4` | `3` | Next landscape | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `rangePace` | Landscape pace | `1`, `2`, `3`, `4` | `4` | Next landscape | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `rangeTourGate` | Tour quality gate | see note | `on` | Renderer restart | yes (developer) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 
 - `cameraStudioEnabled` — Keep live camera controls on screen during playback. Your composition is remembered.

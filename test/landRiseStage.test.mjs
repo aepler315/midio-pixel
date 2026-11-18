@@ -178,7 +178,7 @@ test('a stage grows by the same fraction of its height in every equal stretch of
   const ratios = [];
   for (let p = 0; p + 0.1 <= 0.8; p += 0.1) ratios.push(stageRiseAt(p + 0.1) / stageRiseAt(p));
   for (const r of ratios) assert.ok(Math.abs(r - ratios[0]) < 1e-9, `${r} against ${ratios[0]}`);
-  assert.ok(ratios[0] > 1.3 && ratios[0] < 1.5);
+  assert.ok(ratios[0] > 1.4 && ratios[0] < 1.6);
   assert.equal(stageRiseAt(1), 1);
   assert.ok(Math.abs(stageRiseAt(0) - STAGE_RISE_START) < EPS);
   // The scalar handoff conversion lands on the same height.

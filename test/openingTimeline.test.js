@@ -4,7 +4,7 @@ import {
   TITLE_CARD_HOLD_MS, TITLE_CARD_END_MS, OPENING_ZOOM_START_MS, OPENING_ZOOM_MS,
   titleCardAlpha, openingZoomRelease01,
 } from '../src/core/OpeningTimeline.js';
-import { compileLandRise } from '../src/world/alpine/LandRise.js';
+import { compileLandRise, LAND_RISE_START } from '../src/world/alpine/LandRise.js';
 import { FINALE_MS } from '../src/world/alpine/RangeCamera.js';
 
 test('the title card holds, then fades out completely by its end', () => {
@@ -37,11 +37,11 @@ test('the opening close-up releases from the card fade to five seconds in', () =
   }
 });
 
-test('the land builds across the whole song from one third, with no early jump', () => {
+test('the land builds across the whole song from a low start, with no early jump', () => {
   for (const durationMs of [90000, 210000, 360000]) {
     for (const level of [0, .4, 1]) {
       const rise = compileLandRise({ read: () => level, durationMs, cadenceMs: durationMs, finaleMs: FINALE_MS });
-      assert.ok(Math.abs(rise.at(0) - 1 / 3) < 1e-12, 'one-third built under the title card');
+      assert.ok(Math.abs(rise.at(0) - LAND_RISE_START) < 1e-12, 'low-built under the title card');
       assert.ok(rise.at(OPENING_ZOOM_START_MS + OPENING_ZOOM_MS) < .45,
         `no surge: still mostly to build when the opening ends (${durationMs}/${level}: ${rise.at(5000)})`);
       assert.ok(rise.at(rise.endMs / 2) > rise.at(5000) + .1, 'the music builds the range through the song');

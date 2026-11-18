@@ -205,7 +205,7 @@ require this feature.
 
 ## Scenic views, cameras and experiments
 
-Landscape selects geographic views from its scene catalog. Authored rails, per-scene rail pacing and the Teton highway tour provide different camera paths. The ordinary rail pace defaults to 3× with 1×–4× choices; finite authored routes can cap the effective pace. Automatic Landscape punch zoom is disabled; manual zoom remains available. See [the camera guide](docs/landscape-camera.md).
+Landscape selects geographic views from its scene catalog. Authored rails, per-scene rail pacing and the Teton highway tour provide different camera paths. The ordinary rail pace defaults to 4× with 1×–4× choices; finite authored routes can cap the effective pace. Automatic Landscape punch zoom is disabled; manual zoom remains available. See [the camera guide](docs/landscape-camera.md).
 
 The catalog distinguishes runtime-eligible views from candidates through its existing metadata and identity checks. Those states describe what the current loader can select. New locations, routes, shot libraries, camera techniques and eligibility policies may be developed under the current task; historical view counts, expansion waves and quality holds are not development caps.
 

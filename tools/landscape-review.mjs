@@ -12,6 +12,7 @@ import { normalizeManifest, captureSchedule, compareReports, blankFrame } from '
 import { openEvaluationSong, renderEvaluationFrame, expectedTourPreparationFailure, evaluationEntryUrl } from './lib/visual-evaluation-browser.mjs';
 import { attachBrowserDiagnostics, finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 import { defaultGridFor } from '../src/render/DisplayProfile.js';
+import { DEFAULT_RAIL_PACE } from '../src/world/terrain/SceneRailPlan.js';
 import { renderRunReport, renderComparisonReport } from './lib/visual-evaluation-report.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,7 +23,7 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
   --look LOOK          cinematic (the only look; kept for older scripts)
   --grid GRID          classic, classicPlus, medium, mediumPlus, detailed or both (default: detailed)
   --view ID            Default: teton-range-tour; natural allows automatic landscape changes
-  --pace N             Requested Landscape rail pace, 1|2|3|4 (default3)
+  --pace N             Requested Landscape rail pace, 1|2|3|4 (default4)
   --tour MODE          off (authored rails), shots or tetons (default follows view)
   --rise N             Diagnostic: hold the land at rise N (0..1) via ?rangeRise; not production playback
   --song-range MODE    1 (composed range when the song plans one) or force (diagnostic: always)
@@ -42,7 +43,7 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
 Always headless. No --open or headful option. Output must be new. Artistic judgment remains unreviewed.
 `;
 export function parseReviewArgs(argv) {
-  const a = { source: root, look: 'cinematic', grids: ['detailed'], view: 'teton-range-tour', pace: 3, startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
+  const a = { source: root, look: 'cinematic', grids: ['detailed'], view: 'teton-range-tour', pace: DEFAULT_RAIL_PACE, startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
   const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--look': 'look', '--grid': 'grid', '--view': 'view', '--pace': 'pace', '--tour': 'tour', '--rise': 'rise', '--song-range': 'songRange', '--song-range-layout': 'songRangeLayout', '--performance': 'performance', '--times-ms': 'timesMs', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];

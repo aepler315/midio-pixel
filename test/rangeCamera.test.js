@@ -243,10 +243,11 @@ test('a view clamps the zoom snapshot into its own cone', () => {
 });
 
 test('a short song makes no move shorter than the minimum before its finale', () => {
-  const keys = cameraMoveKeys([{ startMs: 0, relEnergy01: 1 }], 21000, 1);
+  const keys = cameraMoveKeys([{ startMs: 0, relEnergy01: 1 }], 19000, 1);
   assert.deepEqual(keys.map((k) => k.kind), ['rest', 'finale']);
-  const keys2 = cameraMoveKeys([{ startMs: 0, relEnergy01: 1 }, { startMs: 8000, relEnergy01: 0 }], 60000, 1);
-  assert.deepEqual(keys2.map((k) => k.kind), ['rest', 'establish', 'finale']);
+  const keys2 = cameraMoveKeys([{ startMs: 0, relEnergy01: 1 }, { startMs: 16000, relEnergy01: 0 }], 60000, 1);
+  assert.deepEqual(keys2.map((k) => k.kind), ['rest', 'establish', 'settle', 'finale']);
+  assert.ok(keys2[2].fromMs - keys2[1].fromMs >= MIN_MOVE_MS);
 });
 
 test('a low view keeps the deformation pad over high ground, not over its floor', () => {

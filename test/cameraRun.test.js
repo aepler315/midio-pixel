@@ -7,10 +7,10 @@ const compile = (pace = 3) => compileSceneRailPlan({ sections: [0, 20000, 40000]
 test('selected pace source wins strictly, including invalid URL and blocked storage', () => {
   const storage = { getItem: () => '2' };
   assert.equal(readRailPace('?rangePace=4', storage), 4);
-  assert.equal(readRailPace('?rangePace=bad', storage), 3);
-  assert.equal(readRailPace('?rangePace=', storage), 3);
+  assert.equal(readRailPace('?rangePace=bad', storage), 4);
+  assert.equal(readRailPace('?rangePace=', storage), 4);
   assert.equal(readRailPace('', storage), 2);
-  assert.equal(readRailPace('', { getItem() { throw Error('blocked'); } }), 3);
+  assert.equal(readRailPace('', { getItem() { throw Error('blocked'); } }), 4);
   for (const pace of [1, 2, 3, 4]) assert.equal(readRailPace(`?rangePace=${pace}`, null), pace);
 });
 

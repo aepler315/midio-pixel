@@ -4,16 +4,17 @@
 // same base and progress, including reflected draws.
 import { clamp01 } from '../../utils/math.js';
 
-/** Relief share at the song's first beat, skipping the first third of the build. */
-export const LAND_RISE_START = 1 / 3;
+/** Relief share at the song's first beat. Lower than the old one-third start
+ *  so more of the mountain is actually built during the song. */
+export const LAND_RISE_START = 0.18;
 /** A composed stage's relief share at the first beat: a wiggle on the lake.
  *  Its slots grow geometrically from here to their full (framed) relief
  *  (stageRiseAt), so the land gains the same fraction of its height in
  *  every equal stretch of progress: never a visible surge, and by the end a
- *  range twenty times the size it started. */
-export const STAGE_RISE_START = 0.05;
+ *  range fifty times the size it started. */
+export const STAGE_RISE_START = 0.02;
 /** Pace in silence, against 1 + energy at full energy. */
-export const LAND_RISE_QUIET_PACE = 0.6;
+export const LAND_RISE_QUIET_PACE = 0.9;
 /** Share of the climb spent easing to a stop on the complete range. */
 export const LAND_RISE_LANDING = 0.15;
 /** The rise completes no earlier than this share of the music. */
@@ -201,7 +202,8 @@ const landing = (u) => {
 /**
  * The song's rise, a pure function of heard time. Progress is the music's
  * energy integrated from the first beat (LAND_RISE_QUIET_PACE + energy per
- * unit time) and normalised to reach 1 at endMs: `finaleMs` before the
+ * unit time), multiplied by the shared cinematic pulse's bounded pace gain,
+ * and normalised to reach 1 at endMs: `finaleMs` before the
  * cadence (the camera's closing move), no earlier than LAND_RISE_MIN_END of
  * it. The land eases onto the complete range over the last
  * LAND_RISE_LANDING of the climb.
@@ -213,17 +215,17 @@ const landing = (u) => {
  * over LAND_RISE_CATCH_UP_MS, so a new climb that is over, or a moment from
  * over, at the handoff does not snap the land to the complete range.
  *
- * The land starts one-third built (LAND_RISE_START) and the music builds the
- * rest across the whole song. The opening close-up is released on its own
+ * The land starts low (LAND_RISE_START) and the music builds the rest across
+ * the whole song. The opening close-up is released on its own
  * clock (OpeningTimeline.openingZoomRelease01), not by an early surge in
  * height. The rise is a pure function of heard time, so the handoff above and
  * every seek agree, and the land reaches exactly 1 at endMs.
  */
 export function compileLandRise({ read = () => 0, durationMs = 0, cadenceMs = durationMs, finaleMs = 0,
-  previous = null, freezeThroughMs = -1 } = {}) {
+  previous = null, freezeThroughMs = -1, paceAt = null } = {}) {
   const grid = riseGrid({ durationMs, cadenceMs, finaleMs });
   if (!grid) return Object.freeze({ endMs: 0, progressAt: () => 1, at: () => 1 });
-  const own = climb(grid, read, () => true);
+  const own = climb(grid, read, () => true, paceAt);
   const progressAt = continueClimb(own, previous, freezeThroughMs);
   const at = (timeMs) => riseAt(progressAt(timeMs));
   return Object.freeze({ endMs: grid.endMs, progressAt, at });
@@ -258,12 +260,15 @@ function riseGrid({ durationMs = 0, cadenceMs = durationMs, finaleMs = 0 }) {
 /** Progress over [0, endMs]: LAND_RISE_QUIET_PACE + energy integrated over the
  *  steps `owns(timeMs)` accepts, normalised to 1 at endMs. Null when it owns
  *  no step. */
-function climb({ endMs, n }, read, owns) {
+function climb({ endMs, n }, read, owns, paceAt = null) {
   const sum = new Float64Array(n + 1);
   for (let i = 0; i < n; i++) {
     const t = (i + 0.5) * endMs / n;
-    // Same association as ever: (sum + pace) + energy.
-    sum[i + 1] = owns(t) ? sum[i] + LAND_RISE_QUIET_PACE + clamp01(read(t)) : sum[i];
+    // One fixed sweep per step: quiet pace and energy, then the shared pulse.
+    // The gain only reshapes when the climb happens; normalization below
+    // still lands at exactly 1 on endMs.
+    const pace = paceAt ? Math.max(0, Number(paceAt(t)) || 0) : 1;
+    sum[i + 1] = owns(t) ? sum[i] + (LAND_RISE_QUIET_PACE + clamp01(read(t))) * pace : sum[i];
   }
   if (!(sum[n] > 0)) return null;
   return (timeMs) => {
@@ -349,7 +354,8 @@ export function chorusLabel(sections, read) {
  * meanAt(t) }.
  */
 export function compileStageRise({ slots = [], principal = null, sections = [], read = () => 0, durationMs = 0,
-  cadenceMs = durationMs, finaleMs = 0, previous = null, previousScalar = null, freezeThroughMs = -1 } = {}) {
+  cadenceMs = durationMs, finaleMs = 0, previous = null, previousScalar = null, freezeThroughMs = -1,
+  paceAt = null } = {}) {
   const ordered = stageSlotOrder(slots), slotIds = ordered.map((s) => s.slotId);
   if (!slotIds.length) throw new Error('a stage rise needs at least one slot');
   const lead = slotIds.includes(principal) ? principal : slotIds[0];
@@ -365,7 +371,7 @@ export function compileStageRise({ slots = [], principal = null, sections = [], 
   let mode;
   if (chorus == null) {
     mode = 'stagger';
-    const scalar = climb(grid, read, () => true), K = slotIds.length;
+    const scalar = climb(grid, read, () => true, paceAt), K = slotIds.length;
     const d = K > 1 ? Math.min(STAGE_RISE_STAGGER, 0.5 / (K - 1)) : 0;
     slotIds.forEach((id, k) => {
       const a = k * d, b = 1 - (K - 1 - k) * d;
@@ -388,7 +394,7 @@ export function compileStageRise({ slots = [], principal = null, sections = [], 
     };
     const stretch = Math.min(LAND_RISE_CATCH_UP_MS, grid.endMs / 4);
     for (const id of slotIds) {
-      const climbed = climb(grid, read, (t) => { const set = ownerAt(t); return set ? set.has(id) : id === lead; });
+      const climbed = climb(grid, read, (t) => { const set = ownerAt(t); return set ? set.has(id) : id === lead; }, paceAt);
       own.set(id, climbed || ((t) => clamp01((t - (grid.endMs - stretch)) / stretch)));
     }
   }

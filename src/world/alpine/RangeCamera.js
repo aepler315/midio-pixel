@@ -29,18 +29,18 @@ export const NEUTRAL_MOVE = Object.freeze({ dolly: 0, yaw: 0, crane: 0, truck: 0
 // Moves start only at the song's big structural turns, at least this far
 // apart. Sections in between ride along: a new move every few seconds
 // reads as a nervous, accidental camera rather than a directed one.
-export const MIN_MOVE_MS = 20000;
+export const MIN_MOVE_MS = 12000;
 // Each move starts on its section boundary, travels for part of the span
 // and then holds still until the next turn, so every move has a visible
 // start and end. Its travel time lies within these bounds.
 export const MOVE_TRAVEL_FRAC = 0.6;
-export const MOVE_TRAVEL_MS = Object.freeze([12000, 30000]);
+export const MOVE_TRAVEL_MS = Object.freeze([8000, 18000]);
 // A meaningful energy turn earns a move. Climaxes reveal the whole range;
 // quieter returns settle closer. Level sections keep their composition.
 const ENERGY_TURN = 0.15;
 // The closing move (the sunset shot) starts this long before the music's
 // end (its cadence, else the file's end) and arrives on it.
-export const FINALE_MS = 20000;
+export const FINALE_MS = 12000;
 // Amplitudes, as fractions of the rail's eye-to-target distance D (yaw in
 // radians). D is kilometres, so these are big on the ground and small on
 // screen: a 3 km push toward a summit 20 km away.
@@ -165,8 +165,12 @@ export function cameraMoveKeys(sections, durationMs, seed = 0, cadenceMs = null)
   return keys;
 }
 
-/** The cinematic move offset at heard time `timeMs`. Neutral for previews. */
-export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0, seed = 0, cadenceMs = null, preview = false } = {}) {
+/** The cinematic move offset at heard time `timeMs`. Neutral for previews.
+ *  A compiled CinematicPulse adds bounded, alternating accents on trusted
+ *  musical turns; it is sampled here, never integrated, so every seek lands
+ *  on the same shot. */
+export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0, seed = 0,
+  cadenceMs = null, preview = false, pulse = null } = {}) {
   if (preview || !(durationMs > 0)) return NEUTRAL_MOVE;
   const keys = cameraMoveKeys(sections, durationMs, seed, cadenceMs);
   const t = clamp(Number(timeMs) || 0, 0, durationMs);
@@ -176,10 +180,24 @@ export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0,
   const a = keys[k - 1], b = keys[k] || a;
   const span = b.tMs - b.fromMs;
   const u = span > 0 ? smoother(clamp((t - b.fromMs) / span, 0, 1)) : (t >= b.tMs ? 1 : 0);
-  return {
+  const move = {
     dolly: lerp(a.dolly, b.dolly, u), yaw: lerp(a.yaw, b.yaw, u),
     crane: lerp(a.crane, b.crane, u), truck: lerp(a.truck, b.truck, u), kind: u > 0 && u < 1 ? b.kind : 'hold',
   };
+  const accent = typeof pulse === 'function' ? pulse(t) : pulse?.at?.(t);
+  if (!accent || !(accent.accent01 > 0) || b.kind === 'finale') return move;
+  // Spend only the headroom left by the structural key, so an accent can
+  // never push the eye outside the authored move limits.
+  const headroom = (lo, hi, value, amount) => amount > 0 ? Math.min(amount, hi - value) : Math.max(amount, lo - value);
+  const push = headroom(...MOVE_LIMITS.dolly, move.dolly, 0.045 * accent.accent01);
+  const swing = headroom(...MOVE_LIMITS.yaw, move.yaw, accent.sign * 0.035 * accent.accent01);
+  const lift = headroom(...MOVE_LIMITS.crane, move.crane, 0.012 * accent.accent01);
+  const truck = headroom(...MOVE_LIMITS.truck, move.truck, accent.sign * 0.012 * accent.accent01);
+  move.dolly = clamp(move.dolly + push, ...MOVE_LIMITS.dolly);
+  move.yaw = clamp(move.yaw + swing, ...MOVE_LIMITS.yaw);
+  move.crane = clamp(move.crane + lift, ...MOVE_LIMITS.crane);
+  move.truck = clamp(move.truck + truck, ...MOVE_LIMITS.truck);
+  return move;
 }
 
 function groundAt(heightAt, waterLevelM, x, z) {

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileStorm } from '../src/world/alpine/RangeStorm.js';
 import { compileLandscapeScore, landscapeScoreFor } from '../src/world/alpine/LandscapeScore.js';
+import { FINALE_MS } from '../src/world/alpine/RangeCamera.js';
 import { NEUTRAL_LENS } from '../src/render/CameraLens.js';
 
 const sections = [0, 20000, 40000, 60000, 80000, 100000].map((startMs, i) => ({
@@ -143,5 +144,5 @@ test('the closing camera move arrives on the music\'s cadence, not the file\'s p
   assert.equal(score.cadenceMs, 100000);
   assert.equal(score.at(100000).camera.kind, 'hold', 'arrived');
   assert.deepEqual(score.at(110000).camera, score.at(100000).camera, 'holds through the silent tail');
-  assert.equal(score.at(85000).camera.kind, 'finale');
+  assert.equal(score.at(100000 - FINALE_MS + 500).camera.kind, 'finale');
 });

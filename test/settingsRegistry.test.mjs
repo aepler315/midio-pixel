@@ -90,7 +90,7 @@ test('historical URL rules are preserved', () => {
   assert.equal(v('rangeMsaa', '?rangeMsaa=4'), '4');
   assert.equal(v('rangeMsaa', '?rangeMsaa='), '0', 'Number("") is 0: an empty value has always meant off');
   assert.equal(v('rangeMsaa', '?rangeMsaa=3'), 'auto');
-  assert.equal(v('rangePace', '?rangePace=9'), 3, 'presence wins even when invalid');
+  assert.equal(v('rangePace', '?rangePace=9'), 4, 'presence wins even when invalid');
   assert.equal(v('rangeTour', '?rangeTour=garbage'), 'shots');
   assert.equal(v('rangeTour', '?rangeTour=off'), 'off');
   assert.equal(v('canopySummary', '?canopySummary=x'), false, 'an unknown value opts out to the reference');
@@ -138,7 +138,7 @@ test('precedence: URL, then saved, then default; invalid saved values are ignore
   const url = resolveSettings({ search: '?rangePace=4', storage }).entries;
   assert.equal(url.rangePace.value, 4); assert.equal(url.rangePace.source, 'url');
   const blocked = { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('SecurityError'); } };
-  assert.equal(resolveSettings({ storage: blocked }).entries.rangePace.value, 3);
+  assert.equal(resolveSettings({ storage: blocked }).entries.rangePace.value, 4);
 });
 
 test('existing saved preferences migrate without loss', () => {
@@ -272,7 +272,7 @@ test('lifecycle: changes that cannot apply now are pending until applied', () =>
 });
 
 test('share links carry only non-default settings and no automation contracts', () => {
-  const href = shareUrl('https://example.test/app/?foo=1#x', { pixelGrid: 'classic', rangePace: 3, fps: true, landDance: 0.5, bulkExport: true, exportW: 640, rangeView: null });
+  const href = shareUrl('https://example.test/app/?foo=1#x', { pixelGrid: 'classic', rangePace: 4, fps: true, landDance: 0.5, bulkExport: true, exportW: 640, rangeView: null });
   const url = new URL(href);
   assert.equal(url.pathname, '/app/');
   assert.deepEqual([...url.searchParams], [['pixelGrid', 'classic'], ['landDance', '0.5'], ['fps', '1']]);

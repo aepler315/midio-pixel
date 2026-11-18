@@ -1,9 +1,9 @@
 # Landscape: the range grows with the song
 
-Landscape starts **one-third built**, hidden under the song's title card,
-skipping the first third of the mountain build. Every terrain height, including
-valleys below the camera, grows relative to one fixed ground level and keeps
-building with the music for the whole song. The
+Landscape starts **18% built**, hidden under the song's title card, so more of
+the mountain is built during the song than in the old one-third opening. Every
+terrain height, including valleys below the camera, grows relative to one fixed
+ground level and keeps building with the music for the whole song. The
 previous eye-relative squash left valleys intact and made the skyline look cut
 off; it is no longer used.
 
@@ -18,7 +18,7 @@ For source elevation `y`, ground level `baseM`, and song rise `s`:
 
     drawnY = baseM + s * (y - baseM)
 
-`s` starts at 1/3 and reaches 1 before the closing camera move. The base is
+`s` starts at 0.18 and reaches 1 before the closing camera move. The base is
 stable for the entire view: its authored lake level when present, otherwise the
 source terrain minimum. It is not recomputed from the camera or a streaming
 window. Signed elevations are valid.
@@ -75,21 +75,23 @@ close-up lets go on its own clock (`src/core/OpeningTimeline.js`):
 
 | Heard time | What shows |
 | --- | --- |
-| 0–2.0 s | Title card (song, artist) over the one-third-built range, in close-up |
+| 0–2.0 s | Title card (song, artist) over the 18%-built range, in close-up |
 | 2.0–2.7 s | Card fades; the close-up starts widening |
 | from 2.7 s | First place caption, fading in 1.5 s later |
 | 5.0 s | Authored lens; the range keeps building with the music |
 
-`rise = 1/3 + 2/3 * easedMusicProgress`: there is no early surge, so the build
-plays out across the song (a three-minute song is about half built at one
+`rise = 0.18 + 0.82 * easedMusicProgress`: there is no early surge, so the build
+plays out across the song (a three-minute song is roughly half built at one
 minute). The camera used to hold its close-up until 70% relief, which a gradual
 build takes most of twenty seconds to reach; the opening clock now releases it
-by five seconds whatever the height (November 10, 2026, replacing a 1.8–4.0 s
-height surge that finished most of the build in the first four seconds).
+by five seconds whatever the height. Composed stage slots start even lower, at
+2% relief, and grow geometrically to their full framed relief.
 
-The climb, `compileLandRise` in `LandscapeScore`, integrates `0.6 + energy` over
-heard time. It reaches full height at `max(0.6 * cadence, cadence - 20 seconds)`,
-easing the last 15 percent of the climb. Previews without a score show the complete range.
+The climb, `compileLandRise` in `LandscapeScore`, integrates `0.9 + energy` over
+heard time, multiplied by the shared cinematic pulse's gain (1 in quiet, up to
+1.6 at trusted turns). It reaches full height at `max(0.6 * cadence, cadence -
+12 seconds)`, easing the last 15 percent of the climb. Previews without a score
+show the complete range.
 When full-song analysis replaces the opening analysis, the curve holds the
 previous rise through the handoff and continues from there, taking at least eight
 seconds to finish. Seeking and restarting derive the height and camera from the

@@ -42,14 +42,16 @@ defaults resolve once per page, the Settings panel is generated from the
 definitions, and `main.js` applies each change at its lifecycle boundary. See
 [settings](settings.md) and the generated [URL parameters](url-parameters.md).
 
-`LandscapeScore` compiles growth, weather and camera-related cues;
-`RangeFrame` snapshots shared music, atmosphere, geometry/camera controls and
-viewport state. CPU geometry, GLSL displacement, depth, ownership and reflection
-passes must agree on growth and geographic coordinates. `LandRise` uses one
-source-space floor, with catalog scalar growth, composed stage slot growth and
-an explicit Dual Summits signature path. `LandRiseCamera`, `RangeCamera`, rails,
-scene travel and optional tours resolve composition and clearance. Seek sampling
-must remain deterministic rather than relying on accumulated frames.
+`LandscapeScore` compiles growth, weather and camera-related cues, including
+one `CinematicPulse` that both `RangeCamera` and `LandRise` sample at heard
+time; `RangeFrame` snapshots shared music, atmosphere, geometry/camera controls
+and viewport state. CPU geometry, GLSL displacement, depth, ownership and
+reflection passes must agree on growth and geographic coordinates. `LandRise`
+uses one source-space floor, with catalog scalar growth, composed stage slot
+growth and an explicit Dual Summits signature path. `LandRiseCamera`,
+`RangeCamera`, rails, scene travel and optional tours resolve composition and
+clearance. Seek sampling must remain deterministic rather than relying on
+accumulated frames.
 
 `RangePresentation` lazily loads the Range backend, owns asynchronous preparation,
 view/scene transitions and generation cancellation, and supplies legacy fallback

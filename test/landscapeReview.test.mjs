@@ -188,7 +188,7 @@ test('serialized grid provenance can be compared only after verifying source imm
 
 test('review pins pace and explicit tour choices without changing the short tour default', () => {
   const defaults = makeReviewManifest(parseReviewArgs(['--out', 'x']), 'classic');
-  assert.equal(defaults.settings.pace, 3);
+  assert.equal(defaults.settings.pace, 4);
   assert.equal(defaults.settings.tour, 'tetons');
   assert.equal(defaults.settings.view, 'teton-range-tour');
   assert.equal(defaults.settings.fps, 12);

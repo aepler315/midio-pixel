@@ -1,7 +1,8 @@
 # Landscape performance schedule
 
-LandscapeScore compiles phrase identity, measured energy, camera moves and zero
-or more weather episodes once per analysis revision. RangeFrame snapshots the
+LandscapeScore compiles phrase identity, measured energy, one cinematic pulse,
+camera moves and zero or more weather episodes once per analysis revision.
+RangeFrame snapshots the
 score at heard time; sky, water, terrain and lighting consume that frame's storm.
 Quiet flat material has no obligatory squall. Physical RMS, where available,
 prevents normalized background noise from becoming weather. Distinct sustained
@@ -10,8 +11,9 @@ peaks can earn separate builds, rain, accents and recovery.
 Automatic scenic punch is Off in Landscape: Simulation and RangeFrame publish
 the neutral lens `{halfAngleScale: 1, zoomPulse: 0, cueIndex: -1}`. Trusted
 musical turns add no pulse FOV, compositor dip or pulse-driven tilt, including
-loading and legacy fallback scenery. Impact roll, base framing, slow RangeCamera
-moves and the listener's pointer zoom remain available. Terrain-detail planning keeps its
+loading and legacy fallback scenery. Impact roll, base framing, the faster
+RangeCamera structural moves and the listener's pointer zoom remain available.
+Terrain-detail planning keeps its
 conservative .82 half-angle allowance; this change does not retune terrain LOD.
 
 Each weather episode has a character, classified once when the storm score

@@ -19,11 +19,11 @@ const json = value => JSON.parse(JSON.stringify(value));
 
 // Break caught: invalid URL/storage inputs silently selecting a different pace.
 test('pace normalizes supported numeric inputs and defaults invalid values', () => {
-  assert.equal(DEFAULT_RAIL_PACE, 3);
+  assert.equal(DEFAULT_RAIL_PACE, 4);
   assert.deepEqual(RAIL_PACES, [1, 2, 3, 4]);
   assert.ok(Object.isFrozen(RAIL_PACES));
   for (const input of [1, 2, 3, 4, '1', '2', '3', '4']) assert.equal(normalizeRailPace(input), Number(input));
-  for (const input of [undefined, null, '', true, false, {}, 0, 5, 2.5, Infinity, NaN, 'bad']) assert.equal(normalizeRailPace(input), 3);
+  for (const input of [undefined, null, '', true, false, {}, 0, 5, 2.5, Infinity, NaN, 'bad']) assert.equal(normalizeRailPace(input), 4);
 });
 
 // Break caught: rounding, upstream energy multiplication, or endpoint omission.
@@ -116,7 +116,7 @@ test('snapshot restore explicitly rejects versions, nonfinite curves and invalid
 test('content identity is deterministic and changes with effective motion', () => {
   const plan = compile();
   assert.equal(compile().snapshot.id, plan.snapshot.id);
-  assert.notEqual(withSceneRailPace(plan, 4).snapshot.id, plan.snapshot.id);
+  assert.notEqual(withSceneRailPace(plan, 1).snapshot.id, plan.snapshot.id);
   assert.notEqual(compile({ curves: { globalEnergyNorm: () => .4 } }).snapshot.id, plan.snapshot.id);
   assert.equal(sceneRailPlanFromSnapshot(json(plan.snapshot)).snapshot.id, plan.snapshot.id);
 });
@@ -360,7 +360,7 @@ test('a pace change refits unheard appearances from a restored snapshot without 
 
 // Break caught: a saved highlight or run silently changing its camera.
 test('a saved version 1 journey restores, samples and repaces by its old rule', () => {
-  const saved = versionOne(longSong());
+  const saved = versionOne(longSong({ requestedMultiplier: 3 }));
   const plan = sceneRailPlanFromSnapshot(json(saved));
   assert.deepEqual(json(plan.snapshot), saved);
   assert.equal(plan.snapshot.id, saved.id);

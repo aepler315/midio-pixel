@@ -1,14 +1,23 @@
 # Landscape camera pace
 
 Landscape's **Landscape pace** setting offers 1×, 2×, 3× and 4×; new runs
-default to a requested 3×. The automatic short scenic lens punch is Off.
-Wheel/pinch zoom and the slower
-structural camera moves retain their existing behavior and restrictions.
+default to a requested 4×. The automatic short scenic lens punch is Off.
+Wheel/pinch zoom retains its behavior and restrictions. Structural camera
+moves now start on turns at least 12 s apart, travel for 8–18 s and hand the
+last 12 s to the closing move.
 
 Pace expands the part of an approved camera rail traversed during each
 landscape appearance. Adjacent sections showing the same view share one
 move. Incoming and outgoing landscapes have independent progress through
 transitions, including the outgoing late-arrival allowance.
+
+The music-timed structural camera and the construction share one
+`CinematicPulse`: trusted section turns and chorus/drop entries produce a
+short alternating accent on the framing and a bounded gain on the climb. The
+pulse is compiled with the score and sampled only at heard time, so pause,
+seek, replay, re-analysis and fixed-clock export agree. Accents stay inside
+`MOVE_LIMITS` and stop at the closing move. A full analysis cannot flip an
+accent the listener already heard.
 
 At 2×, 3× and 4× the number multiplies each appearance's own natural,
 energy-driven travel before that travel is fitted to the finite rail, so a
@@ -29,8 +38,8 @@ timing and progress curves before refining the future.
 
 Bulk export uses the effective scene schedule, including pace changes made
 during the run. Highlights save their own immutable schedule and camera-tour
-policy for redraw. Saved rail progress and view timing are retained. Existing
-slow structural camera moves may recompute when analysis or scene history
+policy for redraw. Saved rail progress and view timing are retained. Structural
+camera moves and their pulse may recompute when analysis or scene history
 differs; the retained scene/analysis approximation notices cover that limit.
 Older Landscape moments without a schedule are explicitly marked as approximate.
 These camera records do not reproduce live input or every other scene effect.
@@ -40,7 +49,7 @@ The glacier retains its coupled camera/ice journey. Terrain previews remain
 at their midpoint. Audio, weather and celestial clocks are unchanged.
 
 For repeatable review, `?rangePace=1|2|3|4` takes precedence over saved
-`range-pace`, then the default. An invalid selected value becomes 3×.
+`range-pace`, then the default. An invalid selected value becomes 4×.
 `rangeState.cameraRails` reports the actual sides, occurrence IDs, requested
 and effective multipliers, coverage, caps and timing policies. The full
 versioned schedule is available through `cameraRunState` and the export
@@ -52,8 +61,8 @@ rail captures, explicit tours-Off selection and longer continuous clips.
 ## Close-up opening
 
 Playback opens in close-up over the growing landscape: up to 24× lens
-magnification, bounded by the terrain detail budget (about 3× over the
-one-third-built opening). The camera keeps its horizontal route and ground
+magnification, bounded by the terrain detail budget (over the low-built
+opening). The camera keeps its horizontal route and ground
 clearance and follows the rising summit or tour action. It widens as relief
 grows, and in any case eases out to the authored lens between 2.0 and 5.0 s
 (`OpeningTimeline.openingZoomRelease01`, the summit aim on the same clock), so
