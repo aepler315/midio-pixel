@@ -40,7 +40,7 @@ const overlaps = (t, visible) => visible.some((v) => t >= v.startMs && t <= v.en
  *  Timelines saved before that field existed only have notes, so for those
  *  alone the notes' "over the limit" wording is still matched. */
 function limitBreaches(timeline, d) {
-  if (Array.isArray(d.limitBreaches)) return d.limitBreaches.map((b) => b.message);
+  if (Array.isArray(d.limitBreaches)) return d.limitBreaches.map((b) => b.message || 'the tour exceeds a camera motion limit');
   return (timeline?.notes || d.notes || []).filter((n) => /over the limit/.test(n));
 }
 
@@ -59,12 +59,14 @@ export function tourMetrics(timeline, visible = null) {
     if (meta[k * 4 + 1]) transit++;
   }
   const payoffs = (timeline?.payoffs || []).filter((p) => overlaps(p.plannedMs, spans));
-  const errors = payoffs.map((p) => (Number.isFinite(p.actualMs) ? Math.abs(p.actualMs - p.plannedMs) : Infinity));
+  const timed = payoffs.filter((p) => Number.isFinite(p.actualMs));
+  const errors = timed.map((p) => Math.abs(p.actualMs - p.plannedMs));
   const d = timeline?.diagnostics || {};
   return {
     onScreenMs: onScreen * SHOT_KEY_MS,
     transitShare: onScreen ? transit / onScreen : 1,
     payoffs: payoffs.length,
+    missingPayoffs: payoffs.length - timed.length,
     payoffErrorMs: errors.length ? Math.max(...errors) : null,
     flowRatio: Number.isFinite(d.maxFlowRatio) ? d.maxFlowRatio : 0,
     overLimit: limitBreaches(timeline, d),
@@ -80,6 +82,7 @@ export function tourBeatsRail(timeline, visible = null, gate = AUTO_TOUR_GATE) {
   let reason = null;
   if (m.overLimit.length) reason = m.overLimit[0];
   else if (m.payoffs < gate.minPayoffs) reason = 'no shot lands on a musical moment';
+  else if (m.missingPayoffs) reason = 'a payoff misses its moment (no arrival time was recorded)';
   else if (m.payoffErrorMs > gate.maxPayoffErrorMs) reason = `a payoff misses its moment by ${(m.payoffErrorMs / 1000).toFixed(1)} s`;
   else if (m.transitShare > gate.maxTransitShare) reason = `the tour spends ${pct(m.transitShare)} in transit`;
   else if (m.flowRatio > gate.maxFlowRatio) reason = `image flow ${m.flowRatio.toFixed(2)}x its comfort limit`;
