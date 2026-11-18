@@ -24,7 +24,7 @@ test('a built timeline keeps its structured acceleration diagnostics across a wo
 });
 
 test('missing arrivals reject a tour without reporting an infinite timing error', () => {
-  const timeline = buildShotTimeline(library, plan);
+  const timeline = buildShotTimeline(library, { ...plan, start: null });
   assert.equal(tourBeatsRail(timeline).ok, true);
   for (const actualMs of [null, NaN, Infinity]) {
     const verdict = tourBeatsRail({ ...timeline, payoffs: [{ plannedMs: 5000, actualMs }] });
