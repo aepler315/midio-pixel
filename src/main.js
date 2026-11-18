@@ -1875,10 +1875,11 @@ function startTimeline(timelineData, extra = {}) {
   const {
     songSeed: seedOverride = undefined, playBuffer,
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
-    exportMode: exportModeFlag = false, exportSize = null, keepAudio = false,
+    exportMode: exportModeFlag = false, exportSize = null, keepAudio = false, keepPerfLevel = false,
   } = extra;
+  const previousPresentation = rangePresentation;
   lastStartExtra = { ...extra, automaticTicket: undefined, continuationWorldId: undefined, onAutomaticStart: undefined,
-    cameraSchedule: undefined, cameraTourMode: undefined, cameraStudioSettings: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false, heardTours: undefined };
+    cameraSchedule: undefined, cameraTourMode: undefined, cameraStudioSettings: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, keepPerfLevel: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false, heardTours: undefined };
   // The world decides the presentation, before anything below reads it.
   timelineData.worldId = resolveWorldId(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID);
   // A new song picks up renderer-lifecycle settings changed since the
@@ -1923,6 +1924,8 @@ function startTimeline(timelineData, extra = {}) {
   // An export rebuild must not resume the context on the way through
   // stopTimeline: that resume is asynchronous and would land after the
   // suspend below, leaving the song playing under a stepped clock.
+  const retainedPerfLevel = keepPerfLevel && running && timelineData === lastTimelineData
+    && previousPresentation === rangePresentation ? perfGovernor?.level : undefined;
   retainPerformanceScene();
   stopTimeline({ preservePause: preservePause || exportMode, keepAudio });
   fitCanvas();
@@ -1942,10 +1945,10 @@ function startTimeline(timelineData, extra = {}) {
   // note between zero and here at once -- the whole first half of the song
   // arriving in one step.
   if (startAtMs > 0) conductor.seekTo(startAtMs);
-  // A fresh governor per song starts at the selected quality. Pixel detail
-  // and scale stay independent of the Auto/Economy choice.
+  // Carry the last affordable level through a same-song rebuild. Fresh
+  // measurements and warmup let Auto recover if the replacement view is cheaper.
   perfGovernor = new PerfGovernor({
-    startLevel: exportMode ? exportQualityLevel : Math.max(perfStartLevel, renderQualityLevel(generalQuality)),
+    startLevel: exportMode ? exportQualityLevel : retainedPerfLevel ?? perfStartLevel,
     minLevel: exportMode ? 0 : renderQualityLevel(generalQuality),
     economy: effectivePresentation().quality === 'economy',
   });
@@ -1953,6 +1956,8 @@ function startTimeline(timelineData, extra = {}) {
   // as pressure and shed the picture the file exists to keep.
   if (exportMode) perfGovernor.freezeQuality(effectivePresentation().quality === 'economy' ? PERF_MAX_LEVEL : exportQualityLevel);
   if (fixturePerfLevel !== null) perfGovernor.setFixtureLevel(fixturePerfLevel);
+  lastRenderedWorkMs = null;
+  lastRenderedSyncWaitMs = null;
   fitCanvas(); // sync the new governor's canvasWidth/scale to the live buffer
   // World construction (parallax strips, landmarks) is CPU-heavy; surface a
   // progress line so a multi-second bake never looks like a dead freeze.
@@ -4076,7 +4081,7 @@ function rebuildOnWholeAnalysis(data) {
   delete data.chapterState;
   startTimeline(data, {
     ...lastStartExtra, songSeed: sim.songSeed, startAtMs: Math.max(0, audioEngine.nowMs),
-    keepAudio: true, keepUserCamera: true, cameraRunIntent: 'adopt', preservePause: wasPaused,
+    keepAudio: true, keepUserCamera: true, keepPerfLevel: true, cameraRunIntent: 'adopt', preservePause: wasPaused,
     fitDiagnostic: sim.fitDiagnostic, chapterState: null,
   });
   if (!running || !sim) return;
@@ -4122,6 +4127,7 @@ function commitWholeSongIdentity(data, { seed, songProfile: profile }) {
     keepAudio: true,
     keepUserCamera: true,
     cameraRunIntent: 'fresh',
+    keepPerfLevel: true,
     preservePause: wasPaused,
     fitDiagnostic: lastFitDiagnostic,
     chapterState: null,
@@ -4149,7 +4155,7 @@ function seekSong(ms) {
   const selectedSection = renderer?.composer?.selectedSection;
   const hudInFrame = !!renderer?.hudInFrame;
   const showSectionLabels = !!sim.showSectionLabels;
-  startTimeline(lastTimelineData, { songSeed: seed, startAtMs: t, keepUserCamera: true, cameraRunIntent: 'preserve',
+  startTimeline(lastTimelineData, { songSeed: seed, startAtMs: t, keepUserCamera: true, keepPerfLevel: true, cameraRunIntent: 'preserve',
     playBuffer: buffer || undefined, preservePause: wasPaused, fitDiagnostic: sim.fitDiagnostic });
   if (!running || !sim) return;
   renderer.hudInFrame = hudInFrame;

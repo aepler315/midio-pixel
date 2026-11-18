@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { PerfGovernor, MAX_LEVEL } from '../src/render/PerfGovernor.js';
 
 const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const start = source.indexOf('function callbackWorkMs(');
@@ -102,4 +103,40 @@ test('a 15 ms callback with 9 ms of timed wait reports 6 ms of work; without tim
   q.context.lastRenderedWorkMs = 15; q.context.lastRenderedSyncWaitMs = null;
   q.run(17);
   assert.equal(q.samples[0][2].workMs, 15);
+});
+
+
+test('timeline rebuild carries only the live level and starts a fresh timing record', () => {
+  const begin = source.indexOf('  const retainedPerfLevel =', source.indexOf('function startTimeline('));
+  const end = source.indexOf('  // World construction', begin);
+  const rebuildSetup = new vm.Script(source.slice(begin, end));
+  const timeline = { durationMs: 120000, worldId: 'alpine' };
+  const presentation = {};
+  for (const [label, options, expected] of [
+    ['same song', {}, 4],
+    ['different song', { timelineData: { ...timeline } }, 1],
+    ['new presentation', { previousPresentation: {} }, 1],
+    ['fresh start', { keepPerfLevel: false }, 1],
+    ['export', { exportMode: true }, 2],
+  ]) {
+    const governor = new PerfGovernor({ startLevel: 4 });
+    governor.sample(16, 100, { workMs: 8 });
+    const context = vm.createContext({
+      PerfGovernor, PERF_MAX_LEVEL: MAX_LEVEL, perfGovernor: governor, running: true,
+      keepPerfLevel: true, lastTimelineData: timeline, timelineData: timeline,
+      previousPresentation: presentation, rangePresentation: presentation,
+      exportMode: false, exportQualityLevel: 2, perfStartLevel: 1, fixturePerfLevel: null,
+      renderQualityLevel: () => 0, generalQuality: 'auto', effectivePresentation: () => ({ quality: 'auto' }),
+      preservePause: false, keepAudio: false, startAtMs: 0, conductor: { load() {} },
+      resolveDurationMs: (_, duration) => duration, getWorld: () => null,
+      ensureRidgeMusicSession() {}, retainPerformanceScene() {}, stopTimeline() {}, fitCanvas() {},
+      lastRenderedWorkMs: 31, lastRenderedSyncWaitMs: 7, ...options,
+    });
+    rebuildSetup.runInContext(context);
+    assert.equal(context.perfGovernor.level, expected, label);
+    assert.equal(context.perfGovernor.record.wholeRun.periodMs.count, 0, label);
+    assert.equal(context.lastRenderedWorkMs, null, label);
+    assert.equal(context.lastRenderedSyncWaitMs, null, label);
+    assert.equal(context.perfGovernor.holdQuality, label === 'export', label);
+  }
 });
