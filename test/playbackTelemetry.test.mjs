@@ -15,14 +15,15 @@ test('a pre-load fixture pin is applied before the first canvas fit and survives
   const fitted = [];
   const context = vm.createContext({ PerfGovernor, PERF_MAX_LEVEL: MAX_LEVEL,
     perfGovernor: null, fixturePerfLevel: null, perfStartLevel: 0, generalQuality: 'high',
-    renderQualityLevel: () => 0, exportMode: false, exportQualityLevel: 0,
+    renderQualityLevel: () => 0, exportMode: false, exportQualityLevel: 0, retainedPerfLevel: undefined,
+    lastRenderedWorkMs: null, lastRenderedSyncWaitMs: null,
     effectivePresentation: () => ({ quality: 'auto' }),
     fitCanvas: () => fitted.push(context.perfGovernor.level),
   });
   vm.runInContext(production('setFixtureLevel'), context);
   context.setFixtureLevel(3);
   assert.deepEqual(fitted, [], 'setting a fixture on the title does not draw a frame');
-  const start = main.indexOf('  // A fresh governor per song');
+  const start = main.indexOf('  perfGovernor = new PerfGovernor(', main.indexOf('function startTimeline('));
   const end = main.indexOf('  fitCanvas(); // sync the new governor', start);
   assert.ok(start >= 0 && end > start);
   const construct = main.slice(start, main.indexOf('\n', end));

@@ -13,7 +13,7 @@ const fn = (name) => {
   return main.slice(at, main.indexOf('\n}\n', at) + 3);
 };
 const constants = main.split('\n').filter(line => /^const (IDENTITY_[A-Z_]+|LATE) = /.test(line)).join('\n');
-const source = [constants, ...['adoptWholeSongIdentity', 'provisionalStillPreparing', 'withoutRecording', 'rebuildOnWholeAnalysis', 'commitWholeSongIdentity'].map(fn)].join('\n');
+const source = [constants, ...['adoptWholeSongIdentity', 'provisionalStillPreparing', 'withoutRecording', 'rebuildOnWholeAnalysis', 'commitWholeSongIdentity', 'seekSong'].map(fn)].join('\n');
 
 const profile = { version: 2, watch: { drive: 0.6 } };
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -29,6 +29,7 @@ function setup({ running = true, songSeed = 11 } = {}) {
     offerWorldsThenStart: (d, extra) => offers.push({ d, extra }),
     dualSummitsSelection: () => null, withSignatureSource: t => t,
     prepareSongTerrain: (p, seed, recent, options) => new Promise((resolve) => terrains.push({ seed, options, resolve })),
+    videoExportSession: { busy: false }, songRecorder: null, pendingCaptureOptions: null, lastAudioBuffer: null,
     running, sim: { songSeed, fitDiagnostic: 'provisional' }, audioEngine: { nowMs: 61000 }, bulkExportArmed: false, paused: false,
     sceneStartMs: 0, stopTimeline: () => { context.running = false; context.stopped = true; },
     startTimeline: (d, extra) => { starts.push({ d, extra }); context.sim = { songSeed: extra.songSeed }; },
@@ -68,6 +69,7 @@ test('a playing song commits the identity in one rebuild at the heard moment', a
   assert.equal(extra.songSeed, 42);
   assert.equal(extra.startAtMs, 61000);
   assert.equal(extra.keepAudio, true);
+  assert.equal(extra.keepPerfLevel, true);
   assert.equal(extra.chapterState, null, 'nothing continues from the provisional scene');
   assert.equal(extra.cameraRunIntent, 'fresh');
   assert.equal(extra.fitDiagnostic, 'whole');
@@ -93,6 +95,7 @@ test('a late terrain rebuilds the show on the whole analysis first, then commits
   await done;
   assert.equal(starts.length, 2);
   assert.equal(starts[1].extra.songSeed, 42);
+  assert.ok(starts.every(({ extra }) => extra.keepPerfLevel === true));
   assert.deepEqual(data.terrain, { id: 'whole' });
 });
 
@@ -174,4 +177,12 @@ test('an opening has nothing to hand off', () => {
   data.opening = { analyzedMs: 15000 };
   assert.equal(context.adoptWholeSongIdentity(data), null);
   assert.equal(terrains.length, 0);
+});
+
+test('seeking preserves the live playback quality level while rebuilding at the requested time', () => {
+  const { context, data, starts } = setup();
+  context.seekSong(32000);
+  assert.equal(starts[0].d, data);
+  assert.equal(starts[0].extra.startAtMs, 32000);
+  assert.equal(starts[0].extra.keepPerfLevel, true);
 });
