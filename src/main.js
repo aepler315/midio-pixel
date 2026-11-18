@@ -1723,13 +1723,6 @@ const LYRICS_START_WAIT_MS = 2000;
 // starting on its opening's provisional look (offerWorldsThenStart). The
 // whole pass takes about 3.8 s for five minutes on a fast desktop.
 const IDENTITY_START_HOLD_MS = 5000;
-// How long a long song's start waits, past its opening's analysis, for the
-// analysis-cache lookup to finish. None: the fingerprint takes seconds on a
-// long song (3.4 s for 2.5 minutes on an RTX 3060 desktop), far longer than
-// the opening's analysis, so a wait would only delay songs never played. The
-// lookup still starts with the opening, so a hit usually lands while the
-// start is pending, where the hand-off is a cheap restart.
-const EARLY_LOOKUP_GRACE_MS = 0;
 
 function confirmWorld(id) {
   const pending = pendingWorldStart;
@@ -2884,14 +2877,14 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
           data = await analysis;
         }
       } else {
-        // The cache lookup starts alongside the opening's analysis: a song
-        // played before comes back whole, with its identity, and starts on it
-        // outright -- no provisional look to hand off. A slower lookup is
-        // not waited for; it finishes the whole-song pass early instead.
+        // A cache hit can start the final world immediately. On a miss,
+        // only the opening analysis can supply the first result.
         const early = lookUp();
-        early.catch(() => {});
-        const openingResult = await analysis;
-        const hit = await Promise.race([early, new Promise((resolve) => setTimeout(() => resolve(null), EARLY_LOOKUP_GRACE_MS))]);
+        const openingReady = analysis.then(openingResult => ({ openingResult }));
+        const { hit, openingResult } = await Promise.race([
+          early.then(hit => hit ? { hit } : openingReady),
+          openingReady,
+        ]);
         if (hit) {
           data = hit;
           cancelAnalysis();

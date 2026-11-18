@@ -34,7 +34,7 @@ function harness() {
     ...cache, fingerprintBuffer, GrooveFingerprint, ...opening, ensureRidgeMusicSession, upgradeRidgeMusicSession,
     running: false, sim: null, lastTimelineData: null, bulkExportArmed: false,
     fingerprintBufferOffThread: async (buffer) => fingerprintBuffer(buffer),
-    readBulkExportFromUrl: () => null, rangeListening: false, fullAnalysisPending: null, adoptWholeSongIdentity() {}, EARLY_LOOKUP_GRACE_MS: 0,
+    readBulkExportFromUrl: () => null, rangeListening: false, fullAnalysisPending: null, adoptWholeSongIdentity() {},
     AUDIO_LOAD_LIMITS, accumulateDecodedAudioBytes, accumulateDecodedByteLength, decodedAudioByteLength,
     accumulateEncodedAudioBytes, audioAbortError, validateAudioFiles, validateDecodedAudioBuffer, validateDecodedByteLength,
     AbortController, URLSearchParams, audioSelections: createAudioSelection(), normalizeSourceMetadata, ...sessionIdentity,
@@ -230,25 +230,36 @@ test('landscape listening starts provisionally and adopts the complete analysis'
 });
 
 
-test('a long song played before starts on its cached whole song and identity, with no provisional look', async () => {
+test('a long song with cached analysis starts preparing before opening analysis finishes', async () => {
   const { context, load } = harness();
   const buffer = recording(); buffer.duration = 120;
   context.audioEngine.decodeFile = async () => buffer;
   context.sliceAudioBuffer = () => ({ ...buffer, duration: 15 });
   context.setTimeout = setTimeout;
-  const analysed = [];
-  context.audioToTimeline = async (b) => { analysed.push(b.duration); return { durationMs: 15000, timeline: [], barGrid: [] }; };
+  let openingSignal, finishOpening;
+  context.audioToTimeline = (b, { signal }) => {
+    assert.equal(b.duration, 15);
+    openingSignal = signal;
+    return new Promise(resolve => { finishOpening = resolve; });
+  };
   const songIdentity = { seed: 315, songProfile: { version: 2 } };
   context.unpackBundle = () => ({ fromBundle: true, durationMs: 120000, timeline: [], barGrid: [], songIdentity });
   let offered = null;
   context.offerWorldsThenStart = data => { offered = data; };
-  await load();
-  assert.equal(offered.opening, undefined, 'not started on its opening');
-  assert.equal(offered.fromBundle, true);
-  assert.equal(offered.durationMs, 120000);
-  assert.deepEqual(offered.songIdentity, songIdentity);
-  assert.equal(context.fullAnalysisPending, null, 'nothing left to hand off');
-  assert.deepEqual(analysed, [15], 'only the opening pass ever ran');
+  const loading = load();
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(offered, 'a cache hit reaches playback preparation while the opening is pending');
+    assert.equal(offered.opening, undefined);
+    assert.equal(offered.fromBundle, true);
+    assert.equal(offered.durationMs, 120000);
+    assert.deepEqual(offered.songIdentity, songIdentity);
+    assert.equal(openingSignal.aborted, true);
+    assert.equal(context.fullAnalysisPending, null);
+  } finally {
+    finishOpening?.({ durationMs: 15000, timeline: [], barGrid: [] });
+    await loading;
+  }
 });
 
 test('actual background analysis captures the provisional history before adoption and retains heard-time handoff', async () => {
