@@ -243,3 +243,36 @@ test('review diagnostics serialize effective camera state independently from rea
     assert.equal(result.cameraRails.from.progress01, .7, 'retained evidence must not change after later runtime updates');
   } finally { if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow; }
 });
+
+test('blind review copies verified motion to neutral filenames and keeps the answer separate', async () => {
+  const { writeBlindMotionReview } = await import('../tools/landscape-review.mjs');
+  assert.equal(typeof writeBlindMotionReview, 'function');
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const os = await import('node:os');
+  const { sha256 } = await import('../tools/lib/visual-evaluation-server.mjs');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'landscape-blind-'));
+  try {
+    const reports = [];
+    for (const name of ['baseline', 'candidate']) {
+      const dir = path.join(root, name);
+      const bytes = Buffer.from(name);
+      await fs.mkdir(dir);
+      await fs.writeFile(path.join(dir, 'motion.mp4'), bytes);
+      reports.push({ dir, report: { media: { mp4: 'motion.mp4', sha256: { 'motion.mp4': sha256(bytes) } } } });
+    }
+    assert.equal(await writeBlindMotionReview(root, ...reports, true), 'blind.html');
+    const page = await fs.readFile(path.join(root, 'blind.html'), 'utf8');
+    assert.doesNotMatch(page, /baseline|candidate/i);
+    assert.match(page, /Play A/);
+    assert.match(page, /Play B/);
+    assert.equal(await fs.readFile(path.join(root, 'a.mp4'), 'utf8'), 'candidate');
+    assert.equal(await fs.readFile(path.join(root, 'b.mp4'), 'utf8'), 'baseline');
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(root, 'blind-key.json'), 'utf8')), { A: 'candidate', B: 'baseline' });
+    await fs.writeFile(path.join(root, 'baseline', 'motion.mp4'), 'corrupted');
+    await assert.rejects(writeBlindMotionReview(root, ...reports, false), /motion preview hash/);
+    assert.equal(await writeBlindMotionReview(root, { ...reports[0], report: {} }, reports[1]), null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
