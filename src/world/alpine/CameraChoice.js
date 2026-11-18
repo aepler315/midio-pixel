@@ -35,6 +35,15 @@ export const AUTO_TOUR_GATE = Object.freeze({
 
 const overlaps = (t, visible) => visible.some((v) => t >= v.startMs && t <= v.endMs);
 
+/** Motion-limit breaches the planner reported, as message strings. Reads the
+ *  structured `diagnostics.limitBreaches` (ShotTimeline.buildShotTimeline).
+ *  Timelines saved before that field existed only have notes, so for those
+ *  alone the notes' "over the limit" wording is still matched. */
+function limitBreaches(timeline, d) {
+  if (Array.isArray(d.limitBreaches)) return d.limitBreaches.map((b) => b.message);
+  return (timeline?.notes || d.notes || []).filter((n) => /over the limit/.test(n));
+}
+
 /** Measurements of a planned timeline over the heard time it is on screen. */
 export function tourMetrics(timeline, visible = null) {
   const durationMs = timeline?.durationMs || 0;
@@ -58,7 +67,7 @@ export function tourMetrics(timeline, visible = null) {
     payoffs: payoffs.length,
     payoffErrorMs: errors.length ? Math.max(...errors) : null,
     flowRatio: Number.isFinite(d.maxFlowRatio) ? d.maxFlowRatio : 0,
-    overLimit: (timeline?.notes || d.notes || []).filter((n) => /over the limit/.test(n)),
+    overLimit: limitBreaches(timeline, d),
   };
 }
 
