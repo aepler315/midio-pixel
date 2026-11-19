@@ -19,6 +19,19 @@ export const RULE_DEFAULTS = Object.freeze({ forestFloorM: -100000, treeScale: 1
 const WATER_RULE_BOUNDS = Object.freeze({ waterSkyMix: 1, waterGlintGain: 3 });
 const HEX = /^#[0-9a-f]{6}$/i;
 
+/** Generated valleys have a local elevation datum. Keep the material's
+ *  density and snow transition depth, lifting bands from lower surveyed
+ *  terrain enough to leave habitat on inland banks and foothills. */
+export function inlandMaterialRules(view, rules) {
+  const plan = view?.songRange?.plan;
+  if (!plan?.inland || !Number.isFinite(plan.baseM)) return rules;
+  const density = Math.max(0, Math.min(1, rules.forestDensity));
+  const treelineM = Math.max(rules.treelineM, plan.baseM + 180 + density * 600);
+  const snowLift = Math.max(0, plan.baseM + 380 + density * 570 - rules.snowlineM);
+  if (treelineM === rules.treelineM && snowLift === 0) return rules;
+  return { ...rules, treelineM, snowlineM: rules.snowlineM + snowLift, snowFullM: rules.snowFullM + snowLift };
+}
+
 /** Water receivers accept the same bounded controls in packs and view overrides. */
 export function validateWaterRules(rules = {}) {
   const errors = [];

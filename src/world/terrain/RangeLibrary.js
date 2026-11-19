@@ -21,7 +21,7 @@ import { planSongRange, songRangeEnabled, songRangeForced, songRangeLayoutParam,
 import MASSIF_CATALOG from './massifCatalogData.js';
 import SCENE_CATALOG from './sceneCatalogData.js';
 import { songprintLandmarks } from '../alpine/BuildFocus.js';
-import { songprintComposition, songprintRailStations } from '../alpine/SongprintViewpoints.js';
+import { inlandRailCamera, songprintComposition, songprintRailStations } from '../alpine/SongprintViewpoints.js';
 import { songRangeView, loadSongRangeStage, stageRiseSlots } from '../alpine/StageAssembly.js';
 import { loadTerrainPackage, sha256Hex } from '../alpine/RangeAssets.js';
 import { dualSummitsRequested, planDualSummitsScene, dualSummitsSceneMetadata, DUAL_SUMMITS_SIGNATURE,
@@ -76,10 +76,12 @@ export async function songRangeChoice(profile, seed, scenery, { search, fetchImp
     if (plan.songprintVersion) {
       let viewpoints = stageViewpoints.get(stage.data);
       if (!viewpoints) {
-        const landmarks = songprintLandmarks(stage.data, view);
         const composition = songprintComposition(stage.data, view);
-        viewpoints = { songprintLandmarks: landmarks, songprintComposition: composition,
-          songprintRailStations: songprintRailStations(stage.data, view, landmarks, composition) };
+        const camera = inlandRailCamera(stage.data, view, composition);
+        const framed = { ...view, camera };
+        const landmarks = songprintLandmarks(stage.data, framed);
+        viewpoints = { camera, songprintLandmarks: landmarks, songprintComposition: composition,
+          songprintRailStations: songprintRailStations(stage.data, framed, landmarks, composition) };
         stageViewpoints.set(stage.data, viewpoints);
       }
       view = { ...view, ...viewpoints };

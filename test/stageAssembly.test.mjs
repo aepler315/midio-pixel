@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
-import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHash, STAGE_KIND, stageReliefScale, reliefScaleFrom, STAGE_RELIEF,
+import { assembleStage, loadSongRangeStage, pieceBlock, songRangeView, songRangeViewErrors, stageHash, STAGE_KIND, stageReliefScale, reliefScaleFrom, STAGE_RELIEF,
   INLAND_SURFACE_STRIDE, stageRiseSlots, stageTemplate } from '../src/world/alpine/StageAssembly.js';
 import { decodeTerrain, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
-import { WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
+import { INLAND_RIVER_FLOW, WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { planSongRange, songRangeKey, songReliefJitter } from '../src/world/terrain/SongRangePlan.js';
 import { planDualSummitsScene } from '../src/world/terrain/DualSummitsScene.js';
 import { inlandHeightAt, makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
+import { makeInlandWatershed } from '../src/world/terrain/InlandWatershed.js';
 import MASSIF_CATALOG from '../src/world/terrain/massifCatalogData.js';
 import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
 import { PROFILE_VERSION } from '../src/audio/SongProfile.js';
@@ -33,8 +34,10 @@ const sha = (b) => createHash('sha256').update(b).digest('hex');
 function loadPackage(url) {
   const manifestBytes = fs.readFileSync(new URL(url, ASSETS));
   const manifest = JSON.parse(manifestBytes);
-  const decoded = new Uint8Array(gunzipSync(fs.readFileSync(new URL(manifest.payload.url, new URL(url, ASSETS)))));
-  return { manifest, manifestSha256: sha(manifestBytes), data: decodeTerrain(manifest, decoded) };
+  const compressed = fs.readFileSync(new URL(manifest.payload.url, new URL(url, ASSETS)));
+  const decoded = new Uint8Array(gunzipSync(compressed));
+  return { manifest, manifestSha256: sha(manifestBytes), data: decodeTerrain(manifest, decoded),
+    bytes: { compressed: compressed.byteLength, decoded: decoded.byteLength } };
 }
 const pieceById = new Map(MASSIF_CATALOG.pieces.map((p) => [p.id, p]));
 const blockCache = new Map();
@@ -103,7 +106,7 @@ test('an assembled stage is a complete, deterministic terrain package with the l
   assert.ok(Math.min(...strides) <= 4 && Math.max(...strides) >= 32, JSON.stringify([Math.min(...strides), Math.max(...strides)]));
 });
 
-test('an inland song stage doubles the existing axes and keeps continuous dry coverage', () => {
+test('an inland song stage keeps incised channels continuous through the expanded multiresolution grid', async () => {
   const base = planOf(pilot.layouts[0]);
   const inland = makeInlandTerrain(315, { version: 1, skyline: Array.from({ length: 16 }, (_, i) => i / 15) });
   const plan = { ...base, inland };
@@ -123,24 +126,55 @@ test('an inland song stage doubles the existing axes and keeps continuous dry co
   const stage = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
   const data = decodeTerrain(stage.manifest, stage.decoded);
   assert.equal(data.tiles.size, 70 * 70);
-  assert.ok(stage.decoded.byteLength < 3 * 1024 * 1024);
+  assert.ok(stage.decoded.byteLength < 4 * 1024 * 1024);
   assert.equal(stage.manifest.estimatedBytes.mobile.surfaceTextureBytes,
     Math.round(((grid.width - 1) / INLAND_SURFACE_STRIDE + 1) ** 2 * 16 / 3));
-  for (const tile of data.tiles.values()) assert.ok(tile.flowBytes.every(value => value === 0));
-  assert.equal(data.byIndex.get('0,0').stride, 32);
+  assert.equal(stage.manifest.hydrology.riverFlow, INLAND_RIVER_FLOW);
+  assert.ok(stage.manifest.hydrology.anchors.length > 0);
+  let channelTiles = 0, deepestCutM = 0;
+  for (const tile of data.tiles.values()) {
+    assert.ok(!tile.flowBytes.includes(WATER_FLOW), 'no lake or reflection-plane marker');
+    if (!tile.flowBytes.includes(INLAND_RIVER_FLOW)) continue;
+    channelTiles++;
+    assert.ok(tile.stride <= 4 && tile.lod.mobile <= 8, 'river samples survive in the saved terrain and mobile mesh');
+    const x0 = grid.originM[0] + tile.ix * tileMetres, z0 = grid.originM[1] + tile.iz * tileMetres;
+    if (x0 + tileMetres >= original.grid.originM[0]) continue;
+    const spacingM = tile.stride * grid.cellSizeM;
+    for (const [i, flow] of tile.flowBytes.entries()) {
+      if (flow !== INLAND_RIVER_FLOW) continue;
+      const x = x0 + (i % tile.samples) * spacingM;
+      const z = z0 + Math.floor(i / tile.samples) * spacingM;
+      deepestCutM = Math.max(deepestCutM, inlandHeightAt(inland, plan.baseM, x, z) - tile.heightsM[i]);
+    }
+  }
+  assert.ok(channelTiles > 20, `channel tiles: ${channelTiles}`);
+  assert.ok(deepestCutM > 500, `channel excavation beyond the measured pieces: ${deepestCutM} m`);
+  assert.ok([...data.tiles.values()].some(tile => tile.stride === 32), 'outer ridges keep their coarse coverage');
   const [ix, iz] = stage.placed[0].tileOrigin;
   assert.equal(data.byIndex.get(`${ix},${iz}`).stride, 2);
+  const watershed = makeInlandWatershed(inland, plan.baseM, stage.manifest.boundsM);
   for (const [x, z] of [[grid.originM[0], grid.originM[1]], [grid.originM[0] + tileMetres, grid.originM[1] + tileMetres]]) {
-    assert.ok(Math.abs(terrainHeightAt(data, x, z) - inlandHeightAt(inland, plan.baseM, x, z)) <= stage.manifest.quantization.stepM);
+    const heightM = watershed.sample(x, z, inlandHeightAt(inland, plan.baseM, x, z)).heightM;
+    assert.ok(Math.abs(terrainHeightAt(data, x, z) - heightM) <= stage.manifest.quantization.stepM);
   }
   for (const tile of data.tiles.values()) {
     const right = data.byIndex.get(`${tile.ix + 1},${tile.iz}`);
     const bottom = data.byIndex.get(`${tile.ix},${tile.iz + 1}`);
-    if (right) for (let z = 0; z <= 64; z += Math.max(tile.stride, right.stride))
-      assert.equal(tile.heightsM[z / tile.stride * tile.samples + tile.samples - 1], right.heightsM[z / right.stride * right.samples]);
-    if (bottom) for (let x = 0; x <= 64; x += Math.max(tile.stride, bottom.stride))
-      assert.equal(tile.heightsM[(tile.samples - 1) * tile.samples + x / tile.stride], bottom.heightsM[x / bottom.stride]);
+    if (right) for (let z = 0; z <= 64; z += Math.max(tile.stride, right.stride)) {
+      const a = z / tile.stride * tile.samples + tile.samples - 1, b = z / right.stride * right.samples;
+      assert.equal(tile.heightsM[a], right.heightsM[b]);
+      assert.equal(tile.flowBytes[a], right.flowBytes[b]);
+    }
+    if (bottom) for (let x = 0; x <= 64; x += Math.max(tile.stride, bottom.stride)) {
+      const a = (tile.samples - 1) * tile.samples + x / tile.stride, b = x / bottom.stride;
+      assert.equal(tile.heightsM[a], bottom.heightsM[b]);
+      assert.equal(tile.flowBytes[a], bottom.flowBytes[b]);
+    }
   }
+  const view = songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG });
+  const live = await loadSongRangeStage(view, { catalog: MASSIF_CATALOG, baseUrl: ASSETS, loadPackage, sha256Hex: sha, reliefScale: 1 });
+  assert.equal(live.identity.decodedSha256, sha(stage.decoded));
+  assert.deepEqual(live.manifest.landmarks, stage.manifest.landmarks);
 });
 
 test('mirroring a slot mirrors its massif about the block centre', () => {

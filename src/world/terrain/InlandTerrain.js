@@ -1,7 +1,7 @@
 import { copySongprintSkyline } from '../../audio/SongprintData.js';
 import { clamp01 } from '../../utils/math.js';
 
-export const INLAND_TERRAIN_VERSION = 1;
+export const INLAND_TERRAIN_VERSION = 2;
 const FLOOR_OFFSET_M = 96;
 const REGION_WIDTH_M = 89600;
 const smooth = t => t * t * (3 - 2 * t);
@@ -31,7 +31,7 @@ export function makeInlandTerrain(seed, songprint) {
     east: Math.cos(direction),
     north: Math.sin(direction),
     spacingM: 11200 - 5800 * clamp01(variation * 3.1),
-    reliefM: 880 + 450 * spread + 500 * mean,
+    reliefM: 1250 + 580 * spread + 570 * mean,
   });
 }
 
@@ -56,9 +56,8 @@ function contour(skyline, alongM) {
   return mix(skyline[i], skyline[Math.min(last, i + 1)], smooth(p - i));
 }
 
-/** Continuous dry ground in local stage metres. Warped parallel belts set
- * the large terrain. Passes break those belts along the song's outline,
- * and smaller foothills give the slopes depth between measured massifs. */
+/** Continuous ridges and foothills in local stage metres, before drainage.
+ * Passes break the higher crests along the song's measured outline. */
 export function inlandHeightAt(field, baseM, x, z) {
   const { seed, skyline, east, north, spacingM, reliefM } = field;
   const along = x * east + z * north;
@@ -74,7 +73,8 @@ export function inlandHeightAt(field, baseM, x, z) {
   const shoulder = plane(seed ^ 0x39ad6ec2, along / 3300, across / 2300);
   const foothills = plane(seed ^ 0xcafab27b, x / 1080, z / 930);
   const grain = plane(seed ^ 0x5bc98932, x / 510, z / 430);
-  const height01 = .49 * ridge + .18 * smooth(region) + .13 * smooth(spur) + .17 * smooth(shoulder) + .022 * foothills + .008 * grain;
+  const height01 = .52 * ridge + .12 * smooth(region) + .13 * smooth(spur)
+    + .16 * smooth(shoulder) + .056 * smooth(foothills) + .014 * grain;
   return baseM + FLOOR_OFFSET_M + reliefM * height01;
 }
 

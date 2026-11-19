@@ -13,7 +13,8 @@
 // hydro-flattened water or above the treeline), evaluated from the
 // package's own heights. These are derived habitat masks, not measured
 // land cover.
-import { terrainHeightAt, BANDS } from './TerrainMesh.js';
+import { terrainHeightAt, makeTerrainMeshHeightSampler, BANDS } from './TerrainMesh.js';
+import { INLAND_RIVER_FLOW, INLAND_SURFACE_STRIDE } from './TerrainPackage.js';
 import { RULE_DEFAULTS } from './MaterialPackage.js';
 import { scenePoseAt, pathStations } from '../terrain/SceneTravel.js';
 
@@ -238,10 +239,131 @@ function authoredRail(view) {
   };
 }
 
+const STAND_M = 640;
+const TREES_PER_STAND = 9;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const hasInlandWoodland = data => data.manifest?.hydrology?.riverFlow === INLAND_RIVER_FLOW;
+const clamp01 = n => Math.min(1, Math.max(0, n));
+
+/** Count and placement share this partition. A world-fixed stand lattice
+ *  belongs to the tile under its centre, regardless of camera position. */
+function* inlandStandTiles(data, treeline) {
+  const size = data.cells * data.grid.cellSizeM;
+  const [originX, originZ] = data.grid.originM;
+  for (const tile of data.tiles.values()) {
+    if (!tile.visible || tile.minY > treeline + 110) continue;
+    const x = (originX + tile.ix * size) / STAND_M - .5;
+    const z = (originZ + tile.iz * size) / STAND_M - .5;
+    yield [Math.ceil(x), Math.ceil(z), Math.ceil(x + size / STAND_M), Math.ceil(z + size / STAND_M)];
+  }
+}
+
+/** Wet fractions come from the same source samples as the surface atlas.
+ *  A stand can straddle a river; each root checks the bank independently. */
+function inlandHabitatAt(data, x, z) {
+  const { grid, cells, manifest: { tilesX, tilesZ } } = data;
+  const gx = (x - grid.originM[0]) / grid.cellSizeM, gz = (z - grid.originM[1]) / grid.cellSizeM;
+  const ix = Math.floor(gx / cells) - (gx === tilesX * cells ? 1 : 0);
+  const iz = Math.floor(gz / cells) - (gz === tilesZ * cells ? 1 : 0);
+  const tile = data.byIndex.get(`${ix},${iz}`);
+  if (!tile?.visible) return null;
+  const fu = (gx - ix * cells) / tile.stride, fv = (gz - iz * cells) / tile.stride;
+  const n = tile.samples;
+  const u = Math.min(n - 2, Math.floor(fu)), v = Math.min(n - 2, Math.floor(fv));
+  const tx = fu - u, tz = fv - v, i = v * n + u;
+  const fa = tile.flowBytes[i], fb = tile.flowBytes[i + 1], fc = tile.flowBytes[i + n], fd = tile.flowBytes[i + n + 1];
+  const a = (1 - tx) * (1 - tz), b = tx * (1 - tz), c = (1 - tx) * tz, d = tx * tz;
+  const wet = (fa >= INLAND_RIVER_FLOW ? a : 0) + (fb >= INLAND_RIVER_FLOW ? b : 0)
+    + (fc >= INLAND_RIVER_FLOW ? c : 0) + (fd >= INLAND_RIVER_FLOW ? d : 0);
+  const flow = a * fa + b * fb + c * fc + d * fd;
+  return { wet, flow, band: Math.max(0, BANDS.indexOf(tile.band)), spacingM: grid.cellSizeM * tile.stride };
+}
+
+/** Filtering can grow a narrow channel beyond its native source posts.
+ *  Keep trees back from any wet corner in this root's rendered atlas cell. */
+function touchesRiverCell(data, x, z) {
+  const step = data.grid.cellSizeM * INLAND_SURFACE_STRIDE;
+  const [ox, oz] = data.grid.originM;
+  const left = ox + Math.floor((x - ox) / step) * step;
+  const top = oz + Math.floor((z - oz) / step) * step;
+  for (let dz = 0; dz <= step; dz += step) for (let dx = 0; dx <= step; dx += step) {
+    if (inlandHabitatAt(data, left + dx, top + dz)?.wet > .499999) return true;
+  }
+  return false;
+}
+
+/** Local topographic position distinguishes sheltered benches from exposed
+ *  crests even when both have gentle local slopes. */
+function inlandShelterAt(data, x, y, z) {
+  const radius = STAND_M * .5;
+  const a = terrainHeightAt(data, x - radius, z), b = terrainHeightAt(data, x + radius, z);
+  const c = terrainHeightAt(data, x, z - radius), d = terrainHeightAt(data, x, z + radius);
+  return ((Number.isFinite(a) ? a : y) + (Number.isFinite(b) ? b : y)
+    + (Number.isFinite(c) ? c : y) + (Number.isFinite(d) ? d : y)) * .25 - y;
+}
+
+/** A continuously flying camera shares one forest over the entire range.
+ *  Place compact stands on banks and sheltered foothills, using the existing
+ *  tree billboards and leaving exposed crests and the active river bare. */
+function* placeInlandForestSteps(data, view, rules, seed, budget) {
+  const stride = 8, board = new FloatChunks();
+  const treeline = rules.treelineM, density = clamp01(rules.forestDensity ?? 1);
+  const renderedHeightAt = makeTerrainMeshHeightSampler(data, budget);
+  const scale = rules.treeScale ?? RULE_DEFAULTS.treeScale;
+  const woodlandRules = { ...rules, treeScale: Math.max(.64, scale) };
+  const bankRules = { ...rules, treeScale: Math.max(.88, scale) };
+  for (const [ix0, iz0, ix1, iz1] of inlandStandTiles(data, treeline)) {
+    for (let iz = iz0; iz < iz1; iz++) {
+      for (let ix = ix0; ix < ix1; ix++) {
+        const x = (ix + .25 + .5 * u01(hash2(ix, iz, seed + 31))) * STAND_M;
+        const z = (iz + .25 + .5 * u01(hash2(ix, iz, seed + 32))) * STAND_M;
+        const y = terrainHeightAt(data, x, z);
+        if (!Number.isFinite(y) || y > treeline + 110) continue;
+        const habitat = inlandHabitatAt(data, x, z);
+        if (!habitat) continue;
+        const shelter = inlandShelterAt(data, x, y, z);
+        const moisture = clamp01((habitat.flow - 48) / 112);
+        const foothill = clamp01((shelter + 20) / 70);
+        const exposed = clamp01((shelter + 55) / 60);
+        const chance = exposed * (.03 + .20 * density + .51 * moisture + .22 * foothill);
+        if (u01(hash2(ix, iz, seed + 33)) >= chance) continue;
+        const radius = 65 + 65 * u01(hash2(ix, iz, seed + 34));
+        const bearing = 2 * Math.PI * u01(hash2(ix, iz, seed + 35));
+        for (let k = 0; k < TREES_PER_STAND; k++) {
+          const angle = bearing + k * GOLDEN_ANGLE + u01(hash2(ix, iz, seed + 40 + k)) * .7;
+          const reach = radius * Math.sqrt((k + .5) / TREES_PER_STAND);
+          const tx = Math.fround(x + Math.cos(angle) * reach), tz = Math.fround(z + Math.sin(angle) * reach);
+          const root = inlandHabitatAt(data, tx, tz);
+          if (!root || root.wet > .12 || touchesRiverCell(data, tx, tz)) continue;
+          const ty = terrainHeightAt(data, tx, tz);
+          if (!Number.isFinite(ty) || ty > treeEdge(tx, tz, seed, treeline)) continue;
+          const slope = slopeDegAt(data, tx, tz, Math.max(data.grid.cellSizeM, root.spacingM * .5));
+          if (!(slope <= rules.forestMaxSlopeDeg)) continue;
+          const bank = root.flow >= 100;
+          if (!bank && inlandShelterAt(data, tx, ty, tz) < -40) continue;
+          const meshY = renderedHeightAt(tx, tz);
+          if (!Number.isFinite(meshY)) continue;
+          const traits = treeTraits(Math.floor(tx / LATTICE_M), Math.floor(tz / LATTICE_M), seed, ty, slope,
+            bank ? bankRules : woodlandRules, view);
+          board.push(tx, meshY, tz, traits.height, traits.width, traits.species, traits.id, root.band);
+        }
+      }
+    }
+    yield;
+  }
+  return { meshDetail: new Float32Array(0), mesh: new Float32Array(0), billboard: board.toArray(), stride, count: board.length / stride };
+}
+
 /** Upper bound from the same tile/ring cull and lattice limits as placement.
  * No typed chunks are allocated here. Density and per-tree habitat tests can
  * only reduce this count. Three partly filled 64K-float chunks are included. */
 export function forestPlacementBound(data, view, rules, rings = FOREST_RINGS) {
+  if (hasInlandWoodland(data)) {
+    let stands = 0;
+    for (const [ix0, iz0, ix1, iz1] of inlandStandTiles(data, rules.treelineM)) stands += (ix1 - ix0) * (iz1 - iz0);
+    const count = stands * TREES_PER_STAND;
+    return { count, lattice: count, placementBytes: count * 64 + (1 << 16) * 4 };
+  }
   const distanceToRail = forestRail(view);
   // A static footprint also places the rail's own forest (placeForest
   // railOnly): at most one more record per cell within the rail's reach.
@@ -273,7 +395,7 @@ export function forestPlacementBound(data, view, rules, rings = FOREST_RINGS) {
  *   data    decoded terrain (TerrainMesh.decodeTerrain)
  *   view    SceneView (camera rail)
  *   rules   material rules (+ view overrides)
- *   options { seed, rings, bands: { nearM, midM } }
+ *   options { seed, rings, bands: { nearM, midM }, budget }
  * Returns { meshDetail, mesh, billboard: Float32Array, stride, count }.
  * Each instance: x, yRoot, z, height, width, variant, id01, bandIndex
  * (0 far, 1 mid, 2 near). Static camera footprints use the terrain root
@@ -309,7 +431,8 @@ function defaultYield() {
 }
 
 /** The placement, one tile per step (a generator returning the result). */
-function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, bands = null } = {}) {
+function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, bands = null, budget = 'desktop' } = {}) {
+  if (hasInlandWoodland(data)) return yield* placeInlandForestSteps(data, view, rules, seed, budget);
   const STRIDE = 8;
   const { rail: railDistanceAt, footprint } = forestDistances(view);
   const distanceToRail = footprint ? (p) => footprint(p, railDistanceAt(p)) : railDistanceAt;

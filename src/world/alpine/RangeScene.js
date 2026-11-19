@@ -30,7 +30,7 @@ import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, creat
 import { syncGustUniforms, syncWaterMusicUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG, useSlotRise } from './TerrainMaterial.js';
 import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
 import { CrestProbe, FINE_FRAG } from './CrestProbe.js';
-import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
+import { inlandMaterialRules, loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
 import { TourForestSchedule, tourForestBytes } from './TourForest.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
@@ -52,7 +52,7 @@ import { applyCameraStudio, cameraStudioStatus } from './CameraStudio.js';
 import { BANDS, terrainFringeBytes, terrainRailCopyBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
-import { drawnTile, terrainHeightRange } from './TerrainPackage.js';
+import { drawnTile, INLAND_RIVER_FLOW, terrainHeightRange } from './TerrainPackage.js';
 import { tourGround, railGroundData, setTerrainDrawMode, drawnIndexCount } from './RailDraw.js';
 import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance, resetLandDanceRequest } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
@@ -1548,7 +1548,7 @@ export class RangeScene {
         // buffers are counted in the same GPU reservation.
         mat = await this._acquireMaterial(view, { baseUrl, signal, owner: materialOwner });
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
-        const rules = { ...mat.pack.manifest.rules, ...(view.materialRules || {}) };
+        const rules = inlandMaterialRules(view, { ...mat.pack.manifest.rules, ...(view.materialRules || {}) });
         const riverErrors = (view.rivers || []).flatMap(r => riverChannelErrors(r));
         if (riverErrors.length) throw new RangeAssetError('manifest', `${view.id}: ${riverErrors.join('; ')}`);
         const waterCheck = validateWaterRules(rules);
@@ -1623,7 +1623,8 @@ export class RangeScene {
             throw err;
           }
         }
-        const placed = rawWindow?.placed || await placeForestAsync(data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id), signal });
+        const placed = rawWindow?.placed || await placeForestAsync(data, view, rules, {
+          seed: hashSeed(view.terrainSourceId || view.id), signal, budget: this.budget });
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         if (!rawWindow) this._retireForestPlacement(buildOwner, buildEntry, placed);
         // CPU arrays stay on BufferAttributes after upload; charge both copies.
@@ -1763,7 +1764,7 @@ export class RangeScene {
         await yieldToMain();
         const base = terrainUniforms(THREE, data, surface);
         const uniforms = sceneUniforms(THREE, base);
-        applyMaterial(uniforms, mat.pack, mat.textures, view.materialRules || {});
+        applyMaterial(uniforms, mat.pack, mat.textures, rules);
         slotRise = createSlotRise(THREE, view, data, uniforms);
         if (slotRise) this.renderer?.initTexture?.(slotRise.texture);
         const featureBuildBytes = materialFeatureAdmission.extraBytes;
@@ -1837,7 +1838,7 @@ export class RangeScene {
           materialFeatures: materialFeatureCache ? 'warp' : 'reference',
           canopySummary: this.canopySummary,
           pixelated: this.pixelated ?? opts.pixelated ?? false,
-          mappedWaterOnly,
+          mappedWaterOnly, inlandRiver: data.manifest.hydrology?.riverFlow === INLAND_RIVER_FLOW,
           terrainShading: terrainShadingForView(this.terrainShading, view.id) });
         withSlotRise(material, slotRise);
         if (Object.keys(riverGeometries).length) {

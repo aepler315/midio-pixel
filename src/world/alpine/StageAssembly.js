@@ -15,24 +15,25 @@
 // Inland stages use a sampled height field throughout the expanded grid,
 // with a finer core and coarser surroundings that do not depend on the rail.
 //
-// Hydrology: a piece sample keeps its own package's flow byte (its own water,
-// such as a caldera lake); floor samples are water inside the lake and dry
-// land outside it. Inland stages are dry. No hydrology runs at runtime.
-import { TERRAIN_SCHEMA, TERRAIN_VERSION, STRIDES, WATER_FLOW, validateTerrainManifest } from './TerrainPackage.js';
+// On lake stages, the pieces keep their own flow bytes. Inland stages
+// cut a watershed across both the field and the joined measured pieces.
+import { TERRAIN_SCHEMA, TERRAIN_VERSION, STRIDES, WATER_FLOW, INLAND_RIVER_FLOW, INLAND_SURFACE_STRIDE, validateTerrainManifest } from './TerrainPackage.js';
 import { TILE_CELLS, LOD_BUDGETS, VISIBILITY, FRAMINGS, SHORE_MAX_STRIDE, tileStrideError, encodeResiduals, splitPlanes, quantizationFor } from './TerrainTiles.js';
 import { decodeTerrain } from './TerrainMesh.js';
 import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, projectPoint, cameraRailErrors } from '../terrain/SceneTravel.js';
 import { stageFloorHeight, inStageLake, slotOrigin } from '../terrain/StageFloor.js';
 import { inlandHeightAt, inlandHeightBounds } from '../terrain/InlandTerrain.js';
+import { makeInlandWatershed } from '../terrain/InlandWatershed.js';
 import { songRangeKey, songReliefJitter } from '../terrain/SongRangePlan.js';
 import { SLOT_RISE_SLOTS } from './LandRise.js';
+import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 import { settingValue } from '../../config/appSettings.js';
 
 export const STAGE_KIND = 'song-range-stage';
 export const PIECE_KIND = 'massif-piece';
 const BANDS = Object.freeze({ nearM: 1800, midM: 7000 });
 const INLAND_PAD_LOW = 17, INLAND_PAD_HIGH = 18;
-export const INLAND_SURFACE_STRIDE = 4;
+export { INLAND_SURFACE_STRIDE };
 
 function inlandTemplate(t, field, baseM) {
   const { width, height, cellSizeM, originM } = t.grid;
@@ -51,12 +52,13 @@ function inlandTemplate(t, field, baseM) {
     cellSizeM, originM: originM.map(value => value - offsetM) } };
 }
 
-/** Inland geometry has one continuous coarse exterior and keeps denser
- * samples in its central travelling area. Measured massifs use their native
- * 20 m lattice with fewer samples retained for the mobile mesh. */
-function inlandTileLod(ix, iz, tilesX, tilesZ, own, forceStride) {
+/** Inland geometry keeps denser samples around channels and in its central
+ * travelling area. Retain more of the measured massif lattice and a
+ * continuous coarse exterior. */
+function inlandTileLod(ix, iz, tilesX, tilesZ, own, river, forceStride) {
   if (forceStride) return { desktop: forceStride, mobile: forceStride };
   if (own) return { desktop: 2, mobile: 4 };
+  if (river) return { desktop: 4, mobile: 8 };
   const outside = Math.max(INLAND_PAD_LOW - ix, INLAND_PAD_LOW - iz,
     ix - tilesX + INLAND_PAD_HIGH + 1, iz - tilesZ + INLAND_PAD_HIGH + 1, 0);
   const desktop = outside <= 3 ? 8 : outside <= 11 ? 16 : 32;
@@ -209,10 +211,14 @@ export function stageSlotOwners(plan, catalog) {
  * Assemble a stage. Pure and synchronous.
  *   plan     planSongRange result
  *   blocks   Map pieceId -> pieceBlock(...)
- *   options  { catalog, id, forceStride, landmarks }
+ *   options  { catalog, id, forceStride, reliefScale }
  * Returns { manifest, decoded (Uint8Array), placed }.
  */
-export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageHash(plan)}`, forceStride = null, reliefScale = 1 } = {}) {
+export function assembleStage(plan, blocks, options) {
+  return finishPreparation(assembleStageSteps(plan, blocks, options));
+}
+
+function* assembleStageSteps(plan, blocks, { catalog, id = `song-range-${stageHash(plan)}`, forceStride = null, reliefScale = 1 } = {}) {
   const t = stageTemplate(catalog, plan);
   const inland = plan.inland;
   const baseM = plan.baseM ?? t.lake.levelM;
@@ -221,6 +227,11 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   const cells = TILE_CELLS;
   const tilesX = (W - 1) / cells, tilesZ = (H - 1) / cells;
   if (!Number.isInteger(tilesX) || !Number.isInteger(tilesZ)) throw new Error(`${t.id}: grid is not whole tiles`);
+  const watershed = inland ? makeInlandWatershed(inland, baseM, {
+    min: [originM[0], baseM, originM[1]],
+    max: [originM[0] + (W - 1) * c, baseM, originM[1] + (H - 1) * c],
+  }) : null;
+  const riverSample = {};
   // Which piece block covers each stage tile (slots never overlap).
   const owner = new Array(tilesX * tilesZ).fill(null);
   const placed = [];
@@ -234,19 +245,22 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
     if (!Number.isFinite(slotScale) || slotScale < .92 || slotScale > 1.08) throw new Error(`invalid relief for slot ${s.slotId}`);
     const at = slotOrigin(slot, block.tiles);
     if (!at) throw new Error(`${s.pieceId} does not fit slot ${s.slotId}`);
-    for (let dz = 0; dz < block.tiles[1]; dz++) for (let dx = 0; dx < block.tiles[0]; dx++) {
-      const k = (at[1] + dz) * tilesX + at[0] + dx;
-      if (owner[k]) throw new Error(`${id}: slots ${owner[k].slotId} and ${s.slotId} overlap`);
-      owner[k] = { block, at, slotId: s.slotId, slotScale };
-    }
     let peak = 0, pk = 0;
     for (let k = 0; k < block.relief.length; k++) if (block.relief[k] > peak) { peak = block.relief[k]; pk = k; }
     peak *= slotScale;
     maxRelief = Math.max(maxRelief, peak);
     const px = originM[0] + (at[0] * cells + pk % block.width) * c, pz = originM[1] + (at[1] * cells + Math.floor(pk / block.width)) * c;
-    placed.push({ slotId: s.slotId, pieceId: s.pieceId, mirrored: !!s.mirrored, tileOrigin: at, peakReliefM: peak,
+    const piece = { slotId: s.slotId, pieceId: s.pieceId, mirrored: !!s.mirrored, tileOrigin: at, peakReliefM: peak,
       ...(s.reliefScale === undefined ? {} : { reliefScale: slotScale }),
-      peakLocalM: [px, pz], floorM: floorAt(px, pz) });
+      peakLocalM: [px, pz], floorM: floorAt(px, pz) };
+    placed.push(piece);
+    const placement = { block, at, slotScale, piece };
+    for (let dz = 0; dz < block.tiles[1]; dz++) for (let dx = 0; dx < block.tiles[0]; dx++) {
+      const k = (at[1] + dz) * tilesX + at[0] + dx;
+      if (owner[k]) throw new Error(`${id}: slots ${owner[k].piece.slotId} and ${s.slotId} overlap`);
+      owner[k] = placement;
+    }
+    yield;
   }
   // 'frame' scales the relief to the template's framing (stageReliefScale);
   // a number is used as given (1 = measured relief). A planned song carries a
@@ -257,7 +271,17 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
     ? stageReliefScale(t, placed.map((p) => ({ x: p.peakLocalM[0], z: p.peakLocalM[1], floorM: p.floorM, reliefM: p.peakReliefM })))
     : Number.isFinite(reliefScale) && reliefScale > 0 ? reliefScale : 1;
   const scale = framed * songReliefJitter(plan.songSeed);
-  for (const p of placed) { p.peakReliefM *= scale; p.stagePeakM = p.floorM + p.peakReliefM; delete p.floorM; }
+  for (const p of placed) {
+    p.peakReliefM *= scale;
+    const peakM = p.floorM + p.peakReliefM;
+    p.stagePeakM = watershed ? watershed.sample(...p.peakLocalM, peakM, riverSample).heightM : peakM;
+    // When erosion removes a crest, keep the original pin in metadata and
+    // let the stored dry ground supply a new summit for the same massif.
+    if (peakM - p.stagePeakM > Math.max(100, .10 * p.peakReliefM)) {
+      p.unincisedSummit = { localM: p.peakLocalM, stageHeightM: peakM };
+    }
+    delete p.floorM;
+  }
   maxRelief *= scale;
   // Shared quantization keeps height samples identical along tile joins.
   // The lake floor peaks at a grid corner; the inland field has global bounds.
@@ -265,7 +289,8 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
     t.lake.levelM,
     Math.max(...[[0, 0], [W - 1, 0], [0, H - 1], [W - 1, H - 1]].map(([i, j]) => floorAt(originM[0] + i * c, originM[1] + j * c))),
   ];
-  const { offsetM, stepM } = quantizationFor(floorBounds[0], floorBounds[1] + maxRelief);
+  const minHeightM = watershed ? Math.min(floorBounds[0], watershed.minHeightM) : floorBounds[0];
+  const { offsetM, stepM } = quantizationFor(minHeightM, floorBounds[1] + maxRelief);
   const quant = (v) => Math.max(1, Math.min(65535, Math.round((v - offsetM) / stepM)));
   // Rail stations and lenses, exactly as a rail-only bake sees them.
   const view = { camera: t.camera };
@@ -285,8 +310,12 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   for (let iz = 0; iz < tilesZ; iz++) for (let ix = 0; ix < tilesX; ix++) {
     const own = owner[iz * tilesX + ix];
     const pieceScale = scale * (own?.slotScale ?? 1);
-    const inlandLod = inland ? inlandTileLod(ix, iz, tilesX, tilesZ, own, forceStride) : null;
+    const x0 = originM[0] + ix * cells * c, z0 = originM[1] + iz * cells * c;
+    const x1 = x0 + cells * c, z1 = z0 + cells * c;
+    const river = watershed?.tileHasRiver(x0, z0, x1, z1);
+    const inlandLod = inland ? inlandTileLod(ix, iz, tilesX, tilesZ, own, river, forceStride) : null;
     const sourceStride = inlandLod ? Math.min(inlandLod.desktop, inlandLod.mobile) : 1;
+    const eroded = own?.piece.unincisedSummit ? own.piece : null;
     const n1 = cells / sourceStride + 1;
     let minY = Infinity, maxY = -Infinity, wet = 0, land = 0;
     for (let v = 0; v < n1; v++) for (let u = 0; u < n1; u++) {
@@ -298,15 +327,21 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
         const bk = bj * own.block.width + bi;
         r = own.block.relief[bk] * pieceScale; pf = own.block.flow[bk];
       }
-      const y = floorAt(x, z) + r;
+      const groundM = floorAt(x, z) + r;
+      const sampled = watershed?.sample(x, z, groundM, riverSample);
+      const y = sampled?.heightM ?? groundM;
       const k = v * n1 + u;
       h[k] = y;
-      fl[k] = inland ? 0 : r > 0 ? pf : inStageLake(t.lake, x, z) ? WATER_FLOW : 0;
+      fl[k] = sampled?.flowByte ?? (r > 0 ? pf : inStageLake(t.lake, x, z) ? WATER_FLOW : 0);
+      if (eroded && y > eroded.stagePeakM && r > .25 * eroded.peakReliefM && fl[k] !== INLAND_RIVER_FLOW
+        && gi % inlandLod.mobile === 0 && gj % inlandLod.mobile === 0) {
+        eroded.peakLocalM = [x, z];
+        eroded.stagePeakM = y;
+      }
       if (fl[k] === WATER_FLOW) wet++; else land++;
       if (y < minY) minY = y; if (y > maxY) maxY = y;
     }
-    const x0 = originM[0] + ix * cells * c, z0 = originM[1] + iz * cells * c;
-    const box = { min: [x0, minY, z0], max: [x0 + cells * c, maxY, z0 + cells * c] };
+    const box = { min: [x0, minY, z0], max: [x1, maxY, z1] };
     const errorsM = {};
     for (const s of STRIDES) if (s >= sourceStride && s <= cells)
       errorsM[s] = tileStrideError(h, valid, n1, n1, 0, 0, n1 - 1, s / sourceStride);
@@ -354,6 +389,7 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
       errorsM: Object.fromEntries(Object.entries(errorsM).filter(([s]) => Number(s) >= stride).map(([s, e]) => [s, Math.round(e * 1000) / 1000])),
     });
     for (let a = 0; a < 3; a++) { bounds.min[a] = Math.min(bounds.min[a], box.min[a]); bounds.max[a] = Math.max(bounds.max[a], box.max[a]); }
+    yield;
   }
   const decoded = new Uint8Array(byteOffset);
   let at = 0;
@@ -373,7 +409,7 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
       pieces: placed.map((p) => ({ slotId: p.slotId, pieceId: p.pieceId, mirrored: p.mirrored,
         ...(p.reliefScale === undefined ? {} : { reliefScale: p.reliefScale }) })) } },
     fill: null, horizontalCrs: 'Local stage metres; pieces carry their own source CRS',
-    verticalReference: inland ? 'Generated ridge and valley field plus scaled measured relief (metres)'
+    verticalReference: inland ? 'Generated ridge and valley field with scaled measured relief and incised channels (metres)'
       : plan.songprintVersion ? 'Stage floor plus measured relief times piece and composition relief scales (metres)'
       : 'Stage floor plus measured relief above each piece base, times composition.reliefScale (metres)', centerLonLat: null,
     sourceResolutionM: c, outputSpacingM: c },
@@ -381,16 +417,22 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
     axes: 'X east, Y up, Z south (metres)', tileCells: cells, tilesX, tilesZ,
     quantization: { offsetM, stepM }, boundsM: bounds, bands: { ...BANDS },
     lod: { budgets: LOD_BUDGETS, fovYDeg: lodFovYDeg, visibility: VISIBILITY,
-      framings: inland ? 'bounded central resolution with coarser continuous ground towards all edges'
+      framings: inland ? 'finer measured relief and river corridors over continuous coarser ground'
         : 'assembled at runtime against the template rail without occlusion culling; every tile is kept',
       ...(inland ? {} : { achievedErrorPx: Object.fromEntries(Object.entries(achieved).map(([k, v]) => [k, Math.round(v * 1000) / 1000])) }),
       triangulation: 'quads split along the (0,0)-(1,1) diagonal; finer edges snap to the coarser neighbour' },
-    hydrology: inland ? { flow: 'dry inland relief without drainage simulation', water: 'none' }
+    hydrology: watershed ? {
+      flow: 'Generated downhill watershed with bounded bank moisture',
+      water: 'Inland channels shaded directly on the terrain',
+      riverFlow: INLAND_RIVER_FLOW,
+      anchors: watershed.anchors,
+    }
       : { flow: 'each piece keeps its own package flow; floor flow 0', water: 'piece water from its own bake; floor water inside the template lake' },
     payload: { url: null, encoding: 'none', byteLength: decoded.byteLength, sha256: null, decodedByteLength: decoded.byteLength, decodedSha256: null },
     estimatedBytes: { desktop: estimate('desktop'), mobile: estimate('mobile') },
     landmarks: placed.map((p) => ({ name: catalog.pieces.find((x) => x.id === p.pieceId)?.name || p.pieceId, lonLat: null,
-      publishedElevationM: null, localM: p.peakLocalM, demGroundM: p.stagePeakM, demPeakWithin200mM: p.stagePeakM })),
+      publishedElevationM: null, localM: p.peakLocalM, demGroundM: p.stagePeakM, demPeakWithin200mM: p.stagePeakM,
+      ...(p.unincisedSummit ? { unincisedSummit: p.unincisedSummit } : {}) })),
     tiles,
   };
   const check = validateTerrainManifest(manifest, { decoded: decoded.byteLength });
@@ -445,6 +487,15 @@ export function songRangeView(plan, { catalog, sceneCatalog }) {
 
 export { songRangeViewErrors } from '../terrain/SongRangeView.js';
 
+function* loadedStageSteps(plan, loaded, options) {
+  const blocks = new Map();
+  for (const pkg of loaded) {
+    blocks.set(pkg.manifest.piece?.id, pieceBlock(pkg.data));
+    yield;
+  }
+  return yield* assembleStageSteps(plan, blocks, options);
+}
+
 const stageCache = new Map();
 /**
  * Fetch, verify and assemble a song range view's terrain. Cached per stage id
@@ -462,11 +513,12 @@ export function loadSongRangeStage(view, { catalog, baseUrl, fetchImpl, signal =
     const loaded = await Promise.all(view.songRange.pieces.map((p) => loadPackage(new URL(p.manifestUrl, baseUrl).href,
       { signal, fetchImpl, expectManifestSha256: p.manifestSha256 })));
     const t1 = globalThis.performance?.now?.() ?? Date.now();
-    const blocks = new Map(loaded.map((pkg) => [pkg.manifest.piece?.id, pieceBlock(pkg.data)]));
+    const { plan } = view.songRange;
     // A song's range ends looming over the lake (stageReliefScale). A pilot
     // layout keeps its measured relief, to compare with its offline bake.
-    const scale = reliefScale ?? reliefScaleFrom() ?? (view.songRange.plan.pilot ? 1 : 'frame');
-    const { manifest, decoded } = assembleStage(view.songRange.plan, blocks, { catalog, id: view.id, reliefScale: scale });
+    const scale = reliefScale ?? reliefScaleFrom() ?? (plan.pilot ? 1 : 'frame');
+    const steps = loadedStageSteps(plan, loaded, { catalog, id: view.id, reliefScale: scale });
+    const { manifest, decoded } = plan.inland ? await prepareInSlices(steps, { signal }) : finishPreparation(steps);
     const decodedSha256 = await sha256Hex(decoded);
     manifest.payload.decodedSha256 = decodedSha256;
     const data = decodeTerrain(manifest, decoded);

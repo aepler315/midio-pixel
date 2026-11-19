@@ -67,12 +67,23 @@ function basinsOf(data, bounds, center) {
   return basins.sort((a, b) => b.value - a.value).slice(0, 5);
 }
 
+function riverAnchorsOf(data, bounds) {
+  const anchors = data.manifest?.hydrology?.anchors ?? [];
+  return anchors.flatMap(({ id, kind, x, z }) => {
+    if ((kind !== 'gorge' && kind !== 'confluence') || !inside(bounds, x, z)) return [];
+    const y = terrainHeightAt(data, x, z);
+    return Number.isFinite(y) ? [{ id, kind, label: kind === 'gorge' ? 'River canyon' : 'River confluence',
+      pointM: [x, y + 80, z], value: kind === 'gorge' ? .95 : .8 }] : [];
+  });
+}
+
 function eyeStations(anchor, context) {
   const { data, bounds, home, crests, opening, finale } = context;
   const result = [];
   const targetM = anchor.pointM;
   const bearing = Math.atan2(home.eyeM[2] - targetM[2], home.eyeM[0] - targetM[0]);
-  for (const radius of RADII_M) for (let i = 0; i < BEARINGS; i++) {
+  const radii = anchor.kind ? [4100, 7300, 11600] : RADII_M;
+  for (const radius of radii) for (let i = 0; i < BEARINGS; i++) {
     const angle = bearing + i * Math.PI * 2 / BEARINGS;
     const x = targetM[0] + radius * Math.cos(angle), z = targetM[2] + radius * Math.sin(angle);
     if (!inside(bounds, x, z)) continue;
@@ -80,7 +91,9 @@ function eyeStations(anchor, context) {
     if (!Number.isFinite(groundM)) continue;
     const eyeM = [x, groundM + (finale ? 1450 : opening ? 610 : 940), z];
     const pose = { eyeM, targetM, fovYDeg: home.fovYDeg };
-    let picked = seenFrom(data, eyeM, [targetM[0], targetM[1] + 30, targetM[2]]) ? 1 : 0;
+    const visible = seenFrom(data, eyeM, [targetM[0], targetM[1] + 30, targetM[2]]);
+    if (anchor.kind && !visible) continue;
+    let picked = visible ? 1 : 0;
     // A pass has two distinct shoulders. Reward the wider view of both.
     for (const crest of anchor.subjects ?? crests) {
       if (crest === anchor) continue;
@@ -188,10 +201,17 @@ export function compileInlandFlight(data, view, movement) {
   const crests = crestsOf(data, pair);
   const pivotM = blend(pair.principal.pointM, pair.companion.pointM, .5);
   const passes = passesOf(data, crests), basins = basinsOf(data, bounds, pivotM);
-  const subjectGroups = [passes.length ? passes : crests.slice(1), crests.slice(1), basins.length ? basins : crests.slice(1)];
+  const riverAnchors = riverAnchorsOf(data, bounds);
+  const gorges = riverAnchors.filter(anchor => anchor.kind === 'gorge').slice(0, 6);
+  const confluences = riverAnchors.filter(anchor => anchor.kind === 'confluence').slice(0, 4);
+  const passChoices = passes.length ? passes : crests.slice(1);
+  const basinChoices = basins.length ? basins : crests.slice(1);
+  const subjectGroups = [gorges.length ? gorges : passChoices, crests.slice(1), confluences.length ? confluences : basinChoices];
   const middle = times.slice(1, -1).map((_, i) => subjectGroups[i]);
-  const groups = [[crests[0]], ...middle, [...crests.slice(1), ...basins]];
-  for (const route of routeStations(groups, times, travelMs, { data, bounds, home, crests })) {
+  const standardMiddle = [passChoices, crests.slice(1), basinChoices].slice(0, times.length - 2);
+  const surveys = middle.some(group => group === gorges || group === confluences) ? [middle, standardMiddle] : [middle];
+  for (const survey of surveys) for (const route of routeStations([[crests[0]], ...survey, [...crests.slice(1), ...basins]],
+    times, travelMs, { data, bounds, home, crests })) {
     const sampled = sampleClearedPath(route.stations, data, bounds, home.fovYDeg);
     if (!sampled) continue;
     const anchors = route.stations.map(station => station.anchor);
@@ -230,7 +250,8 @@ export function inlandFlightPose(pose, route, movement, { baseM, rise01, slotRis
   const oldGroundM = gain < 1 ? heightAt(pose.eyeM[0], pose.eyeM[2]) : groundM;
   const oldClearance = Number.isFinite(oldGroundM) ? clamp(pose.eyeM[1] - oldGroundM, 0, CLEARANCE_M) : 0;
   eyeM[1] = Math.max(eyeM[1], groundM + lerp(oldClearance, CLEARANCE_M, gain));
-  const drop = anchor => (anchor.pointM[1] - baseM) * (1 - (slotRise01?.[anchor.slotId] ?? rise01 ?? 1));
+  const drop = anchor => anchor.kind ? 0
+    : (anchor.pointM[1] - baseM) * (1 - (slotRise01?.[anchor.slotId] ?? rise01 ?? 1));
   const gaze = u * u * (3 - 2 * u);
   flight.targetM[1] -= lerp(drop(route.anchors[i]), drop(route.anchors[i + 1]), gaze);
   return { ...pose, eyeM, targetM: blend(pose.targetM, flight.targetM, gain), songprintOrbit: {

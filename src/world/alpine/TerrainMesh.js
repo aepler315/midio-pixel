@@ -14,7 +14,7 @@ import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 // every level is a subset of one sample lattice, and a finer tile's edge
 // vertices snap onto its coarser neighbour's edge, so mixed levels meet
 // without cracks and a level change never moves the mountain.
-import { decodeResiduals, validateTerrainManifest, WATER_FLOW } from './TerrainPackage.js';
+import { decodeResiduals, INLAND_MAX_DRY_FLOW, INLAND_RIVER_FLOW, validateTerrainManifest, WATER_FLOW } from './TerrainPackage.js';
 
 export const BANDS = Object.freeze(['far', 'mid', 'near']);
 // Surface build: heights (4) + stored spacing (1) + RGBA output (4).
@@ -92,13 +92,74 @@ export function terrainHeightAt(data, x, z) {
  *  optional coarsening `bias` (1 = as baked, 2 = one level coarser...). */
 export function tileStrides(data, budget = 'desktop', bias = 1) {
   const out = new Map();
-  for (const t of data.tiles.values()) {
-    const base = t.lod?.[budget] ?? t.stride;
-    out.set(t.id, Math.min(data.cells, Math.max(t.stride, base * bias)));
-  }
+  for (const t of data.tiles.values()) out.set(t.id, tileStride(t, budget, data.cells, bias));
   return out;
 }
 
+function tileStride(tile, budget, cells, bias = 1) {
+  return Math.min(cells, Math.max(tile.stride, (tile.lod?.[budget] ?? tile.stride) * bias));
+}
+
+/** Sample the same snapped vertices used by buildTerrainGeometry. */
+function tileMeshHeights(tile, stride, cells, neighbourStride) {
+  const m = cells / stride, step = stride / tile.stride;
+  const north = neighbourStride(0, -1), south = neighbourStride(0, 1);
+  const west = neighbourStride(-1, 0), east = neighbourStride(1, 0);
+  const raw = (u, v) => sampleAt(tile, u * step, v * step);
+  // A finer tile's edge vertex snaps onto the coarser neighbour's straight
+  // edge between that neighbour's own vertices. Never fill missing data.
+  const along = (q, fixed, varyU, coarse, h) => {
+    if (coarse <= stride || !Number.isFinite(h)) return h;
+    const r = coarse / stride;
+    const q0 = Math.floor(q / r) * r;
+    if (q0 === q) return h;
+    const q1 = Math.min(m, q0 + r);
+    const a = varyU ? raw(q0, fixed) : raw(fixed, q0);
+    const b = varyU ? raw(q1, fixed) : raw(fixed, q1);
+    return a + (b - a) * ((q - q0) / r);
+  };
+  return (u, v) => {
+    const h = raw(u, v);
+    if (v === 0 && north > stride) return along(u, v, true, north, h);
+    if (v === m && south > stride) return along(u, v, true, south, h);
+    if (u === 0 && west > stride) return along(v, u, false, west, h);
+    if (u === m && east > stride) return along(v, u, false, east, h);
+    return h;
+  };
+}
+
+/** Height under a root on the static drawable mesh at this budget. Keeps at
+ *  most one tile's sampler; the mesh itself can still be built after placement. */
+export function makeTerrainMeshHeightSampler(data, budget) {
+  if (data.groundAt) return (x, z) => data.groundAt(x, z);
+  const { grid, cells, manifest } = data;
+  const [ox, oz] = grid.originM;
+  const strideFor = tile => tileStride(tile, budget, cells);
+  let owner, height, stride;
+  return (x, z) => {
+    const gx = (x - ox) / grid.cellSizeM, gz = (z - oz) / grid.cellSizeM;
+    const ix = Math.floor(gx / cells) - (gx === manifest.tilesX * cells ? 1 : 0);
+    const iz = Math.floor(gz / cells) - (gz === manifest.tilesZ * cells ? 1 : 0);
+    const tile = data.byIndex.get(`${ix},${iz}`);
+    if (!tile?.visible) return NaN;
+    if (owner !== tile) {
+      owner = tile;
+      stride = strideFor(tile);
+      height = tileMeshHeights(tile, stride, cells, (dx, dz) => {
+        const other = data.byIndex.get(`${ix + dx},${iz + dz}`);
+        return other ? strideFor(other) : 0;
+      });
+    }
+    const m = cells / stride;
+    const fu = (gx - ix * cells) / stride, fv = (gz - iz * cells) / stride;
+    const u = Math.min(m - 1, Math.floor(fu)), v = Math.min(m - 1, Math.floor(fv));
+    const tu = fu - u, tv = fv - v;
+    const a = Math.fround(height(u, v)), b = Math.fround(height(u + 1, v));
+    const c = Math.fround(height(u, v + 1)), d = Math.fround(height(u + 1, v + 1));
+    if (!(Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && Number.isFinite(d))) return NaN;
+    return tu >= tv ? a + (b - a) * tu + (d - b) * tv : a + (d - c) * tu + (c - a) * tv;
+  };
+}
 
 /** Whether the rail draws `tile`: a posed bake marks the tiles only shot-tour
  *  poses see `rail: false` (they draw while the view plays its tour). Unlike
@@ -215,7 +276,6 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
     // One tile into the band's arrays: [first, last) of its indices.
     const emit = ({ t, ignoreTourOnly }) => {
       const s = stridesById.get(t.id);
-      const step = s / t.stride; // stored samples per runtime step
       const m = cells / s; // runtime cells per side
       const n = m + 1;
       // A rail copy is shaped as if the tour-only tiles were not there.
@@ -224,35 +284,10 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
         if (!nb || (ignoreTourOnly && (nb.visible || includeHidden) && !isRail(nb))) return 0;
         return stridesById.get(nb.id);
       };
-      const edge = {
-        north: Math.max(s, neighbourStride(0, -1)), south: Math.max(s, neighbourStride(0, 1)),
-        west: Math.max(s, neighbourStride(-1, 0)), east: Math.max(s, neighbourStride(1, 0)),
-      };
       const base = vertexCount;
       const x0 = grid.originM[0] + t.ix * cells * grid.cellSizeM;
       const z0 = grid.originM[1] + t.iz * cells * grid.cellSizeM;
-      const hRaw = (u, v) => sampleAt(t, u * step, v * step);
-      // A finer tile's edge vertex snaps onto the coarser neighbour's straight
-      // edge between that neighbour's own vertices: shared edges coincide.
-      const along = (q, e) => {
-        const r = e / s; // runtime steps per coarse step
-        const q0 = Math.floor(q / r) * r;
-        return q0 === q ? null : [q0, Math.min(m, q0 + r), (q - q0) / r];
-      };
-      const snap = (u, v) => {
-        let seg = null, axis = 'u';
-        if (v === 0 && edge.north > s) seg = along(u, edge.north);
-        else if (v === m && edge.south > s) seg = along(u, edge.south);
-        else if (u === 0 && edge.west > s) { seg = along(v, edge.west); axis = 'v'; }
-        else if (u === m && edge.east > s) { seg = along(v, edge.east); axis = 'v'; }
-        const raw = hRaw(u, v);
-        // No-data stays no-data: snapping never invents a surface.
-        if (!seg || !Number.isFinite(raw)) return raw;
-        const [q0, q1, f] = seg;
-        const a = axis === 'u' ? hRaw(q0, v) : hRaw(u, q0);
-        const b = axis === 'u' ? hRaw(q1, v) : hRaw(u, q1);
-        return a + (b - a) * f;
-      };
+      const snap = tileMeshHeights(t, s, cells, neighbourStride);
       const heights = new Float32Array(n * n);
       const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
       for (let v = 0; v < n; v++) {
@@ -357,7 +392,8 @@ function finishChunks(c) {
  * Grid-resolution surface texture, RGBA8, row 0 = north:
  *   R, G  surface normal X and Z, (n + 1) / 2 * 255
  *   B     curvature: 128 flat, lower convex (ridges), higher concave (gullies)
- *   A     flow: log2 accumulation * 16 (0..254), 255 = hydro-flattened water
+ *   A     flow: 0..254, with 255 reserved for hydro-flattened water. Inland
+ *         terrain reserves 254 for generated channels and caps dry flow at 240.
  * Heights come from the stored samples at each tile's baked stride, so a
  * coarse distant tile shades as smoothly as it is shaped.
  */
@@ -371,6 +407,9 @@ export function buildSurfaceTextureAsync(data, options = {}) {
 
 function* surfaceTextureSteps(data, { stride = 1 } = {}) {
   const { grid, cells } = data;
+  const inland = data.manifest?.hydrology?.riverFlow === INLAND_RIVER_FLOW;
+  const wetMarker = inland ? INLAND_RIVER_FLOW : WATER_FLOW;
+  const dryLimit = inland ? INLAND_MAX_DRY_FLOW : WATER_FLOW - 1;
   if (![1, 2, 4].includes(stride) || (grid.width - 1) % stride || (grid.height - 1) % stride) throw new Error('Invalid surface sampling stride');
   const W = (grid.width - 1) / stride + 1, H = (grid.height - 1) / stride + 1;
   const heights = new Float32Array(W * H).fill(NaN);
@@ -405,10 +444,11 @@ function* surfaceTextureSteps(data, { stride = 1 } = {}) {
         const fs = t.samples, o = v0 * fs + u0;
         const fa = t.flowBytes[o], fb = t.flowBytes[o + 1], fc = t.flowBytes[o + fs], fd = t.flowBytes[o + fs + 1];
         const wa = (1 - tu) * (1 - tv), wb = tu * (1 - tv), wc = (1 - tu) * tv, wd = tu * tv;
-        const wet = (fa === 255 ? wa : 0) + (fb === 255 ? wb : 0) + (fc === 255 ? wc : 0) + (fd === 255 ? wd : 0);
+        const wet = (fa === wetMarker ? wa : 0) + (fb === wetMarker ? wb : 0) + (fc === wetMarker ? wc : 0) + (fd === wetMarker ? wd : 0);
         const dry = 1 - wet;
-        const acc = (fa === 255 ? 0 : fa * wa) + (fb === 255 ? 0 : fb * wb) + (fc === 255 ? 0 : fc * wc) + (fd === 255 ? 0 : fd * wd);
-        out[i * 4 + 3] = wet > 0.5 ? 255 : dry > 1e-6 ? Math.min(254, Math.round(acc / dry)) : 254;
+        const acc = (fa === wetMarker ? 0 : fa * wa) + (fb === wetMarker ? 0 : fb * wb) + (fc === wetMarker ? 0 : fc * wc) + (fd === wetMarker ? 0 : fd * wd);
+        const channelOrLake = inland ? wet >= 0.5 : wet > 0.5;
+        out[i * 4 + 3] = channelOrLake ? wetMarker : dry > 1e-6 ? Math.min(dryLimit, Math.round(acc / dry)) : dryLimit;
       }
       yield;
     }
@@ -447,13 +487,14 @@ function* surfaceTextureSteps(data, { stride = 1 } = {}) {
     }
     yield;
   }
-  return { width: W, height: H, data: out, waterValue: WATER_FLOW };
+  const surface = { width: W, height: H, data: out, waterValue: WATER_FLOW };
+  if (inland) surface.riverValue = INLAND_RIVER_FLOW;
+  return surface;
 }
 
 
-/** Conservative dry-receiver field. Water and two grid cells of shore pin;
- * a two-cell shoulder reconnects smoothly to moving uplands. Water's special
- * 255 marker is checked exactly; high flow accumulation is not a lake. */
+/** Water and two adjacent grid cells stay still while a two-cell shoulder
+ * reconnects them to moving uplands. Lake and inland river markers are exact. */
 export function buildReceiverMask(surface) {
   return finishPreparation(receiverMaskSteps(surface));
 }
@@ -463,10 +504,13 @@ export function buildReceiverMaskAsync(surface, options = {}) {
 }
 
 function* receiverMaskSteps(surface) {
-  const { width: W, height: H, data } = surface;
+  const { width: W, height: H, data, riverValue = WATER_FLOW } = surface;
   const mask = new Uint8Array(W * H).fill(255);
   for (let z = 0; z < H; z++) {
-    for (let x = 0; x < W; x++) { const i = z * W + x; if (data[i * 4 + 3] === 255) mask[i] = 0; }
+    for (let x = 0; x < W; x++) {
+      const i = z * W + x, flow = data[i * 4 + 3];
+      if (flow === WATER_FLOW || flow === riverValue) mask[i] = 0;
+    }
     yield;
   }
   // Two linear sweeps compute chessboard distance without repeated scans of

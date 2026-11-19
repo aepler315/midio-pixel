@@ -28,6 +28,7 @@ import { FOREST_HASH_GLSL, FOREST_TRAITS_GLSL } from './ForestCover.js';
 import { CROWN_GLSL } from './ForestProfile.js';
 import { HORIZON_GLSL } from './TerrainOcclusion.js';
 import { TERRAIN_LIGHTING_GLSL } from './TerrainLighting.js';
+import { INLAND_RIVER_FLOW } from './TerrainPackage.js';
 
 /** Poisson cover of vertical crowns; vectors are unit world directions. */
 export function expectedForestCover({ forest, radius, crownHeight, normal, toEye }) {
@@ -620,7 +621,12 @@ export const SCENE_FRAG = /* glsl */`
     return b + .5 * t * (c - a + t * (2.0 * a - 5.0 * b + 4.0 * c - d + t * (3.0 * (b - c) + d - a)));
   }
   float waterWetTexel(ivec2 at, ivec2 size) {
-    return step(254.5, texelFetch(uSurface, clamp(at, ivec2(0), size - 1), 0).a * 255.0);
+    float flowByte = texelFetch(uSurface, clamp(at, ivec2(0), size - 1), 0).a * 255.0;
+    #ifdef INLAND_RIVER
+    return 1.0 - step(.5, abs(flowByte - ${INLAND_RIVER_FLOW.toFixed(1)}));
+    #else
+    return step(254.5, flowByte);
+    #endif
   }
   float waterCoverageAt(vec2 uv) {
     ivec2 size = textureSize(uSurface, 0);
@@ -695,6 +701,15 @@ export const SCENE_FRAG = /* glsl */`
     float curv = (s.b - 0.5) * 2.0;            // + concave gully, - convex ridge
     float flow = s.a * 255.0;
     float waterCoverage = waterCoverageAt(uv);
+    #ifdef INLAND_RIVER
+    // Read the network and gravel banks directly from the ground atlas.
+    // Channel coverage belongs to the opaque terrain pass.
+    float channelCoverage = waterCoverage * (1.0 - ice.y);
+    float channelFootprint = clamp(fwidth(channelCoverage), .015, .28);
+    float channel = smoothstep(.40 - .5 * channelFootprint, .59 + .5 * channelFootprint, channelCoverage);
+    float gravel = smoothstep(.07, .43, channelCoverage) * (1.0 - channel);
+    waterCoverage = 0.0;
+    #endif
     #ifdef MAPPED_WATER_ONLY
     // A flat DEM patch is not evidence of water in a dry canyon. Only
     // explicitly mapped channel geometry can be wet under this policy.
@@ -765,10 +780,19 @@ export const SCENE_FRAG = /* glsl */`
       // gentle alpine ground stays meadow/tundra mat (a flat valley of
       // "rock" tiles its detail texture into a visible grid).
       rockMask = max(rockMask, alpine * smoothstep(20.0, 38.0, slopeDeg + (rh - 0.5) * 18.0 - curv * 10.0));
+      float forestFloor = rForestFloor;
+      #ifdef INLAND_RIVER
+      float drainage = smoothstep(48.0, 160.0, flow);
+      forestFloor -= 900.0 * drainage;
+      #endif
       float forest = (1.0 - smoothstep(treeLine - 90.0, treeLine + 60.0, h))
         * (1.0 - smoothstep(rForestMaxSlope - 6.0, rForestMaxSlope + 4.0, slopeDeg))
-        * smoothstep(rForestFloor - 60.0, rForestFloor + 60.0, h + (breakup - 0.5) * 200.0)
+        * smoothstep(forestFloor - 60.0, forestFloor + 60.0, h + (breakup - 0.5) * 200.0)
         * rForestDensity * ice.z;
+      #ifdef INLAND_RIVER
+      // Riparian stands continue in the mean canopy beyond the billboards.
+      forest *= mix(.55, 1.20, drainage) * (1.0 - max(channel, gravel));
+      #endif
       float snowLine = rSnowline + (breakup - 0.5) * 260.0 - curv * 180.0;
       float snow = smoothstep(snowLine, max(snowLine + 1.0, snowLine + (rSnowFull - rSnowline)), h);
       snow *= 1.0 - smoothstep(rSnowMaxSlope - 10.0, rSnowMaxSlope + 6.0, slopeDeg - max(curv, 0.0) * 25.0);
@@ -778,6 +802,9 @@ export const SCENE_FRAG = /* glsl */`
       // Drainage moss only where water actually runs: on filled flats the
       // D8 flow routing is an artefact of straight diagonal channels.
       ground = mix(ground, pMoss, rMoss * smoothstep(0.35, 0.75, flowN) * smoothstep(1.5, 5.0, slopeDeg) * (1.0 - rockMask));
+      #ifdef INLAND_RIVER
+      ground = mix(ground, pMoss, drainage * .22 * (1.0 - rockMask));
+      #endif
       vec3 rockCol = mix(pRockShade, pRockLit, clamp(rh * 1.2 - 0.1 + curv * -0.25, 0.0, 1.0));
       rockCol = mix(rockCol, pRockWarm, rStrata * smoothstep(0.55, 0.9, macro2.h));
       rockCol = mix(rockCol, pLichen, 0.25 * (1.0 - rockMask) );
@@ -884,6 +911,10 @@ export const SCENE_FRAG = /* glsl */`
       if (uDebugMask == 1) { outColor = vec4(rockMask, crowns, snow, 1.0); if (water) outColor = vec4(0.0, 0.6, 1.0, 1.0); return; }
       if (uDebugMask == 2) { outColor = vec4(vec3(slopeDeg / 90.0), 1.0); return; }
     }
+    #ifdef INLAND_RIVER
+    vec3 wetGravel = mix(vec3(.22, .19, .14), pRockLit, .32 * step(.5, uHasMaterial));
+    albedo = mix(albedo, wetGravel, .88 * gravel);
+    #endif
     // The rise (LandRise.js) lowers what stands above the eye. Rock, snow
     // and forest above keep the full-height slopes they were placed on; the
     // light and the silhouette ink see the lowered surface (the material
@@ -994,6 +1025,19 @@ export const SCENE_FRAG = /* glsl */`
     if (uDebugMask == 7) { outColor = vec4(linearToSrgb(tonemap(uLightColor * specLight * uExposure)), 1.0); return; }
     if (uDebugMask == 8) { outColor = vec4(vec3(sunVis), 1.0); return; }
     vec3 V = normalize(uCameraPos - vRenderedWorld);
+    #ifdef INLAND_RIVER
+    if (channel > 0.0) {
+      float deep = smoothstep(.47, .98, channelCoverage);
+      vec3 shallows = vec3(.030, .170, .173);
+      vec3 pool = vec3(.012, .080, .111);
+      vec3 day = hemi * .75 + uLightColor * (.22 + .32 * sunVis) * moonTransmission;
+      // An analytic sheen preserves the water read in distant oblique views.
+      float grazing = 1.0 - clamp(V.y, 0.0, 1.0);
+      vec3 stillWater = mix(shallows, pool, deep) * day
+        + uSkyHorizon * (.05 + .16 * grazing * grazing);
+      lit = mix(lit, stillWater, channel);
+    }
+    #endif
     float waterFres = 0.0, paw = 0.0;
     vec2 waterSwell = vec2(0.0);
     if (paintWater && uHasMaterial > 0.5) {
@@ -1350,7 +1394,7 @@ function materialFeatureTextureReady(THREE, uniforms) {
 
 export function createSceneMaterial(THREE, uniforms, {
   forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false,
-  riverSurface = false, mappedWaterOnly = false, deformationGradient = 'factored',
+  riverSurface = false, inlandRiver = false, mappedWaterOnly = false, deformationGradient = 'factored',
   materialFeatures = 'warp', canopySummary = true,
 } = {}) {
   const experimental = terrainShading === 'moran';
@@ -1367,6 +1411,7 @@ export function createSceneMaterial(THREE, uniforms, {
   if (pixelated) m.defines.PIXEL_MATERIAL_SKIP = 1;
   if (forestDebug) m.defines.FOREST_DEBUG = 1;
   if (riverSurface) m.defines.RIVER_SURFACE = 1;
+  if (inlandRiver) m.defines.INLAND_RIVER = 1;
   if (mappedWaterOnly) m.defines.MAPPED_WATER_ONLY = 1;
   return m;
 }

@@ -31,7 +31,7 @@ import MASSIF_CATALOG from './massifCatalogData.js';
 import { settingValue } from '../../config/appSettings.js';
 
 export const SONG_RANGE_VERSION = 3;
-const SONGPRINT_RANGE_VERSION = 6;
+const SONGPRINT_RANGE_VERSION = 7;
 
 /** Biome to material family; mirrors DEFAULT_PACKS in tools/build-range-scene.mjs. */
 export const BIOME_FAMILY = Object.freeze({

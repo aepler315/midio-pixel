@@ -5,7 +5,8 @@ import zlib from 'node:zlib';
 import { createHash } from 'node:crypto';
 import * as forestCover from '../src/world/alpine/ForestCover.js';
 import { bakeTerrain } from '../tools/lib/terrain-bake.mjs';
-import { decodeTerrain, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
+import { buildTerrainGeometry, decodeTerrain, makeTerrainMeshHeightSampler, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
+import { INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { placeForest, keptInstances, forestKeepFraction, LATTICE_M } from '../src/world/alpine/ForestCover.js';
 import { sceneDeformation, rangeMusicState } from '../src/world/alpine/RangeFrame.js';
 
@@ -142,6 +143,86 @@ test('forest rings include stands beside the curved camera path', () => {
     eyeArcM: [0, 0, -9000], targetArcM: [0, 0, -500] } };
   const trees = placeForest(data, bent, rules, { seed: 5, rings: { billboardM: 2500, meshM: 2000 } });
   assert.ok(trees.count > 500, `stands along the curved rail: ${trees.count}`);
+});
+
+function inlandForestFixture() {
+  const tileSize = 1280, cells = 64, cellSizeM = tileSize / cells, originM = [-10240, -5120];
+  const tilesX = 16, tilesZ = 8, stride = 4, spacing = cellSizeM * stride, samples = cells / stride + 1;
+  const tiles = new Map();
+  const groundAt = (x, z) => {
+    if (Math.abs(x) >= 10240 || Math.abs(z) >= 5120) return NaN;
+    const valley = 1000 + Math.min(420, Math.abs(x) * .09);
+    const ridge = 480 * Math.max(0, 1 - Math.abs(x - 1920) / 360);
+    const summit = 1250 * Math.min(1, Math.max(0, (x - 8600) / 400));
+    return valley + ridge + summit;
+  };
+  for (let iz = 0; iz < tilesZ; iz++) {
+    for (let ix = 0; ix < tilesX; ix++) {
+      const flowBytes = new Uint8Array(samples * samples);
+      let minY = Infinity;
+      for (let v = 0; v < samples; v++) for (let u = 0; u < samples; u++) {
+        const x = originM[0] + ix * tileSize + u * spacing, z = originM[1] + iz * tileSize + v * spacing;
+        const h = groundAt(x, z);
+        if (Number.isFinite(h)) minY = Math.min(minY, h);
+        flowBytes[v * samples + u] = Math.abs(x) <= 160 ? INLAND_RIVER_FLOW : Math.abs(x) <= 1120 ? 160 : 12;
+      }
+      tiles.set(`${ix},${iz}`, { ix, iz, stride, samples, flowBytes, minY, visible: true, band: ix < 8 ? 'far' : 'mid' });
+    }
+  }
+  return { groundAt, tiles, byIndex: tiles, cells, grid: { originM, cellSizeM }, manifest: { tilesX, tilesZ,
+    hydrology: { riverFlow: INLAND_RIVER_FLOW } } };
+}
+
+test('inland stands follow riverbanks and shelter over the whole range at a bounded cost', async () => {
+  const terrain = inlandForestFixture();
+  const steppe = { treelineM: 2400, forestMaxSlopeDeg: 40, forestFloorM: 2000, forestDensity: .12, treeScale: .3 };
+  const options = { seed: 37 };
+  const forest = placeForest(terrain, view, steppe, options);
+  const bound = forestCover.forestPlacementBound(terrain, view, steppe);
+  assert.ok(forest.count > 500 && forest.count <= bound.count);
+  assert.ok(bound.count <= 32 * 16 * 9);
+  assert.ok(bound.placementBytes >= forest.billboard.byteLength * 2);
+  assert.equal(forest.mesh.length + forest.meshDetail.length, 0);
+  const roots = all(forest);
+  const banks = roots.filter(([x]) => Math.abs(x) < 1080);
+  const dry = roots.filter(([x]) => x > -3200 && x < -1400);
+  assert.ok(banks.length > dry.length * 2, `bank roots ${banks.length}, dry roots ${dry.length}`);
+  assert.ok(banks.some(([, , , height]) => height > 18), 'riparian conifers read above the grass');
+  assert.ok(roots.some(([x]) => x < -8000), 'trees extend outside the original rail footprint');
+  for (const [x, y, z, , , , , band] of roots) {
+    assert.ok(Math.abs(x) >= 240, `rendered river cells at ${x} have no roots`);
+    assert.ok(x < 1820 || x > 2020, `ridgecrest at ${x} has no roots`);
+    assert.ok(x < 9050, `alpine summit at ${x} has no roots`);
+    assert.ok(Math.abs(terrainHeightAt(terrain, x, z) - y) < .002);
+    assert.equal(band, x < 0 ? 0 : 1);
+  }
+  const otherRail = { ...view, camera: { ...view.camera, eyeStartM: [13000, 2500, 25000], eyeEndM: [-13000, 2500, 25000] } };
+  const asyncForest = await forestCover.placeForestAsync(terrain, otherRail, steppe, options);
+  assert.deepEqual(asyncForest.billboard, forest.billboard);
+  assert.notDeepEqual(placeForest(terrain, view, steppe, { seed: 38 }).billboard, forest.billboard);
+});
+
+test('an inland root height follows the budget’s triangle on a mixed-resolution tile seam', () => {
+  const tiles = new Map();
+  for (let ix = 0; ix < 2; ix++) {
+    const id = `${ix},0`, samples = 5;
+    const heightsM = Float32Array.from({ length: samples ** 2 }, (_, i) => Math.floor(i / samples) === 2 ? 200 : 100);
+    tiles.set(id, { id, ix, iz: 0, samples, stride: 1, heightsM, visible: true, band: 'far',
+      lod: { desktop: 2, mobile: ix === 1 ? 4 : 2 } });
+  }
+  const terrain = { cells: 4, grid: { originM: [0, 0], cellSizeM: 10 }, manifest: { tilesX: 2, tilesZ: 1 }, tiles, byIndex: tiles };
+  for (const budget of ['mobile', 'desktop']) {
+    const getHeight = makeTerrainMeshHeightSampler(terrain, budget);
+    const { positions: vertices } = buildTerrainGeometry(terrain, { budget }).bands.far;
+    const yAtVertex = (x, z) => {
+      for (let i = 0; i < vertices.length; i += 3) if (vertices[i] === x && vertices[i + 2] === z) return vertices[i + 1];
+    };
+    // On the near tile, x=34, z=25 lies in the triangle through the
+    // local ridge and the two vertices of the potentially snapped edge.
+    const y = getHeight(34, 25);
+    assert.equal(y, .3 * yAtVertex(20, 20) + .45 * yAtVertex(40, 20) + .25 * yAtVertex(40, 40));
+    assert.equal(y, budget === 'mobile' ? 130 : 175);
+  }
 });
 
 // Recorded from main d53c6c9 before Phase 2: roots, IDs and band classes.

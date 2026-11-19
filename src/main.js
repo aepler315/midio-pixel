@@ -49,6 +49,7 @@ import { PerfGovernor, resolvePerfStartLevel, MAX_LEVEL as PERF_MAX_LEVEL } from
 import { resetSyncWaits, takeSyncWaits, lastSyncWaits } from './render/SyncWaits.js';
 import { sharedResidency } from './render/GraphicsResidency.js';
 import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresentation.js';
+import { INLAND_RIVER_FLOW } from './world/alpine/TerrainPackage.js';
 import { openCameraRun, cameraSongOptions, railPaceControlState } from './ui/CameraRun.js';
 import { applyTerrainTourPolicy, captureTourTerrainState, restoreTourTerrainState } from './ui/TourTerrain.js';
 import { rangeTourControlState } from './ui/RangeTourControl.js';
@@ -3589,6 +3590,7 @@ function performanceSnapshot() {
   const scene = rangePresentation?.scene, snap = rangePresentation?.snapshot?.() ?? null;
   const viewId = snap?.viewId ?? null, prepared = viewId ? scene?.prepared?.get(viewId) : null;
   const stats = prepared?.stats ?? null;
+  const manifest = prepared?.manifest;
   return {
     governor: perfGovernor.record, capFps: playbackFps(),
     recordScope: 'scene', scene: sceneIdentitySnapshot(),
@@ -3598,7 +3600,8 @@ function performanceSnapshot() {
     lastFrame: lastFrameTiming ? { ...lastFrameTiming } : null,
     lastFrameSyncWaitMs: lastSyncWaits(),
     view: viewId == null ? null : { viewId, songRange: viewId.startsWith('song-range-'),
-      tiles: prepared?.manifest?.tiles?.length ?? null, triangles: stats?.drawnTriangles ?? stats?.triangles ?? null, trees: stats?.trees ?? null },
+      tiles: manifest?.tiles?.length ?? null, triangles: stats?.drawnTriangles ?? stats?.triangles ?? null, trees: stats?.trees ?? null,
+      ...(manifest?.hydrology?.riverFlow === INLAND_RIVER_FLOW ? { inlandRivers: true } : {}) },
     mirror: scene ? !!(scene.mirrors?.A || scene.mirrors?.B) : null, backdrop: scene ? !!scene.backdrop : null,
   };
 }

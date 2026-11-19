@@ -43,14 +43,16 @@ The closest eligible view selects the biome. The song's outline guides the
 choice of measured massifs within that biome. The Songprint stage extends to
 89.6 km on each side. The outline guides ridge direction, spacing and relief,
 and supplies a stable seed for smaller landforms. Surveyed massif pieces sit
-on this continuous procedural floor in local stage metres. The current pilot
-keeps a finer central area and coarse outer tiles resident, with a subsampled
-surface atlas. The floor and foothills have visible relief from the opening
-and the rest of the range builds through the song. Dry terrain skips the
-water passes.
+on this continuous procedural floor in local stage metres. A connected
+watershed cuts a descending river and tributaries through the relief, with
+canyon walls and wider bands of foothills beside the channels. Tree stands
+cluster near the river banks and across sheltered terrain. Coarse outer
+ground stays resident and channel tiles use a finer grid. River color shares
+the terrain pass and its depth buffer. The floor and foothills have visible
+relief from the opening and the rest of the range builds through the song.
 
 With Music-timed tours enabled, the inland camera surveys candidate points
-around crests, passes and basins. It selects a connected route, fixes the
+around crests, gorges and confluences. It selects a connected route, fixes the
 landmark arrivals to musical transitions and samples a smooth path at a
 steady field of view. Smoothed energy paces the movement on the heard clock.
 The original bounded orbit remains available as a fallback if a composed

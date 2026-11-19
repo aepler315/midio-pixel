@@ -67,6 +67,21 @@ test('inland flight keeps advancing, smooths clearance and preserves the fixed l
   assert.ok(frames.some(pose => aimTurn(frames[0].eyeM, frames[0].targetM, pose.eyeM, pose.targetM) > .40));
 });
 
+test('inland flight frames the canyon and confluence at musical transitions throughout the terrain rise', () => {
+  const anchors = [{ id: 'gorge', kind: 'gorge', x: -4700, z: 5900 },
+    { id: 'confluence', kind: 'confluence', x: 14000, z: -14500 }];
+  const route = compileInlandFlight({ ...data, manifest: { ...data.manifest, hydrology: { anchors } } }, view, timing);
+  const rail = scenePoseAt(view);
+  for (const [index, anchor] of [[1, anchors[0]], [3, anchors[1]]]) {
+    const { id, progress01 } = route.landmarks[index];
+    assert.equal(id, anchor.id);
+    const at = rise01 => inlandFlightPose(rail, route, { gain: 1, progress01 }, { ...options, rise01 });
+    const full = at(1), beginning = at(.2);
+    assert.deepEqual(beginning.targetM, full.targetM);
+    assert.ok(Math.hypot(full.targetM[0] - anchor.x, full.targetM[2] - anchor.z) < 5);
+  }
+});
+
 test('ordinary music-timed drawing uses the inland route and authored rails opt out', () => {
   const scene = Object.assign(Object.create(RangeScene.prototype), { _movedPoses: new WeakMap() });
   const prepared = { data, view, waterLevelM: null };

@@ -39,6 +39,27 @@ function visiblePoint(data, pose, point) {
   return seenFrom(data, pose.eyeM, [point[0], point[1] + 2, point[2]]) ? result : null;
 }
 
+/** A newly incised slope can move a crest sideways within its piece.
+ *  Keep both subjects in the short rail's frame when a small turn suffices. */
+export function inlandRailCamera(data, view, composition) {
+  if (!view.songRange?.plan?.inland || !composition) return view.camera;
+  const peaks = [composition.principal.pointM, composition.companion.pointM];
+  const center = scenePoseAt(view, { progress01: .5 });
+  if (peaks.every(peak => visiblePoint(data, center, peak))) return view.camera;
+  for (const angle of [.045, -.045, .09, -.09]) {
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const turn = (eye, target) => {
+      const dx = target[0] - eye[0], dz = target[2] - eye[2];
+      return [eye[0] + dx * cos - dz * sin, target[1], eye[2] + dx * sin + dz * cos];
+    };
+    const { eyeStartM, eyeEndM, targetStartM, targetEndM } = view.camera;
+    const camera = { ...view.camera, targetStartM: turn(eyeStartM, targetStartM), targetEndM: turn(eyeEndM, targetEndM) };
+    const pose = scenePoseAt({ ...view, camera }, { progress01: .5 });
+    if (peaks.every(peak => visiblePoint(data, pose, peak))) return camera;
+  }
+  return view.camera;
+}
+
 function viewpointScore(data, pose, landmarks, index, composition = null) {
   const summit = visiblePoint(data, pose, landmarks[index].pointM);
   if (!summit) return 0;
