@@ -55,10 +55,11 @@ See [verification usage](docs/verification.md) for approvals, CI tiers and failu
   Declare the honest lifecycle (live, next landscape, next song, scene,
   renderer, reload) and dependencies with reasons; add an applier in
   `main.js` for live settings.
-- A user-facing feature is not complete while its only control is an
-  undocumented query parameter. Experimental work belongs under Experiments
-  with an accurate maturity label; URL-only (`ui: false`) is for automation
-  contracts and measurement aids, with the reason in the description.
+- Give player-facing features a visible control in their Settings section.
+  Place an opt-in player feature in the basic tier so players can find it.
+  Keep experimental maturity labels until the feature is validated. Use
+  URL-only (`ui: false`) controls for automation and measurement aids, with
+  their purpose in the description.
 - Regenerate `docs/url-parameters.md` with `npm run settings:reference`; keep
   existing parameter names and value rules working for tools and links.
 

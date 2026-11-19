@@ -4,7 +4,7 @@ import { copySongprint } from './SongprintData.js';
 // One transfer in flight. Keep playback's AudioBuffer intact even when a worker
 // dies or the user loads another song. Null means analysed with no tonal
 // evidence; undefined means the optional job failed and may be retried.
-export async function analyzeSongprintOffThread(buffer, { signal, workerFactory, timeoutMs = 120000 } = {}) {
+export async function analyzeSongprintOffThread(buffer, { signal, workerFactory, timeoutMs = 120000, phrases = false } = {}) {
   throwIfAborted(signal);
   let worker;
   try {
@@ -32,7 +32,7 @@ export async function analyzeSongprintOffThread(buffer, { signal, workerFactory,
       try {
         if (data?.type === 'done') {
           const print = data.songprint === null ? null : copySongprint(data.songprint, buffer.duration * 1000) ?? undefined;
-          finish(resolve, print);
+          finish(resolve, phrases && print && !print.phraseFamilies ? undefined : print);
         } else if (data?.type === 'read') {
           const { start, channel } = data;
           if (!Number.isInteger(start) || start < 0 || start >= buffer.length) return fail();
@@ -48,7 +48,7 @@ export async function analyzeSongprintOffThread(buffer, { signal, workerFactory,
     };
     if (signal?.aborted) return abort();
     try {
-      worker.postMessage({ type: 'start', rate: buffer.sampleRate, frames: buffer.length, channels: buffer.numberOfChannels });
+      worker.postMessage({ type: 'start', rate: buffer.sampleRate, frames: buffer.length, channels: buffer.numberOfChannels, phrases });
     } catch { fail(); }
   });
 }

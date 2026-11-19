@@ -30,7 +30,7 @@ replaced by whole-song results: history and committed-time handoff keep already
 heard construction/weather/camera from jumping. Export APIs sample a fixed clock;
 these are useful for screenshots and cannot measure delivered live FPS.
 
-**Returning summits** is an opt-in Landscape experiment (`?songprintLandscape=1`).
+**Returning summits** is available under **Settings → Landscape**.
 After the opening pass, a worker measures the full recording’s pitch-class motion.
 It emits a versioned 16-height outline and timed points for recurring 12-second
 passages. Pitch intervals give a transposed riff similar coordinates. Each
@@ -48,6 +48,15 @@ at the return. Other pieces keep their individual builds. A listener’s crop an
 precedence. A late analysis fades in on heard time. A fresh replay or full export
 can use the complete descriptor from the start. Related arrangements can select
 different homes near a catalog boundary, and unrelated songs can share a peak.
+
+**Recurring weather**, in the same settings section, can run independently.
+Its analysis retains groups of directly matched, non-overlapping phrases.
+The score selects a sparse set of returns from one family. The recording's
+dynamics scale the clearing of existing valley mist and a small gust in the
+scene's wind direction. Precipitation keeps its ordinary eligibility and
+onset. A strong return near the end of an eligible storm can shorten the
+existing rain fade. Playback, seeking and export sample these gestures on the
+heard clock.
 
 Camera Studio supplies immutable optional settings through Simulation/RangeFrame;
 its heard-time routes share terrain/forest coverage and sky projection. The

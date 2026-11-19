@@ -3,16 +3,17 @@ import { SongprintReducer } from './SongprintReducer.js';
 
 // The worker asks for each successive block (and, for a phase-cancelled
 // recording, for one more pass through just the strongest channel).
-let reducer;
+let reducer, phrases = false;
 self.onmessage = ({ data }) => {
   try {
     if (data.type === 'start') {
       reducer = new SongprintReducer(data.rate, data.frames, data.channels);
+      phrases = data.phrases === true;
     } else {
       reducer.push(data.planes);
     }
     if (reducer.finished) {
-      self.postMessage({ type: 'done', songprint: analyzeSongprintPCM(reducer.output) });
+      self.postMessage({ type: 'done', songprint: analyzeSongprintPCM(reducer.output, { phrases }) });
     } else {
       self.postMessage({ type: 'read', start: reducer.framesRead, channel: reducer.singleChannel });
     }

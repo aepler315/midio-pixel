@@ -6,7 +6,7 @@ import {
   analysisCacheKey, fileSignature, MAX_FILE_INDEX, recallFingerprint, rememberFingerprint,
 } from '../src/audio/AnalysisCache.js';
 import { ANALYSIS_REVISION } from '../src/audio/AnalysisRevision.js';
-import { SONGPRINT_VERSION } from '../src/audio/SongprintData.js';
+import { SONGPRINT_PHRASE_VERSION, SONGPRINT_VERSION } from '../src/audio/SongprintData.js';
 import { GrooveFingerprint } from '../src/sim/GrooveFingerprint.js';
 
 function memoryStorage() {
@@ -63,6 +63,9 @@ test('enabling Songprint separates new analyses and old cache keys stay usable w
   assert.equal(analysisCacheKey(fingerprint, { songprint: false }), JSON.stringify(oldFields));
   const enhanced = JSON.stringify([...oldFields, `songprint:${SONGPRINT_VERSION}`]);
   assert.equal(analysisCacheKey(fingerprint, { songprint: true }), enhanced);
+  const phrases = JSON.stringify([...oldFields, `songprint:${SONGPRINT_VERSION}`, `songprint-phrases:${SONGPRINT_PHRASE_VERSION}`]);
+  assert.equal(analysisCacheKey(fingerprint, { songprintPhrases: true }), phrases);
+  assert.equal(analysisCacheKey(fingerprint, { songprint: true, songprintPhrases: true }), phrases);
   const storage = memoryStorage();
   rememberFingerprint('known', fingerprint, storage);
   assert.equal(analysisCacheKey(recallFingerprint('known', storage), { songprint: true }), enhanced);

@@ -1,6 +1,6 @@
 // The settings panel: generated from the registry (src/config/settingsRegistry.js)
 // into the title screen's Settings disclosure, which main.js moves into the
-// Display dialog during playback. Only the basic, stable presentation settings
+// Display dialog during playback. The basic presentation settings
 // accepted by isMenuSetting() appear here, without hand-written markup;
 // definitions may name a registered control (`control`) and a legacy element
 // id (`controlId`) that existing tools and tests drive.

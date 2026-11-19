@@ -52,6 +52,7 @@ test('terrain skyline and local coordinates are stable under transposition and d
 test('a passage requires a second non-overlapping occurrence, and static audio supplies no landmarks', () => {
   const single = songprintFromChroma(chroma(motif));
   assert.deepEqual(single.passages, []);
+  assert.deepEqual(single.phraseFamilies, { version: 1, families: [] });
   assert.equal(songprintFromChroma(chroma(Array(70).fill(0))), null);
   assert.equal(analyzeSongprintPCM(new Float32Array(11025 * 13)), null);
   assert.equal(songprintFromChroma(chroma(motif.slice(0, 20))), null);
@@ -75,4 +76,18 @@ test('sample-derived chroma retains the heard offset and resists uniform gain', 
   assert.deepEqual(print.skyline, later.skyline);
   assert.ok(print.passages.length > 0);
   assert.deepEqual(later.passages, print.passages.map(p => ({ ...p, timeMs: p.timeMs + 1000 })));
+});
+
+test('direct rhythmic matches group repeated motifs without changing camera-only cues', () => {
+  const notes = [...motif, ...stepwise, ...motif, ...stepwise, ...motif];
+  const print = songprintFromChroma(chroma(notes));
+  const { phraseFamilies, ...cameraCues } = print;
+  assert.deepEqual(cameraCues, songprintFromChroma(chroma(notes), { phrases: false }));
+  const familyTimes = record => record.phraseFamilies.families.map(family => family.occurrences.map(({ timeMs }) => timeMs));
+  assert.deepEqual(familyTimes(print), [[6000, 30000, 54000], [18000, 42000]]);
+  const transposed = songprintFromChroma(chroma(notes, 5), { offsetMs: 1000 });
+  assert.deepEqual(familyTimes(transposed), familyTimes(print).map(times => times.map(t => t + 1000)));
+  for (const family of phraseFamilies.families) {
+    assert.ok(family.occurrences.every(cue => cue.strength > .95));
+  }
 });

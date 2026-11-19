@@ -1,7 +1,7 @@
 // Audio-only musical coordinates for a geographic skyline and its recurring
 // landmarks. All features are calculated once from the final recording.
 import { clamp01, smoothstep } from '../utils/math.js';
-import { SONGPRINT_VERSION } from './SongprintData.js';
+import { MAX_PHRASE_FAMILIES, MAX_PHRASE_OCCURRENCES, SONGPRINT_PHRASE_VERSION, SONGPRINT_VERSION } from './SongprintData.js';
 import { reflectFrame, songprintChroma } from './SongprintChroma.js';
 
 export { songprintChroma } from './SongprintChroma.js';
@@ -163,12 +163,70 @@ function orderedMatch(a, b, histogram) {
   return best;
 }
 
-function passageCues(frames, offsetMs, hopMs) {
-  const windows = passageWindows(frames);
-  const repeat = new Float64Array(windows.length), histogram = new Float64Array(N_PITCH);
-  for (let i = 0; i < windows.length; i++) {
+function landmarkFor({ vector }) {
+  // Contrast octave returns with third/fifth relationships over longer
+  // phrase steps. Distinct takes encounter the same continuous coordinate.
+  const movement = vector[7] - vector[11] + vector[14] - vector[19];
+  return .5 + .5 * Math.tanh(3 * movement);
+}
+
+const MIN_FAMILY_MATCH = .48;
+
+function collectFamilies(windows, links, timeOf) {
+  const families = [];
+  const count = windows.length;
+  const used = new Uint8Array(count);
+  while (families.length < MAX_PHRASE_FAMILIES) {
+    let strength = 0, first = -1, second = -1;
+    for (let i = 0; i < count; i++) {
+      if (used[i]) continue;
+      for (let j = i + 1; j < count; j++) {
+        const match = links[i * count + j];
+        if (!used[j] && match > strength) {
+          strength = match; first = i; second = j;
+        }
+      }
+    }
+    if (first === -1) break;
+
+    // Keep direct matches to the same measured passage. Chaining neighbours
+    // by similarity can merge unrelated motifs through intermediate phrases.
+    const selected = [{ index: first, strength }, { index: second, strength }];
+    const candidates = [];
+    for (let i = 0; i < count; i++) {
+      const match = links[first * count + i];
+      if (!used[i] && match > 0 && i !== second) candidates.push({ index: i, strength: match });
+    }
+    candidates.sort((a, b) => b.strength - a.strength || a.index - b.index);
+    for (const candidate of candidates) {
+      if (selected.length >= MAX_PHRASE_OCCURRENCES) break;
+      if (selected.every(({ index }) => Math.abs(windows[index].frame - windows[candidate.index].frame) >= PASSAGE_FRAMES)) {
+        selected.push(candidate);
+      }
+    }
+
+    // Suppress overlapping analyses and further direct matches to this
+    // passage, including matches beyond the retained occurrence cap.
+    for (let i = 0; i < count; i++) {
+      if (links[first * count + i] > 0
+        || selected.some(({ index }) => Math.abs(windows[i].frame - windows[index].frame) < PASSAGE_FRAMES)) used[i] = 1;
+    }
+    const occurrences = selected.sort((a, b) => a.index - b.index)
+      .map(({ index, strength }) => ({ timeMs: timeOf(windows[index].frame), strength }));
+    families.push({ landmark01: landmarkFor(windows[first]), occurrences });
+  }
+  return { version: SONGPRINT_PHRASE_VERSION, families };
+}
+
+function passageEvidence(frames, offsetMs, hopMs, phrases) {
+  const windows = passageWindows(frames), count = windows.length;
+  const repeat = new Float64Array(count), histogram = new Float64Array(N_PITCH);
+  const motionStrength = windows.map(({ motion }) => smoothstep(.065, .32, motion));
+  const links = phrases ? new Float32Array(count * count) : null;
+  const timeOf = frame => Math.round(offsetMs + frame * hopMs);
+  for (let i = 0; i < count; i++) {
     const a = windows[i];
-    for (let j = i + 1; j < windows.length; j++) {
+    for (let j = i + 1; j < count; j++) {
       const b = windows[j];
       if (b.frame - a.frame < PASSAGE_FRAMES) continue;
       let similarity = 0;
@@ -177,33 +235,32 @@ function passageCues(frames, offsetMs, hopMs) {
       const score = orderedMatch(a, b, histogram);
       repeat[i] = Math.max(repeat[i], score);
       repeat[j] = Math.max(repeat[j], score);
+      if (links) {
+        const strength = clamp01(score) * Math.min(motionStrength[i], motionStrength[j]);
+        if (strength >= MIN_FAMILY_MATCH) links[i * count + j] = links[j * count + i] = strength;
+      }
     }
   }
-  const cues = [];
-  for (let i = 0; i < windows.length; i++) {
-    const { frame, vector, motion } = windows[i];
+  const passages = [];
+  for (let i = 0; i < count; i++) {
     if (repeat[i] < .4) continue;
-    // Contrast octave returns with third/fifth relationships over longer
-    // phrase steps. Distinct takes encounter the same continuous coordinate.
-    const movement = vector[7] - vector[11] + vector[14] - vector[19];
-    const landmark01 = .5 + .5 * Math.tanh(3 * movement);
-    const strength = clamp01(repeat[i]) * smoothstep(.065, .32, motion);
-    cues.push({ timeMs: Math.round(offsetMs + frame * hopMs), landmark01, strength });
+    passages.push({ timeMs: timeOf(windows[i].frame), landmark01: landmarkFor(windows[i]),
+      strength: clamp01(repeat[i]) * motionStrength[i] });
   }
-  return cues;
+  return { passages, ...(links ? { phraseFamilies: collectFamilies(windows, links, timeOf) } : {}) };
 }
 
-export function songprintFromChroma(frames, { offsetMs = 0, hopMs = 125 } = {}) {
+export function songprintFromChroma(frames, { offsetMs = 0, hopMs = 125, phrases = true } = {}) {
   if (frames.length < PASSAGE_FRAMES || !Number.isFinite(offsetMs) || !Number.isFinite(hopMs) || !(hopMs > 0)) return null;
   let variation = 0;
   for (let t = 1; t < frames.length; t++) {
     for (let p = 0; p < N_PITCH; p++) variation += (frames[t][p] - frames[t - 1][p]) ** 2;
   }
   if (!(variation / frames.length > .0005)) return null;
-  return { version: SONGPRINT_VERSION, skyline: terrainSkyline(frames), passages: passageCues(frames, offsetMs, hopMs) };
+  return { version: SONGPRINT_VERSION, skyline: terrainSkyline(frames), ...passageEvidence(frames, offsetMs, hopMs, phrases) };
 }
 
-export function analyzeSongprintPCM(mono11025) {
+export function analyzeSongprintPCM(mono11025, { phrases = true } = {}) {
   const { frames, offsetMs, hopMs } = songprintChroma(mono11025);
-  return songprintFromChroma(frames, { offsetMs, hopMs });
+  return songprintFromChroma(frames, { offsetMs, hopMs, phrases });
 }

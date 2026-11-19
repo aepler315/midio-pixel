@@ -40,16 +40,22 @@ test('every definition is well formed', () => {
   }
 });
 
-test('the Settings menu offers only basic, stable presentation settings', () => {
+test('the Settings menu offers basic presentation settings, including both Songprint controls', () => {
   const menu = SETTINGS.filter(isMenuSetting);
   assert.deepEqual(menu.map(def => def.id), [
     'pixelGrid', 'buildPixelDetail', 'scaling', 'cameraStudioEnabled', 'mp4Resolution', 'mp4Fps',
-    'rangeTour', 'rangePace', 'shuffle', 'continuous', 'lyrics', 'btLatency',
+    'rangeTour', 'rangePace', 'songprintLandscape', 'songprintAtmosphere', 'shuffle', 'continuous', 'lyrics', 'btLatency',
   ]);
-  assert.equal(SETTINGS.length - menu.length, 49, 'every other definition stays registered but hidden');
+  assert.equal(SETTINGS.length - menu.length, 48, 'every other definition stays registered but hidden');
   for (const def of menu) {
     assert.equal(def.tier, 'basic', def.id);
-    assert.equal(def.maturity, 'stable', def.id);
+    const songprint = ['songprintLandscape', 'songprintAtmosphere'].includes(def.id);
+    assert.equal(def.maturity, songprint ? 'experimental' : 'stable', def.id);
+    if (songprint) {
+      assert.equal(def.section, 'landscape');
+      assert.equal(def.lifecycle, 'next-song');
+      assert.equal(def.persist, 'saved');
+    }
     assert.notEqual(def.ui, false, def.id);
     assert.ok(def.section, def.id);
   }
@@ -265,6 +271,16 @@ test('store: guards refuse a change without saving it', () => {
   store.addGuard(id => (id === 'pixelGrid' ? 'busy' : null));
   assert.deepEqual(store.set('pixelGrid', 'classic'), { ok: false, changed: false, reason: 'busy' });
   assert.deepEqual(storage.writes, []);
+});
+
+test('rebuilding a recording leaves an unapplied Songprint setting pending', () => {
+  const store = new SettingsStore({ storage: memoryStorage() });
+  store.setContext({ playing: true });
+  store.set('songprintAtmosphere', true);
+  store.markApplied(['next-song'], { songprintAtmosphere: false });
+  assert.ok(store.pending.has('songprintAtmosphere'));
+  store.markApplied(['next-song'], { songprintAtmosphere: true });
+  assert.ok(!store.pending.has('songprintAtmosphere'));
 });
 
 test('lifecycle: changes that cannot apply now are pending until applied', () => {

@@ -30,16 +30,17 @@ function workerFactory() {
 
 test('real worker recovers an anti-phase recording across blocks and leaves playback PCM intact', async () => {
   const rate = 22050, frequencies = [220, 330, 392, 247, 294, 262];
-  const samples = Float32Array.from({ length: rate * 16 }, (_, i) =>
+  const duration = 28;
+  const samples = Float32Array.from({ length: rate * duration }, (_, i) =>
     .7 * Math.sin(2 * Math.PI * frequencies[Math.floor(i / rate * 2) % frequencies.length] * i / rate));
   const inverted = samples.map(x => -x);
   const reducer = new SongprintReducer(rate, samples.length, 1);
   reducer.push([samples]);
   const expected = analyzeSongprintPCM(reducer.output);
-  assert.ok(expected, 'the musical fixture must produce an actual descriptor');
-  const result = await analyzeSongprintOffThread(audio([samples, inverted], rate), { workerFactory });
+  assert.ok(expected?.phraseFamilies.families.length, 'the fixture must carry verified returning phrases');
+  const result = await analyzeSongprintOffThread(audio([samples, inverted], rate), { workerFactory, phrases: true });
   assert.deepEqual(result, expected);
-  assert.equal(samples.length, 16 * rate);
+  assert.equal(samples.length, duration * rate);
   assert.equal(inverted.length, samples.length);
   assert.equal(samples[32], -inverted[32]);
 });

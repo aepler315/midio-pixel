@@ -92,6 +92,7 @@ import {
 import { fingerprintBufferOffThread } from './audio/FingerprintWorkerClient.js';
 import { readVisionConfig, persistVisionConfig } from './vision/config.js';
 import { packBundle, unpackBundle } from './audio/AnalysisBundle.js';
+import { analyzeSongprintOffThread } from './audio/SongprintWorkerClient.js';
 import {
   analysisCacheKey, fileSignature, getBundle, putBundle, recallFingerprint, rememberFingerprint,
 } from './audio/AnalysisCache.js';
@@ -1511,12 +1512,13 @@ function offerWorldsThenStart(data, extra = {}) {
     const provisional = !!data.opening;
     const identity = provisional ? provisionalIdentity(data) : buildSongIdentity(data);
     const profile = identity.songProfile;
+    const landscapePrint = data.songprintLandscapeEnabled === false ? null : identity.songprint;
     const features = profile.watch;
     const seed = identity.seed;
     if (provisional) data.provisionalSeed = seed;
     else {
       data.songIdentity = identity;
-      if (extra.localTrack) noteLibrarySongWorld(extra.localTrack, profile, seed, identity.songprint);
+      if (extra.localTrack) noteLibrarySongWorld(extra.localTrack, profile, seed, landscapePrint);
       // Terrain prepared for the provisional look is not the song's: a start
       // on the identity that misses the terrain race uses the stand-in.
       if (data.terrainProvisional) { delete data.terrain; delete data.terrainProvisional; }
@@ -1530,12 +1532,12 @@ function offerWorldsThenStart(data, extra = {}) {
     const signature = dualSummitsSelection({ durationMs: data.durationMs, sourceSha256: data.sourceSha256 });
     // Give an identified Songprint composition the same loading budget on a cold
     // start as on the opening-to-full handoff. Exports wait for all its assets.
-    const rangeWaitMs = exporting ? Infinity : identity.songprint ? IDENTITY_SONG_RANGE_WAIT_MS : undefined;
+    const rangeWaitMs = exporting ? Infinity : landscapePrint ? IDENTITY_SONG_RANGE_WAIT_MS : undefined;
     // Only the latest preparation may land: a provisional look's terrain
     // that resolves after the whole-song identity's must not replace it.
     const terrainToken = data.terrainToken = {};
     pendingForRange.terrainReady = prepareSongTerrain(profile, seed, undefined,
-      { songRangeWaitMs: rangeWaitMs, signature, songprint: identity.songprint }).then((terrain) => {
+      { songRangeWaitMs: rangeWaitMs, signature, songprint: landscapePrint }).then((terrain) => {
       withSignatureSource(terrain, data);
       if (data.terrainToken === terrainToken) {
         data.terrain = terrain;
@@ -1550,7 +1552,7 @@ function offerWorldsThenStart(data, extra = {}) {
     // export waits for every biome, so its frames never depend on load timing.
     const mine = pendingWorldStart, worldId = extra.continuationWorldId || DEFAULT_WORLD_ID;
     const ready = mine.terrainReady.then((t) => (exporting && t?.whenAll ? t.whenAll.then(() => t) : t));
-    const terrainBudget = identity.songprint ? IDENTITY_TERRAIN_GIVE_UP_MS : BIOME_WAIT_MS;
+    const terrainBudget = landscapePrint ? IDENTITY_TERRAIN_GIVE_UP_MS : BIOME_WAIT_MS;
     const terrainWait = exporting ? ready : Promise.race([ready, new Promise((r) => setTimeout(r, terrainBudget))]);
     // A provisional look is held back briefly for the whole song: preparing
     // a scene is the heaviest work a start does, and building the opening's
@@ -1887,7 +1889,10 @@ function startTimeline(timelineData, extra = {}) {
   // A new song picks up renderer-lifecycle settings changed since the
   // presentation was created; next-song settings were read at load.
   if (!keepAudio && !exportModeFlag && landscapeRendererDirty) recreateLandscapePresentation();
-  if (!keepAudio) settings.markApplied(['next-song']);
+  if (!keepAudio && !exportModeFlag) settings.markApplied(['next-song'], {
+    songprintLandscape: timelineData.songprintLandscapeEnabled ? 'on' : 'off',
+    songprintAtmosphere: timelineData.songprintAtmosphere === true,
+  });
   ensureLandscapePresentation();
   // Temporary render policy never writes the listener's URL or storage.
   if (extra.cameraTourMode !== undefined && rangePresentation && currentCameraTourMode() !== extra.cameraTourMode) {
@@ -2024,6 +2029,9 @@ function startTimeline(timelineData, extra = {}) {
   // The live run remembers when the complete print first became available.
   // Seeking can then reconstruct the prefix. An offline export has the full print from frame zero.
   sim.biomes.songprintAdmittedMs = exportMode ? 0 : timelineData.songprintAdmittedMs ?? 0;
+  sim.biomes.songprintAtmosphere = timelineData.songprintAtmosphere === true;
+  sim.biomes.songprintWeatherPrint = timelineData.songIdentity?.songprint ?? null;
+  sim.biomes.songprintWeatherAdmittedMs = exportMode ? 0 : timelineData.songprintWeatherAdmittedMs ?? 0;
   if (exportMode) cameraRun?.retainTours(heardTours);
   else cameraRun = openCameraRun(cameraRun, { data: timelineData, seed: sim.songSeed,
     intent: extra.cameraRunIntent || 'fresh', requestedMultiplier: requestedRailPace, tours: heardTours });
@@ -2699,7 +2707,9 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
   hudEl.classList.add('hidden');
   // Freeze learned settings for both cache identity and the analysis itself.
   const analysisGroove = new GrooveFingerprint(groove.toJSON());
-  const songprint = settings.get('songprintLandscape') === 'on';
+  const songprintLandscapeEnabled = settings.get('songprintLandscape') === 'on';
+  const songprintPhrases = settings.get('songprintAtmosphere') === true;
+  const songprint = songprintLandscapeEnabled || songprintPhrases;
   showProgress('Reading file…');
   try {
     await bootAudio();
@@ -2828,6 +2838,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
       // kick from a hat, applied to a song they've never played.
       groove: analysisGroove,
       songprint: songprint && !openingFirst,
+      songprintPhrases: songprintPhrases && !openingFirst,
       signal: analysisAbort.signal,
       onProgress: ({ phase, progress }) => {
         if (isStale() || analysisAbort.signal.aborted) return;
@@ -2841,9 +2852,11 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     // Fingerprint the song and look it up in the analysis cache. A hit is the
     // whole-song analysis, ready-made.
     const fileSig = isStemDrop ? null : fileSignature(selectedFiles[0], audioBuffer);
+    const hasRequestedPrint = data => !songprint || (Object.hasOwn(data, 'songprint')
+      && (!songprintPhrases || data.songprint === null || data.songprint?.phraseFamilies));
     const restoreCached = (bundle) => {
       const restored = bundle ? unpackBundle(bundle) : null;
-      return restored && (!songprint || Object.hasOwn(restored, 'songprint')) ? restored : null;
+      return restored && hasRequestedPrint(restored) ? restored : null;
     };
     const lookUp = async () => {
       try {
@@ -2852,7 +2865,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
         // is taken, which takes seconds on a long song.
         const recalled = recallFingerprint(fileSig);
         if (recalled) {
-          const key = analysisCacheKey(recalled, { stems: [], groove: analysisGroove, songprint });
+          const key = analysisCacheKey(recalled, { stems: [], groove: analysisGroove, songprint, songprintPhrases });
           const cached = key ? await getBundle(key) : null;
           if (!canUpdatePrepared()) throw audioAbortError();
           const restored = restoreCached(cached);
@@ -2866,7 +2879,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
         fingerprint = await fingerprintBufferOffThread(audioBuffer, { signal });
         if (!canUpdatePrepared()) throw audioAbortError();
         rememberFingerprint(fileSig, fingerprint);
-        cacheKey = analysisCacheKey(fingerprint, { stems: isStemDrop ? decoded : [], groove: analysisGroove, songprint });
+        cacheKey = analysisCacheKey(fingerprint, { stems: isStemDrop ? decoded : [], groove: analysisGroove, songprint, songprintPhrases });
         const cached = cacheKey ? await getBundle(cacheKey) : null;
         if (!canUpdatePrepared()) throw audioAbortError();
         // An unreadable bundle (older layout, truncated, hand-edited) is not
@@ -2914,7 +2927,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
           fullAnalysis = new Promise((resolve) => setTimeout(resolve, 150)).then(async () => {
             if (analysisAbort.signal.aborted) throw audioAbortError();
             const whole = audioToTimeline(audioBuffer, {
-              groove: analysisGroove, signal: analysisAbort.signal, cooperative: true, songprint,
+              groove: analysisGroove, signal: analysisAbort.signal, cooperative: true, songprint, songprintPhrases,
             });
             whole.catch(() => {});
             const restored = await early;
@@ -2931,6 +2944,8 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
       loadShow?.stop(loadShowSession);
     }
     if (isStale()) return;
+    data.songprintLandscapeEnabled = songprintLandscapeEnabled;
+    data.songprintAtmosphere = songprintPhrases;
     data.sourceTrack = normalizeSourceMetadata(sourceMetadata);
     data.lyricIdentity = await identityReady;
     if (isStale()) return;
@@ -2954,6 +2969,8 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
           running && sim && lastTimelineData === opened && !bulkExportArmed ? sim.heardTimeMs : null,
           `load-${myGen}:final`);
         adoptAudioSessionAnalysis(opened, full);
+        if (songprintPhrases && running && sim && lastTimelineData === opened && !bulkExportArmed)
+          opened.songprintWeatherAdmittedMs = Math.max(0, sim.heardTimeMs ?? audioEngine?.nowMs ?? 0);
         handoff = adoptWholeSongIdentity(opened);
         return opened;
       }).catch((err) => {
@@ -2992,7 +3009,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
       Promise.resolve(adopted).then(() => {
         if (!canUpdatePrepared() || !cacheKey || data.fromBundle || data.opening) return null;
         // Retry a transient Songprint worker failure the next time the recording opens.
-        if (songprint && !Object.hasOwn(data, 'songprint')) return null;
+        if (!hasRequestedPrint(data)) return null;
         return putBundle(cacheKey, packBundle(data, {
           fingerprint, name: selectedFiles[0].name || '', identity: lyricIdentity,
         }));
@@ -3416,6 +3433,7 @@ if (fileChooser.isAbsent) {
 // The sample is deterministic (DemoSong is seeded), so its audio is rendered
 // once and every later click replays the same buffer.
 let demoSampleBuffer = null;
+let demoSongprint;
 
 async function startDemoSample() {
   const selection = beginAudioSelection('sample');
@@ -3428,6 +3446,8 @@ async function startDemoSample() {
   }
   if (!audioSelections.isCurrent(selection)) return;
   const song = buildDemoSong();
+  const songprintLandscapeEnabled = settings.get('songprintLandscape') === 'on';
+  const songprintAtmosphere = settings.get('songprintAtmosphere') === true;
   if (!demoSampleBuffer) {
     // Rendering ~96 s of PCM holds the main thread for about half a second:
     // say so, and let that paint before the render starts.
@@ -3445,6 +3465,15 @@ async function startDemoSample() {
   }
   // Rendered to a buffer, so the sample plays exactly like a recording.
   const playBuffer = demoSampleBuffer;
+  if ((songprintLandscapeEnabled || songprintAtmosphere) && demoSongprint === undefined) {
+    showProgress('Finding repeating phrases…');
+    try {
+      demoSongprint = await analyzeSongprintOffThread(playBuffer, { signal: selection.signal, phrases: true });
+    } catch (err) {
+      if (err?.name !== 'AbortError') console.warn('[sample] Songprint analysis failed', err);
+    }
+    if (!audioSelections.isCurrent(selection)) return;
+  }
   lastAudioBuffer = playBuffer;
   lastSongName = 'Proof';
   const energyCurves = synthesizeEnergyCurves(song.timeline, song.durationMs);
@@ -3453,6 +3482,9 @@ async function startDemoSample() {
   boundariesMs.push(song.durationMs);
   offerWorldsThenStart({
     title: song.title,
+    songprintLandscapeEnabled,
+    songprintAtmosphere,
+    ...(songprintLandscapeEnabled || songprintAtmosphere ? { songprint: demoSongprint } : {}),
     bpm: song.bpm,
     durationMs: song.durationMs,
     timeline: song.timeline,
@@ -4050,7 +4082,7 @@ function adoptWholeSongIdentity(data) {
   const current = () => lastTimelineData === data && data.terrainToken === token;
   const { seed, songProfile: profile } = identity;
   const signature = dualSummitsSelection({ durationMs: data.durationMs, sourceSha256: data.sourceSha256 });
-  const terrain = prepareSongTerrain(profile, seed, undefined, { songRangeWaitMs: IDENTITY_SONG_RANGE_WAIT_MS, signature, songprint: identity.songprint })
+  const terrain = prepareSongTerrain(profile, seed, undefined, { songRangeWaitMs: IDENTITY_SONG_RANGE_WAIT_MS, signature, songprint: data.songprintLandscapeEnabled === false ? null : identity.songprint })
     .then((t) => withSignatureSource(t, data))
     .catch((err) => {
       console.warn('[identity] terrain for the whole-song identity failed; using the stand-in', err);
@@ -4104,7 +4136,7 @@ function rebuildOnWholeAnalysis(data) {
 
 function commitWholeSongIdentity(data, { seed, songProfile: profile, songprint }) {
   const features = profile.watch;
-  if (lastStartExtra?.localTrack) noteLibrarySongWorld(lastStartExtra.localTrack, profile, seed, songprint);
+  if (lastStartExtra?.localTrack) noteLibrarySongWorld(lastStartExtra.localTrack, profile, seed, data.songprintLandscapeEnabled === false ? null : songprint);
   lastFitDiagnostic = recordFitDiagnostic(features, profile);
   // The tailored world reads the analysis it was built on, so it is tailored
   // again on the whole song. A stock world the listener chose stays.
@@ -4133,7 +4165,7 @@ function commitWholeSongIdentity(data, { seed, songProfile: profile, songprint }
     return;
   }
   const wasPaused = paused;
-  if (songprint) data.songprintAdmittedMs = Math.max(0, sim.heardTimeMs ?? audioEngine.nowMs);
+  if (songprint && data.songprintLandscapeEnabled !== false) data.songprintAdmittedMs = Math.max(0, sim.heardTimeMs ?? audioEngine.nowMs);
   startTimeline(data, {
     ...lastStartExtra,
     songSeed: runSeed,
@@ -4699,6 +4731,7 @@ function replaySong({ songSeed } = {}) {
   // via stopTimeline, but must not lose the decoded song for the restart.
   const buffer = lastAudioBuffer;
   delete lastTimelineData.songprintAdmittedMs;
+  delete lastTimelineData.songprintWeatherAdmittedMs;
   // Arm the master-bus recorder after the landscape is ready and before
   // the replacement source starts, preserving the first audio onset.
   startTimeline(lastTimelineData, {

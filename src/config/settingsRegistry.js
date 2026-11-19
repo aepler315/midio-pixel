@@ -461,7 +461,7 @@ export const SETTINGS = Object.freeze([
     persist: 'saved', storage: unified('songRange'), lifecycle: 'next-song', requires: [V2_ONLY],
   },
   {
-    id: 'songprintLandscape', url: 'songprintLandscape', section: 'experiments', group: 'Terrain experiments', tier: 'experimental', maturity: 'experimental',
+    id: 'songprintLandscape', url: 'songprintLandscape', section: 'landscape', tier: 'basic', maturity: 'experimental', controlId: 'songprintLandscape',
     label: 'Returning summits', type: 'enum', default: 'off',
     description: 'Choose terrain from the recording’s harmonic shape and revisit landmarks when a musical passage returns.',
     urlNote: '`1` or `on` enables the experiment for the next song.',
@@ -469,6 +469,12 @@ export const SETTINGS = Object.freeze([
     parseUrl: raw => raw === '1' || raw === 'on' ? ok('on') : raw === '0' || raw === 'off' ? ok('off') : bad('expected 1, on, 0 or off', 'off'),
     formatUrl: v => v === 'on' ? '1' : '0',
     persist: 'saved', storage: unified('songprintLandscape'), lifecycle: 'next-song', requires: [V2_ONLY],
+  },
+  {
+    id: 'songprintAtmosphere', url: 'songprintAtmosphere', section: 'landscape', tier: 'basic', maturity: 'experimental', controlId: 'songprintAtmosphere',
+    label: 'Recurring weather', type: 'boolean', default: false,
+    description: 'Let recurring musical phrases thin valley mist and lift the wind. Strong returns can help an existing shower clear.',
+    persist: 'saved', storage: unified('songprintAtmosphere'), lifecycle: 'next-song', requires: [V2_ONLY],
   },
   {
     id: 'performance', url: 'performance', section: 'experiments', group: 'Terrain experiments', tier: 'experimental', maturity: 'experimental',
@@ -744,14 +750,10 @@ export const SETTINGS = Object.freeze([
   },
 ].map(def => Object.freeze({ url: def.id, ui: true, share: true, requires: [], ...def })));
 
-/**
- * The Settings menu offers only basic, stable presentation settings. Every
- * other definition stays registered — URL overrides, saved values, appliers,
- * diagnostics and generated docs keep working — it is simply not rendered in
- * the panel. This is the one rule the panel and its tests share.
- */
+/** Basic settings appear in the menu. Experimental controls keep their
+ *  maturity label independently of where the player can find them. */
 export function isMenuSetting(def) {
-  return def.ui !== false && !!def.section && def.tier === 'basic' && def.maturity === 'stable';
+  return def.ui !== false && !!def.section && def.tier === 'basic' && def.maturity !== 'diagnostic';
 }
 
 /** Parameters the page no longer reads. A URL that still carries one is
