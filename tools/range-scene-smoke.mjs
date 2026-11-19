@@ -118,7 +118,7 @@ async function launch() {
 }
 
 /** Open the app in export mode with a song and the requested Range mode. */
-export async function openSong(browser, { url, wav, width, height, params = {}, dpr = 1 }) {
+export async function openSong(browser, { url, wav, width, height, params = {}, dpr = 1, configure = null }) {
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, serviceWorkers: 'block' });
   if (params.seed != null) await context.addInitScript(installSeedReceiver);
   const page = await context.newPage();
@@ -139,6 +139,7 @@ export async function openSong(browser, { url, wav, width, height, params = {}, 
   for (const [k, v] of Object.entries(params)) if (v != null) entry.searchParams.set(k, v);
   await page.goto(entry.href);
   await page.locator('#titleSettings').evaluate((node) => { node.open = true; });
+  await configure?.(page);
   const lyrics = page.locator('#lyricGroundingBtn');
   if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
   await page.locator('#fileInput').setInputFiles(wav);

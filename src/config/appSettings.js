@@ -167,11 +167,16 @@ export class SettingsStore {
     return saved;
   }
 
-  /** Clear the pending marks of changes the app has now applied. */
-  markApplied(lifecycles) {
+  /** Clear pending marks for settings applied to the current scene or song.
+   * Captured values can lag the menu when an existing recording is rebuilt. */
+  markApplied(lifecycles, captured = {}) {
     const set = new Set(lifecycles);
     let changed = false;
-    for (const [id, p] of this.pending) if (set.has(p.lifecycle)) { this.pending.delete(id); changed = true; }
+    for (const [id, p] of this.pending) {
+      if (!set.has(p.lifecycle) || (Object.hasOwn(captured, id) && captured[id] !== this.values[id])) continue;
+      this.pending.delete(id);
+      changed = true;
+    }
     if (changed) this._emit([]);
   }
 

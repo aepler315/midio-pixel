@@ -7,6 +7,7 @@ import {
   atmosphereMusic, ATMOSPHERE_NEUTRAL,
 } from '../src/world/alpine/RangeAtmosphere.js';
 import { sampleEffectsMusic } from '../src/world/alpine/EffectsMusic.js';
+import { songprintMistArea } from '../src/world/alpine/SongprintAtmosphere.js';
 
 const cam = [0, 1500, 0];
 const params = { density: 4e-4, baseM: 480, heightM: 250, tSec: 12 };
@@ -75,7 +76,7 @@ test('quiet formation keeps ordinary density and is independent of camera altitu
 
 test('the mist shader twin keeps its constants, declared once in the terrain and forest', async () => {
   assert.ok(MIST_GLSL.includes('float mistSubmersion(vec3 p)'));
-  assert.ok(MIST_GLSL.includes('return mistLocalBank(mask, mistFlowAt(p.xz, mask), vec2(p.y)) * (1.0 - exp(-uMistDensity * 7000.0));'));
+  assert.match(MIST_GLSL, /return mistLocalBank.*7000\.0\)\)\s*\* mistPocketDensity\(p\.xz\);/);
   assert.match(MIST_GLSL, /uniform vec4 uMistLayer;/);
   assert.doesNotMatch(MIST_GLSL, /uniform float uMist(Base|Height|Time|Fill);/, 'layer controls share one mobile uniform vector');
   const { SCENE_FRAG } = await import('../src/world/alpine/TerrainMaterial.js');
@@ -84,11 +85,28 @@ test('the mist shader twin keeps its constants, declared once in the terrain and
   const placed = { mesh: new Float32Array([0, 0, 0, 20, 10, 0, .5, 2]), billboard: new Float32Array(), stride: 8, count: 1 };
   const forest = createForest(THREE, placed, {});
   for (const [name, frag] of [['terrain', SCENE_FRAG], ['forest', forest.byBand.near[0].material.fragmentShader]]) {
-    assert.equal(frag.split('uniform sampler2D uMistFlow;').length, 2, `${name}: declared once`);
+    assert.equal(frag.split('uniform sampler2D uMistFlow;').length, 2, `${name}: flow declared once`);
+    assert.equal(frag.split('uniform vec4 uMistSongprint;').length, 2, `${name}: Songprint pocket declared once`);
     for (const decl of ['uniform sampler2D uReceiver;', 'uniform float uGlacierEnabled;'])
       assert.equal(frag.split(decl).length, 2, `${name}: ${decl} once`);
   }
   for (const m of [...Object.values(forest.byBand).flat(), ...forest.depth]) m.geometry.dispose();
+});
+
+test('a Songprint mist clearing stays near the landmark’s measured basin', () => {
+  const width = 4, height = 3, texture = new Uint8Array(width * height * 4);
+  texture.set([12, 242, 27, 255], (width + 1) * 4);
+  texture.set([12, 255, 27, 255], (width + 3) * 4);
+  const flow = { width, height, originM: [0, 0], extentM: [7200, 4000], texture };
+  const summit = [1400, 1700, 1800];
+  const area = songprintMistArea(flow, summit);
+  assert.deepEqual(area, [2400, 2000, 2250]);
+  assert.equal(songprintMistArea(flow, summit), area, 'prepared field and summit reuse the basin');
+  assert.equal(songprintMistArea(null, summit), null);
+  const clear = { ...params, songprintPocket: [...area, .35] };
+  const fogAt = (x, weather) => mistAmount([x, 525, 1600], [x, 520, 2600], weather);
+  assert.ok(fogAt(2400, clear) < fogAt(2400, params));
+  assert.equal(fogAt(7200, clear), fogAt(7200, params), 'the distant valley keeps its own fog');
 });
 
 test('local light is bounded and softened with height', () => {

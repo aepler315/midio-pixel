@@ -21,12 +21,14 @@ import { planSongRange, songRangeEnabled, songRangeForced, songRangeLayoutParam,
 import MASSIF_CATALOG from './massifCatalogData.js';
 import SCENE_CATALOG from './sceneCatalogData.js';
 import { songprintLandmarks } from '../alpine/BuildFocus.js';
+import { songprintComposition, songprintRailStations } from '../alpine/SongprintViewpoints.js';
 import { songRangeView, loadSongRangeStage, stageRiseSlots } from '../alpine/StageAssembly.js';
 import { loadTerrainPackage, sha256Hex } from '../alpine/RangeAssets.js';
 import { dualSummitsRequested, planDualSummitsScene, dualSummitsSceneMetadata, DUAL_SUMMITS_SIGNATURE,
   DUAL_SUMMITS_SCENE_VERSION } from './DualSummitsScene.js';
 
 const RANGE_ASSET_BASE = new URL('../../assets/range/v2/', import.meta.url).href;
+const stageViewpoints = new WeakMap();
 /** Composed-range outcomes this session (song range composition, Phase 3). */
 export const songRangeStats = { planned: 0, assembled: 0, fallbacks: 0, late: 0, lastReason: null, lastViewId: null };
 /** How long song preparation waits for a composed range, counted from the
@@ -71,7 +73,17 @@ export async function songRangeChoice(profile, seed, scenery, { search, fetchImp
     if (plan.forced && home) view = { ...view, biome: home };
     const stage = await loadSongRangeStage(view, { catalog: MASSIF_CATALOG, baseUrl: RANGE_ASSET_BASE, fetchImpl, loadPackage: loadTerrainPackage, sha256Hex });
     if (dualSummits) view = { ...view, signatureSummits: dualSummitsSceneMetadata(stage.manifest) };
-    if (plan.songprintVersion) view = { ...view, songprintLandmarks: songprintLandmarks(stage.data, view) };
+    if (plan.songprintVersion) {
+      let viewpoints = stageViewpoints.get(stage.data);
+      if (!viewpoints) {
+        const landmarks = songprintLandmarks(stage.data, view);
+        const composition = songprintComposition(stage.data, view);
+        viewpoints = { songprintLandmarks: landmarks, songprintComposition: composition,
+          songprintRailStations: songprintRailStations(stage.data, view, landmarks, composition) };
+        stageViewpoints.set(stage.data, viewpoints);
+      }
+      view = { ...view, ...viewpoints };
+    }
   } catch (err) {
     songRangeStats.fallbacks++;
     songRangeStats.lastReason = String(err?.message || err);

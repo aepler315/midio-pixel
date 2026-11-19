@@ -50,6 +50,10 @@ export class Simulation {
     worldId = null,
     terrainProfiles = null,
     songTerrain = null,
+    songprintAdmittedMs = 0,
+    songprintAtmosphere = false,
+    songprintWeatherPrint = null,
+    songprintWeatherAdmittedMs = songprintAdmittedMs,
     residency = null,
     chapterState = null,
     rangeListening = true,
@@ -154,6 +158,9 @@ export class Simulation {
 
       residency,
     });
+    // Highlight selection reads the landscape score during construction.
+    // Give that first score the same Songprint state as the rendered frames.
+    Object.assign(this.biomes, { songprintAdmittedMs, songprintAtmosphere, songprintWeatherPrint, songprintWeatherAdmittedMs });
     this.rangeNarrative = compileLandscapeSources({ durationMs: conductor.durationMs,
       timeline: conductor.timeline, casting: this.casting });
     this.visualStyle = 'rendered';

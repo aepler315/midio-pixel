@@ -67,13 +67,14 @@ controls are not exposed. The local Soulseek/free-music bridge remains for
 internal or legacy use; Docker and a Soulseek account are not required for
 playback. Every song plays its own audio.
 
-### Try returning summits
+### Returning summits and recurring weather
 
-Start the local server, open [Returning summits](http://localhost:8080/?songprintLandscape=1),
-and choose one recording. Play a second performance of the same song separately.
-Listen for a returning riff or chorus and watch which summit the camera brings into
-view. Each performance keeps its own timing, light and movement. Open the
-[standard landscape](http://localhost:8080/?songprintLandscape=0) to compare.
+Open **Settings → Landscape** before loading a song. Turn on **Returning summits**
+to give the song a distinctive pair of summits and let recurring passages
+guide the camera through them. Turn on
+**Recurring weather** to give a recurring phrase a valley-mist clearing and wind
+gesture shaped by that recording. The two controls work independently and
+apply to your next song.
 
 ## Your music library
 

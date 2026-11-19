@@ -140,13 +140,20 @@ function localBank(p, m, mask, f, y0 = p[1], y1 = p[1]) {
   return f.valid01 * valley * formation * height * (.14 + .86 * mask) * (.68 + .32 * pulse);
 }
 
+function mistPocketDensity(x, z, pocket) {
+  if (!pocket || !(pocket[2] > 0 && pocket[3] > 0)) return 1;
+  const distance2 = ((x - pocket[0]) ** 2 + (z - pocket[1]) ** 2) / pocket[2] ** 2;
+  return 1 - pocket[3] * (1 - smoothstep(.04, 1, distance2));
+}
+
 /** Local formed-bank occupancy at a true world point [x,y,z] (the CPU twin
  * of MIST_GLSL's mistSubmersion). No global floor blackout. */
 export function mistLocalOccupancy(p, m = {}) {
   if (!(m.fill > 0) || !(m.density > 0)) return 0;
   const q = typeof p === 'number' ? [0, p, 0] : p;
   const mask = maskAt(q[0], q[2], mistDrift(m.tSec ?? 0));
-  return localBank(q, m, mask, flowAt(q[0], q[2], m, mask)) * (1 - Math.exp(-m.density * MIST_EMITTER_PATH_M));
+  return localBank(q, m, mask, flowAt(q[0], q[2], m, mask)) * (1 - Math.exp(-m.density * MIST_EMITTER_PATH_M))
+    * mistPocketDensity(q[0], q[2], m.songprintPocket);
 }
 
 /** Mist opacity along the view ray. Integer runtime quality endpoints
@@ -176,8 +183,13 @@ function mistBanks(cam, p, n, drift, m, mean) {
     const q = [cam[0] + dx * t, cam[1] + dy * t, cam[2] + dz * t];
     const layer = Math.exp(-Math.max(0, q[1] - m.baseM) / m.heightM);
     const mask = maskAt(q[0], q[2], drift, spacing);
-    if (m.fill > 0) samples.push({ q, t, w, mask, f: flowAt(q[0], q[2], m, mask) });
-    wm += w * layer * mask; ws += w * layer; mm += mask; weights += w;
+    const density = mistPocketDensity(q[0], q[2], m.songprintPocket);
+    if (m.fill > 0) {
+      const f = flowAt(q[0], q[2], m, mask);
+      f.valid01 *= density;
+      samples.push({ q, t, w, mask, f });
+    }
+    wm += w * layer * mask * density; ws += w * layer; mm += mask * density; weights += w;
   }
   // Recover the local floor slope from the same cached field taps. A ray
   // following an uphill floor then stays at its real clearance rather than
@@ -260,6 +272,7 @@ export function mistFlowUniforms(THREE, shared = {}) {
   const packed = new THREE.Vector4();
   return {
     uMistFlow: shared.uMistFlow || { value: null },
+    uMistSongprint: shared.uMistSongprint || { value: new THREE.Vector4() },
     uMistFlowHeight: height, uMistFlowDistanceM: distance, uMistFlowOn: on,
     uMistFlowParams: shared.uMistFlowParams || { get value() { return packed.set(height.value.x, height.value.y, distance.value, on.value); } },
   };
@@ -277,9 +290,15 @@ export const MIST_GLSL = /* glsl */`
   uniform vec3 uMistColor;
   uniform sampler2D uMistFlow; // ground, valley affinity, upstream distance, validity
   uniform vec4 uMistFlowParams; // minimum height, height span, distance (m), enabled
+  uniform vec4 uMistSongprint; // clearing centre x/z, radius (m), amount
   #define uMistFlowHeight uMistFlowParams.xy
   #define uMistFlowDistanceM uMistFlowParams.z
   #define uMistFlowOn uMistFlowParams.w
+  float mistPocketDensity(vec2 xz) {
+    if (uMistSongprint.w <= 0.0) return 1.0;
+    vec2 delta = (xz - uMistSongprint.xy) / max(1.0, uMistSongprint.z);
+    return 1.0 - uMistSongprint.w * (1.0 - smoothstep(0.04, 1.0, dot(delta, delta)));
+  }
   float mistHash(vec2 p) {
     ivec2 c = ivec2(p);
     uint h = (uint(c.x) * 0x27d4eb2du) ^ (uint(c.y) * 0x165667b1u);
@@ -381,11 +400,13 @@ export const MIST_GLSL = /* glsl */`
       vec3 q = cam + d * t;
       float layer = exp(-max(0.0, q.y - uMistBase) / uMistHeight);
       float mask = mistMaskAt(q.xz, spacing);
+      float density = mistPocketDensity(q.xz);
       if (uMistFill > 0.0) {
         flows[i] = mistFlowAt(q.xz, mask);
+        flows[i].a *= density;
         masks[i] = mask; times[i] = t;
       }
-      wm += w * layer * mask; ws += w * layer; mm += mask; weights += w;
+      wm += w * layer * mask * density; ws += w * layer; mm += mask * density; weights += w;
     }
     // Arithmetic only: reuse the same bounded mask/field taps to follow the
     // sampled ground slope at each ray segment, including steep valley floors.
@@ -419,7 +440,8 @@ export const MIST_GLSL = /* glsl */`
   float mistSubmersion(vec3 p) {
     if (uMistFill <= 0.0 || uMistDensity <= 0.0) return 0.0;
     float mask = mistMaskAt(p.xz, 0.0);
-    return mistLocalBank(mask, mistFlowAt(p.xz, mask), vec2(p.y)) * (1.0 - exp(-uMistDensity * ${MIST_EMITTER_PATH_M.toFixed(1)}));
+    return mistLocalBank(mask, mistFlowAt(p.xz, mask), vec2(p.y)) * (1.0 - exp(-uMistDensity * ${MIST_EMITTER_PATH_M.toFixed(1)}))
+      * mistPocketDensity(p.xz);
   }
   // Bank shading is volumetric: never project a colour onto a global top.
   vec3 mistColorAt(vec3 cam, vec3 p) { return uMistColor; }

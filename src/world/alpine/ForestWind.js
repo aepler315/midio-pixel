@@ -31,10 +31,11 @@ const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) :
 /** Writes [gain, lean] into `out` (any 2-slot array) and returns it:
  *  gain multiplies the idle sway, lean is the downwind crown lean. [1, 0]
  *  for absent or non-finite input. */
-export function forestWindAt(effects, storm, out = [1, 0]) {
+export function forestWindAt(effects, storm, out = [1, 0], windGust01 = 0) {
   const amount = unit(storm?.amount), clearing = unit(storm?.break01);
+  const gust = unit(windGust01);
   out[0] = Math.min(WIND_MAX_GAIN, 1 + .35 * unit(effects?.energy) + .5 * unit(effects?.lift)
-    + .15 * unit(effects?.bass) + .6 * amount);
-  out[1] = STORM_LEAN * amount * (1 - clearing);
+    + .15 * unit(effects?.bass) + .6 * amount + .25 * gust);
+  out[1] = STORM_LEAN * amount * (1 - clearing) + GUST_LEAN * .33 * gust;
   return out;
 }

@@ -7,7 +7,7 @@ import { PROFILE_VERSION } from '../audio/SongProfile.js';
 import { planSongScenes } from '../world/terrain/SongScenePlan.js';
 import { SCENE_MATCH_VERSION } from '../world/terrain/SceneCatalog.js';
 import SCENE_CATALOG from '../world/terrain/sceneCatalogData.js';
-import { planSongRange, songRangeEnabled, songRangeKey, SONG_RANGE_VERSION } from '../world/terrain/SongRangePlan.js';
+import { planSongRange, songRangeEnabled, songRangeKey } from '../world/terrain/SongRangePlan.js';
 import MASSIF_CATALOG from '../world/terrain/massifCatalogData.js';
 
 const WATCH_KEYS = Object.freeze(['drive', 'onset', 'texture', 'arc', 'contrast']);
@@ -64,7 +64,7 @@ export function describeSongWorld(record, {
     const value = Object.freeze({ state: 'known', label: range.label,
       title: [`Song range: ${range.principal.name}`, `Massifs: ${names.join(', ')}`, 'Composed range (experimental)'].join(' · '),
       viewId: view?.id ?? null, biome: plan.home, experimental: true,
-      songRange: Object.freeze({ key: songRangeKey(range), principal: range.principal.pieceId, version: SONG_RANGE_VERSION }),
+      songRange: Object.freeze({ key: songRangeKey(range), principal: range.principal.pieceId, version: range.version }),
       catalogVersion: plan.catalogVersion, matchingVersion: SCENE_MATCH_VERSION });
     descriptions.set(record, { catalog, catalogVersion: catalog.catalogVersion, signature, songRange, massifs, value });
     return value;

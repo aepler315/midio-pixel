@@ -94,6 +94,11 @@ const LENSES = ['wide', 'normal', 'tele'], ELEVATIONS = ['low', 'mid', 'high'];
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+// A recognizable return can outweigh the usual preference for a new subject.
+// Like the other musical rewards, it only applies after the motion checks.
+const SUMMIT_RETURN_REWARD = 480;
+const SUMMIT_RETURN_SPACING_MS = 8000;
+
 /** Rebuild the lookup Maps of a library that crossed postMessage. */
 export function restoreShotLibrary(library) {
   if (library.shotById instanceof Map && library.linkById instanceof Map && library.linksFrom instanceof Map) return library;
@@ -572,10 +577,11 @@ function rangeTables(lane) {
  * a last shot the song ends in before its payoff); `hidden` marks one off
  * screen, which is no payoff. `visible` null means the whole song is on
  * screen; [] means none of it. Moments carry `strong` (top third by
- * strength, at a section start) and `climax`.
+ * strength, at a section start) and `climax`. Each summit cue lists the
+ * shots whose payoff sees the summit, scored by framing quality.
  */
 export function planShotTour(library, { durationMs = 0, sections = [], roles = [], energy = null, energyStepMs = 100,
-  visible = null, seed = 0, start = null, tunables = {} } = {}) {
+  visible = null, seed = 0, start = null, tunables = {}, summitCues = [] } = {}) {
   library = restoreShotLibrary(library);
   const T = { ...SHOT_TUNABLES, ...(library.motion || {}), ...tunables, weights: { ...SHOT_TUNABLES.weights, ...tunables.weights } }, w = T.weights;
   const turnsOn = sidewaysAccel(T) < Infinity, ix = turnsOn ? libraryIndex(library).withTurns() : libraryIndex(library), { shots, links, L, pay } = ix, nShots = shots.length;
@@ -674,7 +680,32 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     }
   }
   for (const t of [start?.next?.timeMs, ...(start?.knots || [])]) if (Number.isFinite(t) && t > t0 && t < durationMs && !slotMap.has(t)) addSlot(t, free(t));
+  // Attach a return to an existing slot when the riff and an impact coincide.
+  // Standalone returns leave the ordinary time grid intact. Space the
+  // stronger cues far enough apart for the camera to travel between them.
+  const summitTimes = [];
+  const rankedSummits = summitCues.length ? summitCues.filter(cue => Number.isFinite(cue?.timeMs) && cue.strength > 0 && cue.strength <= 1)
+    .sort((a, b) => b.strength - a.strength || a.timeMs - b.timeMs) : summitCues;
+  for (const cue of rankedSummits) {
+    const t = Math.round(cue.timeMs / SHOT_KEY_MS) * SHOT_KEY_MS;
+    if (!(t > t0 && t < durationMs) || !visibleAt(t) || summitTimes.some(timeMs => Math.abs(t - timeMs) < SUMMIT_RETURN_SPACING_MS)) continue;
+    const summits = new Map();
+    for (const candidate of cue.shots || []) {
+      const shot = ix.shotIndex.get(candidate?.id);
+      if (shot === undefined || !(candidate.score > 0 && candidate.score <= 1)) continue;
+      const score = candidate.score * (.55 + .45 * cue.strength);
+      summits.set(shot, Math.max(summits.get(shot) || 0, score));
+    }
+    if (!summits.size) continue;
+    if (!slotMap.has(t)) addSlot(t, { kind: 'summit', moment: -1, imp: .4 });
+    slotMap.get(t).summits = summits;
+    summitTimes.push(t);
+  }
   const slots = [...slotMap.values()].filter((s) => s.t > t0).sort((a, b) => a.t - b.t);
+  const summitSlots = [];
+  slots.forEach((slot, i) => {
+    if (slot.summits) for (const shot of slot.summits.keys()) (summitSlots[shot] ??= []).push(i);
+  });
   slots.forEach((s) => {
     s.calm = inCalm(s.t) || intensity[Math.round(s.t / SHOT_KEY_MS)] < .3; s.lively = !s.calm && intensity[Math.round(s.t / SHOT_KEY_MS)] >= .6;
     s.climax = !!s.climax; s.strong = !!s.strong; s.strength ??= 0; s.timing ??= 0; s.from = shownFrom(s.t);
@@ -686,6 +717,7 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
   const visSlots = pick((s) => s.kind === 'phrase' || s.kind === 'filler'), hidSlots = pick((s) => s.kind === 'hidden');
   const timesOf = (list) => Float64Array.from(list, (i) => slots[i].t);
   const impactT = timesOf(impactSlots), strongT = timesOf(strongSlots), visT = timesOf(visSlots), hidT = timesOf(hidSlots);
+  const summitT = summitSlots.map(timesOf);
   const nextSlot = start?.next ? slots.findIndex((s) => s.t === start.next.timeMs) : -1;
   const lowerBound = (arr, x) => { let lo = 0, hi = arr.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < x) lo = mid + 1; else hi = mid; } return lo; };
   // A strong impact (or the climax) on screen in (ta, tb) that the tour passes
@@ -856,6 +888,7 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
       cost += gapCost(Math.max(P.shownAt, slot.from), slot.t); shownAt = slot.t;
     }
     if (!hidden) cost -= w.shot * (w.scoreBase + ix.score[B]) * (slot.imp + w.showing) * (1 + jitter[B]);
+    if (slot.summits) cost -= SUMMIT_RETURN_REWARD * (slot.summits.get(B) || 0);
     if (leg.link >= 0 && !leg.continued) cost -= seen * w.link * ix.lScore[leg.link] * (1 + linkJitter[leg.link]);
     if (leg.link >= 0) cost += seen * w.linkTime * dtS * leg.linkPart / leg.D;
     // The music's character: calm slots want gentle moves, lively ones
@@ -890,6 +923,15 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     return true;
   };
 
+  // A matched return can also be an ordinary impact. Keep that impact's
+  // legal result for its usual quota without adding a duplicate beam state.
+  const consider = summitSlots.length ? (P, leg, si) => {
+    if (!slots[si].summits?.has(leg.shot)) return evaluate(P, leg, si);
+    leg.summitResults ??= new Map();
+    if (!leg.summitResults.has(si)) leg.summitResults.set(si, evaluate(P, leg, si));
+    return leg.summitResults.get(si);
+  } : evaluate;
+
   // A leg tries the next few impacts it can reach (and the next strong
   // ones beyond them) as far as it reaches at the minimum speed, and the
   // visible and the pass-through slots nearest a comfortable pace (separate
@@ -901,8 +943,8 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     while (taken < quota && tried < 2 * quota) {
       const okL = left >= 0 && times[left] >= lo && times[left] <= hi, okR = right < times.length && times[right] <= hiRight;
       if (!okL && !okR) break;
-      if (okR && (!okL || times[right] - at <= at - times[left])) { if (times[right] >= lo) { taken += evaluate(P, leg, list[right]); tried++; } right++; }
-      else { taken += evaluate(P, leg, list[left]); tried++; left--; }
+      if (okR && (!okL || times[right] - at <= at - times[left])) { if (times[right] >= lo) { taken += consider(P, leg, list[right]); tried++; } right++; }
+      else { taken += consider(P, leg, list[left]); tried++; left--; }
     }
   };
   const expandLeg = (P, leg) => {
@@ -920,18 +962,20 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     if (!committed && lo < durationMs) lo = Math.max(lo, P.t + 1000 * leg.D / (T.capMargin * legCap(P.t, lo, leg)));
     // One reach for every kind of slot: as far as the leg can go at the minimum speed.
     const hi = Math.min(durationMs, P.t + 1000 * leg.D / vmin);
-    if (committed && nextSlot >= 0 && shots[leg.shot].id === start.next.id) evaluate(P, leg, nextSlot);
+    if (committed && nextSlot >= 0 && shots[leg.shot].id === start.next.id) consider(P, leg, nextSlot);
     if (lo > hi) return;
     let last = -1;
     for (let k = lowerBound(impactT, lo), n = 0, tried = 0; k < impactT.length && impactT[k] <= hi && n < T.impactsPerLeg && tried < 2 * T.impactsPerLeg; k++, tried++) {
-      n += evaluate(P, leg, impactSlots[k]); last = k;
+      n += consider(P, leg, impactSlots[k]); last = k;
     }
     for (let k = lowerBound(strongT, lo), n = 0, tried = 0; k < strongT.length && strongT[k] <= hi && n < T.strongPerLeg && tried < 2 * T.strongPerLeg; k++) {
-      if (lowerBound(impactT, strongT[k]) > last) { n += evaluate(P, leg, strongSlots[k]); tried++; }
+      if (lowerBound(impactT, strongT[k]) > last) { n += consider(P, leg, strongSlots[k]); tried++; }
     }
     const ref = Math.min(T.maxSpeedMps, flowAt(lanes.mean(P.t, P.t + 1000 * leg.D / Math.max(vmin, 20))) * leg.D / Math.max(1e-9, leg.int));
     const pace = clamp(T.comfortFlow * ref, vmin, T.capMargin * capHi);
     const at = P.t + 1000 * leg.D / pace;
+    const returnsAt = summitT[leg.shot];
+    if (returnsAt) nearest(P, leg, returnsAt, summitSlots[leg.shot], at, lo, hi, T.strongPerLeg);
     // Fillers slower than the comfortable pace: at most fillerReachMs on (a search bound, not a rule).
     const near = Math.min(hi, P.t + T.fillerReachMs);
     nearest(P, leg, visT, visSlots, at, lo, hi, T.freeSlotsPerLeg, near);
@@ -1160,5 +1204,11 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     if (v.endMs - Math.max(v.startMs, t0) >= 10000 && !shown.some((it) => it.payoffMs >= v.startMs && it.payoffMs <= v.endMs)) notes.push(`no payoff on screen ${v.startMs}-${v.endMs} ms`);
   }
   const pin = chain[1]?.pinV != null ? { timeMs: chain[1].t, speedMps: chain[1].pinV } : null;
-  return finish(nonEmpty.length ? nonEmpty : items, best.cost, null, stats, pin);
+  const plan = finish(nonEmpty.length ? nonEmpty : items, best.cost, null, stats, pin);
+  if (summitSlots.length) {
+    const summitReturns = chain.slice(1).filter((state) => slots[state.si].summits?.has(state.shot))
+      .map((state) => ({ timeMs: state.t, shotId: shots[state.shot].id }));
+    if (summitReturns.length) plan.summitReturns = summitReturns;
+  }
+  return plan;
 }

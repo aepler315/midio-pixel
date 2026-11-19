@@ -2,7 +2,7 @@
 // Every point shares F(y) = baseM + rise01 * (y - baseM), independently of
 // camera direction and distance. Terrain, rivers, forest and cast use the
 // same base and progress, including reflected draws.
-import { clamp01 } from '../../utils/math.js';
+import { clamp01, smoothstep } from '../../utils/math.js';
 
 /** Relief share at the song's first beat. Lower than the old one-third start
  *  so more of the mountain is actually built during the song. */
@@ -326,6 +326,7 @@ export function chorusLabel(sections, read) {
  *
  *   slots      [{ slotId, row }], any order (stageSlotOrder sorts them)
  *   principal  the principal massif's slotId
+ *   companion  a supporting summit that should emerge with the principal
  *   sections   trusted sections with labels ({ startMs, endMs, label })
  *
  * Every slot starts at STAGE_RISE_START and grows geometrically
@@ -353,7 +354,7 @@ export function chorusLabel(sections, read) {
  * progressAt(slotId, t), at(slotId, t), slotsAt(t) (slotId -> rise01),
  * meanAt(t) }.
  */
-export function compileStageRise({ slots = [], principal = null, sections = [], read = () => 0, durationMs = 0,
+export function compileStageRise({ slots = [], principal = null, companion = null, sections = [], read = () => 0, durationMs = 0,
   cadenceMs = durationMs, finaleMs = 0, previous = null, previousScalar = null, freezeThroughMs = -1,
   paceAt = null } = {}) {
   const ordered = stageSlotOrder(slots), slotIds = ordered.map((s) => s.slotId);
@@ -396,6 +397,21 @@ export function compileStageRise({ slots = [], principal = null, sections = [], 
     for (const id of slotIds) {
       const climbed = climb(grid, read, (t) => { const set = ownerAt(t); return set ? set.has(id) : id === lead; }, paceAt);
       own.set(id, climbed || ((t) => clamp01((t - (grid.endMs - stretch)) / stretch)));
+    }
+  }
+  if (companion !== lead && own.has(companion)) {
+    // Give the first view two readable silhouettes while the rest of the
+    // stage still builds on its original score. Reserve some of the pair's
+    // progress for the opening, then carry the remaining climb into the song.
+    const endMs = Math.min(9000, grid.endMs * .23);
+    const opening = climb({ endMs, n: Math.max(1, Math.ceil(endMs / STEP_MS)) }, read, () => true);
+    for (const [id, height] of [[lead, .34], [companion, .27]]) {
+      const natural = own.get(id);
+      const earlyShare = landingInverse(1 - Math.log(height) / Math.log(STAGE_RISE_START));
+      own.set(id, t => {
+        const progress = natural(t);
+        return progress + (1 - progress) * earlyShare * smoothstep(0, 1, opening(t));
+      });
     }
   }
   const before = (id) => (typeof previous === 'function' ? (t) => previous(id, t)

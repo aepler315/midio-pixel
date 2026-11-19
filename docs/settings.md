@@ -11,14 +11,12 @@ before it and where each mechanism went.
 - **Where:** the title screen's **Settings** disclosure, and the **Settings**
   button in the playback HUD (the same panel, in a dialog; the music keeps
   playing). A jump bar moves between the sections that have menu settings —
-  Appearance, Camera and Audio & playback — plus Diagnostics.
-- **One menu rule:** the panel offers only basic, stable presentation settings
-  (`isMenuSetting()` in the registry). Advanced, experimental, developer and
-  diagnostic definitions are no longer rendered anywhere in the menu, including
-  disclosures. They stay registered, so their defaults, saved values, URL
-  overrides, appliers, reset/share and Diagnostics reporting all keep working;
-  any changed value can still be reset from Diagnostics. See the
-  [keep/move decisions](settings-simplification.md).
+  Appearance, Camera, Landscape and Audio & playback, plus Diagnostics.
+- **Landscape** offers **Returning summits** and **Recurring weather**.
+  Both are experimental and apply to the next recording. Each has its own
+  control, so you can change the atmosphere with the standard camera and terrain.
+- **Menu visibility** follows the basic tier in the registry. Engineering
+  settings remain available through Diagnostics and existing compatible links.
 - **When a change applies** is shown on every setting that is not immediate:
   *Next landscape*, *Next song*, *Scene rebuild* (the scene is rebuilt in
   place: the song holds its place for a moment and resumes, it does not

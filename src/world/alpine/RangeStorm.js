@@ -184,6 +184,13 @@ export function compileStorm({ energyCurves, sections = [], timeline = [], durat
     if (e.strikes && Object.isFrozen(e.strikes)) KIND_MEMO.set(e.strikes, kind);
     return kind;
   }));
+  // A musical return can hurry the end of qualifying rain. It never starts
+  // a shower or adds rain to a quiet section. The shortened falloff is itself
+  // monotone, with the same wet-ground and lightning timing.
+  const releases = landscape.songprintWeatherGestures?.length ? episodes.map(episode => {
+    const cue = landscape.songprintWeatherGestures.find(gesture => Math.abs(gesture.timeMs - episode.endMs) <= 2000);
+    return cue?.intensity || 0;
+  }) : null;
   const strikeKinds = Object.freeze(episodes.flatMap((e, i) => e.strikes.map(() => kinds[i])));
   return Object.freeze({ section, episodes, kinds, landscape, at(timeMs) {
     const t = Number.isFinite(timeMs) ? timeMs : 0;
@@ -191,9 +198,10 @@ export function compileStorm({ energyCurves, sections = [], timeline = [], durat
     for (let i = 0; i < episodes.length; i++) {
       const { startMs: a, endMs: b, energy01 } = episodes[i];
       const strength = Math.min(STORM_KINDS[kinds[i]].maxStrength, 1, Math.max(.35, (energy01 - .5) * 3));
-      const own = strength * ease((t - a + 6000) / 8000) * (1 - ease((t - b) / 4000));
+      const release = releases?.[i] ?? 0;
+      const own = strength * ease((t - a + 6000) / 8000) * (1 - ease((t - b) / (4000 - 1500 * release)));
       if (own > amount) { amount = own; kind = kinds[i]; }
-      const broken = ease((t - b - 2000) / 6000) * (1 - ease((t - b - 14000) / 20000));
+      const broken = ease((t - b - 2000 + 600 * release) / 6000) * (1 - ease((t - b - 14000) / 20000));
       if (broken > kindBreak) { kindBreak = broken; breakKind = kinds[i]; }
       break01 = Math.max(break01, broken);
       wet01 = Math.max(wet01, ease((t - a) / 6000) * (1 - ease((t - b) / 45000)));

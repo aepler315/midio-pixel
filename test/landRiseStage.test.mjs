@@ -60,6 +60,29 @@ test('every slot starts as a wiggle, never sinks, and stands complete by the end
   }
 });
 
+test('a composed opening establishes its two summits while the remaining range still rises to the song', () => {
+  const ordinary = compile();
+  const composed = compile({ companion: 'B1' });
+  assert.equal(composed.at('B2', 0), STAGE_RISE_START);
+  assert.equal(composed.at('B1', 0), STAGE_RISE_START);
+  assert.ok(composed.at('B2', 9000) >= .34 - EPS);
+  assert.ok(composed.at('B1', 9000) >= .27 - EPS);
+  for (const id of SLOTS.map(slot => slot.slotId)) {
+    let previous = STAGE_RISE_START;
+    for (let timeMs = 0; timeMs <= durationMs; timeMs += 230) {
+      const height = composed.at(id, timeMs);
+      assert.ok(height >= previous - EPS, `${id} sinks at ${timeMs} ms`);
+      if (id !== 'B2' && id !== 'B1') assert.equal(height, ordinary.at(id, timeMs));
+      previous = height;
+    }
+    assert.equal(composed.at(id, composed.endMs), 1);
+  }
+  const seek = compile({ companion: 'B1' });
+  for (const timeMs of [14000, 43000, 0, 100000]) assert.deepEqual(seek.slotsAt(timeMs), composed.slotsAt(timeMs));
+  const handoff = compile({ companion: 'B1', previous: composed.progressAt, freezeThroughMs: 7000 });
+  assert.deepEqual(handoff.slotsAt(7000), composed.slotsAt(7000));
+});
+
 test('a slot whose label only arrives after the climb ends makes it up in the final stretch', () => {
   // 27.5 s sections: the outro (E) starts at 192.5 s, after the climb ends.
   const late = FORM.map((label, i) => ({ startMs: i * 27500, endMs: Math.min(durationMs, (i + 1) * 27500), label }));

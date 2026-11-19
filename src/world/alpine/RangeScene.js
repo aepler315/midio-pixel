@@ -58,6 +58,8 @@ import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requeste
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { riverChannelErrors } from './RiverChannel.js';
 import { frameSongprintLandmark } from './SongprintReveal.js';
+import { songprintMistArea } from './SongprintAtmosphere.js';
+import { summitLandmarkIndex } from '../terrain/SongprintRail.js';
 import { buildRailFocus, songprintLandmarks } from './BuildFocus.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
@@ -2539,11 +2541,12 @@ export class RangeScene {
     // Studio crop. Feeding the cropped lens into keepFocusFramed would turn
     // the eye toward a different point when a listener edits the lens.
     let pose = cropLens === grownPose.fovYDeg ? grownPose : { ...grownPose, fovYDeg: cropLens };
-    const cue = frame.performance?.songprintCue;
-    if (cue && p?.data && !studioEnabled && !view.tour && !view.glacier && !frame.forcedCandidate) {
+    const cue = frame.performance?.songprintCue, establish01 = frame.performance?.songprintEstablish01;
+    if ((cue || establish01) && p?.data && !studioEnabled && !view.tour && !view.glacier && !frame.forcedCandidate) {
       p.songprintLandmarks ??= songprintLandmarks(p.data, railView, { waterLevelM: p.waterLevelM });
       pose = frameSongprintLandmark(pose, p.songprintLandmarks, cue, {
-        tanX, tanY, rise01: frame.rise01, baseM: landRiseBase(p), slotRise01: p.slotRise ? frame.slotRise01 : null });
+        tanX, tanY, rise01: frame.rise01, baseM: landRiseBase(p), slotRise01: p.slotRise ? frame.slotRise01 : null,
+        composition: railView.songprintComposition, establish01 });
     }
     const resolved = { rail, proj, pose, tanX, tanY, cameraStudio: studioState };
     poses.set(occurrenceId, resolved);
@@ -2654,7 +2657,7 @@ export class RangeScene {
     m.gusts.forEach((g, i) => { u.uGustAge.value[i] = g.ageSec; u.uGustAmp.value[i] = g.amp01 * (1 + (frame.storm?.amount || 0) * .8); u.uGustDir.value[i] = g.dir; });
     syncGustUniforms(u);
     if (u.uWind) {
-      const wind = forestWindAt(frame.effects, frame.storm, this._scratch().wind);
+      const wind = forestWindAt(frame.effects, frame.storm, this._scratch().wind, frame.performance?.songprintWeather?.windGust01);
       u.uWind.value.set(wind[0], wind[1]);
     }
     syncWaterMusicUniforms(u, frame.effects);
@@ -2751,13 +2754,25 @@ export class RangeScene {
     }
     // Low banks follow source valleys; camera altitude cannot raise a fog plane.
     const rise01 = Number.isFinite(frame.rise01) ? clamp01(frame.rise01) : 1, baseM = landRiseBase(p);
+    const flow = this._setMistFlow(p);
     const mp = mistParams({ rules: p.rules, waterLevelM: p.waterLevelM, heightRange: [u.uHeightRange.value.x, u.uHeightRange.value.y],
       tSec: frame.timeMs / 1000, calm01: 1 - (frame.music?.groove ?? 0),
-      sea01: frame.cloudSea01 ?? 0, flow: this._setMistFlow(p), riseSink: 1 - rise01, riseBaseM: baseM });
+      sea01: frame.cloudSea01 ?? 0, flow, riseSink: 1 - rise01, riseBaseM: baseM });
     const quality = rangeQuality(frame.qualityLevel);
     // The score thins and lights the mist (atmosphereMusic; neutral when silent).
     const am = atmosphereMusic(frame.effects);
-    u.uMistDensity.value = mp.density * (n?.atmosphere ?? 1) * am.mistDensityMul;
+    const weather = frame.performance?.songprintWeather;
+    let area = null;
+    if (weather && flow) {
+      p.songprintLandmarks ??= songprintLandmarks(p.data, p.view, { waterLevelM: p.waterLevelM });
+      if (p.songprintLandmarks.length) {
+        const anchor = p.songprintLandmarks[summitLandmarkIndex(weather, p.songprintLandmarks.length)];
+        area = songprintMistArea(flow, anchor.pointM);
+      }
+    }
+    if (area) u.uMistSongprint.value.set(...area, 1 - weather.mistDensityMul);
+    else u.uMistSongprint.value.set(0, 0, 0, 0);
+    u.uMistDensity.value = mp.density * (n?.atmosphere ?? 1) * am.mistDensityMul * (area ? 1 : weather?.mistDensityMul ?? 1);
     // Integer sampling endpoints avoid temporary dual-bank overload; pause holds.
     const dtSec = (frame.timeMs - (p.mistEaseAtMs ?? -Infinity)) / 1000;
     p.mistSteps = easeMistSteps(p.mistSteps, quality.mistSteps, dtSec);

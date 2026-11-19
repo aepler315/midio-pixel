@@ -3,7 +3,7 @@
 // Desktop, touch phone and JOYING-class head-unit (800×480, Android UA)
 // viewports: URL overrides and their indicators, rejected/retired/unknown
 // parameters, persistence across reloads, reset, saving overrides, share
-// links, the basic/stable-only menu rule, keyboard reach, touch-target size,
+// links, the basic menu controls, keyboard reach, touch-target size,
 // horizontal overflow, and screenshots. With --playback (desktop) it also
 // plays the generated sample on the painted Range and changes live and
 // renderer-lifecycle settings mid-song, checking the audio and seed carry
@@ -55,14 +55,14 @@ async function exercise(browser, base, scenario) {
   const openSettings = () => page.locator('#titleSettings').evaluate(el => { el.open = true; el.scrollIntoView(); });
   await openSettings();
 
-  await check('the menu shows only basic, stable sections and controls', async () => {
-    for (const id of ['appearance', 'camera', 'playback']) assert.ok(await page.locator(`#settings-${id}`).count(), id);
-    for (const id of ['landscape', 'performance', 'experiments']) assert.equal(await page.locator(`#settings-${id}`).count(), 0, id);
-    for (const id of ['display-pixelGrid', 'display-buildPixelDetail', 'display-scaling', 'range-pace', 'range-tour-toggle', 'lyricGroundingBtn', 'camera-studio-toggle']) {
+  await check('the menu shows the basic controls and both Landscape experiments', async () => {
+    for (const id of ['appearance', 'camera', 'landscape', 'playback']) assert.ok(await page.locator(`#settings-${id}`).count(), id);
+    for (const id of ['performance', 'experiments']) assert.equal(await page.locator(`#settings-${id}`).count(), 0, id);
+    for (const id of ['display-pixelGrid', 'display-buildPixelDetail', 'display-scaling', 'range-pace', 'range-tour-toggle', 'lyricGroundingBtn', 'camera-studio-toggle', 'songprintLandscape', 'songprintAtmosphere']) {
       assert.ok(await page.locator(`#${id}`).isVisible(), `${id} visible`);
     }
     assert.equal(await page.locator('#settingsPanel [data-setting]:not([data-tier="basic"])').count(), 0);
-    assert.equal(await page.locator('#settingsPanel [data-maturity]:not([data-maturity="stable"])').count(), 0);
+    assert.equal(await page.locator('#settings-landscape [data-maturity="experimental"]').count(), 2);
     assert.match(await page.locator('#settingsQualityStatus').innerText(), /High.*automatic|automatic.*High/i);
   });
   await check('hidden settings stay registered but out of the menu', async () => {
@@ -77,7 +77,7 @@ async function exercise(browser, base, scenario) {
         hidden: SETTINGS.filter(d => !isMenuSetting(d)).map(d => ({ id: d.id, rows: rows(d.id) })),
       };
     });
-    assert.equal(placement.total, 61);
+    assert.equal(placement.total, 62);
     assert.ok(placement.menu.length >= 10);
     assert.deepEqual(placement.menu.filter(d => d.rows !== 1), [], JSON.stringify(placement.menu));
     assert.deepEqual(placement.hidden.filter(d => d.rows !== 0), [], JSON.stringify(placement.hidden));

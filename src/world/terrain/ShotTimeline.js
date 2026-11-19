@@ -346,6 +346,28 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
     payoffs.push({ itemIndex: offset + knotItem[k], shotId: it.id, subjectId: rec.subjectId, plannedMs: it.payoffMs,
       actualMs: crossing(offset + knotItem[k], payoffAt(rec)), moment: it.moment ?? -1 });
   }
+  // Report a scheduled return only once the sampled timeline reaches the
+  // matched shot at the cue. A replan preserves records from the frozen keys.
+  const reachedSummit = ({ timeMs, shotId }, arrivals) => {
+    const key = Math.round(timeMs / SHOT_KEY_MS);
+    const payoff = arrivals.find((p) => p.shotId === shotId && p.plannedMs === timeMs && p.itemIndex === meta[key * 4]);
+    if (!payoff || !(Math.abs(payoff.actualMs - timeMs) <= SHOT_KEY_MS)) return null;
+    return { timeMs, shotId, actualMs: payoff.actualMs };
+  };
+  const summitReturns = [];
+  if (lastFrozen >= 0) for (const cue of previous.summitReturns || []) {
+    if (cue.timeMs > keyTime(lastFrozen)) continue;
+    const reached = reachedSummit(cue, keptPayoffs);
+    if (reached && reached.actualMs <= keyTime(lastFrozen)) summitReturns.push(reached);
+  }
+  if (!plan.fallback && plan.summitReturns?.length) {
+    const newPayoffs = payoffs.slice(keptPayoffs.length);
+    for (const cue of plan.summitReturns) {
+      if (cue.timeMs <= t0) continue;
+      const reached = reachedSummit(cue, newPayoffs);
+      if (reached) summitReturns.push(reached);
+    }
+  }
 
   // Diagnostics over the planned (uncommitted) span, every 50 ms: eye speed
   // and its rate of change (the acceleration limit), the eye's sideways
@@ -408,6 +430,7 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
   if (d.maxFlowRatio > 1.05) notes.push(`image flow ${d.maxFlowRatio.toFixed(2)}x its comfort limit`);
 
   return restoreShotTimeline({ durationMs, startMs: t0, eye, target, fov, meta, progress, speed, accel, items, payoffs, knots,
+    ...(summitReturns.length ? { summitReturns } : {}),
     subjects: library.subjects.map((s) => s.id), viewId: library.viewId ?? null, fallback: plan.fallback ?? null, notes, diagnostics: d });
 }
 

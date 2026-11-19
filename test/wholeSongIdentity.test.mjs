@@ -136,3 +136,15 @@ test('only the full pass freezes a Songprint, including restored and legacy iden
   }
   assert.equal(unpackBundle({ ...packed, songprint: null }).songprint, null, 'measured, insufficient evidence');
 });
+
+test('phrase evidence survives a cached full analysis independently of the legacy camera print', () => {
+  const full = analyse();
+  const print = { version: 1, skyline: Array.from({ length: 16 }, (_, i) => i / 15),
+    passages: [{ timeMs: 6000, landmark01: .67, strength: .9 }] };
+  const phraseFamilies = { version: 1, families: [{ landmark01: .67,
+    occurrences: [{ timeMs: 6000, strength: .9 }, { timeMs: 20000, strength: .85 }] }] };
+  const packed = JSON.parse(JSON.stringify(packBundle({ ...full, songprint: { ...print, phraseFamilies } }, { fingerprint: FP })));
+  assert.deepEqual(unpackBundle(packed).songprint, { ...print, phraseFamilies });
+  packed.songprint.phraseFamilies.families[0].occurrences[1].timeMs = -1;
+  assert.deepEqual(unpackBundle(packed).songprint, print, 'invalid optional phrase data leaves the other evidence usable');
+});

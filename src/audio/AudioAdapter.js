@@ -111,7 +111,7 @@ export function activityEnvelope(samples, sampleRate, rate = 86, signal = null) 
  *   per-moment loudness decides which stem owns each melodic/bass note.
  */
 export async function audioToTimeline(audioBuffer, {
-  onProgress = null, userStems = null, groove = null, signal = null, cooperative = false, songprint = false,
+  onProgress = null, userStems = null, groove = null, signal = null, cooperative = false, songprint = false, songprintPhrases = false,
 } = {}) {
   throwIfAborted(signal);
   // Cooperative: the analysis runs while a song is already playing (the
@@ -331,7 +331,8 @@ export async function audioToTimeline(audioBuffer, {
   }, { signal });
   throwIfAborted(signal);
 
-  const landscapePrint = songprint ? await analyzeSongprintOffThread(audioBuffer, { signal }) : undefined;
+  const landscapePrint = songprint || songprintPhrases
+    ? await analyzeSongprintOffThread(audioBuffer, { signal, phrases: songprintPhrases }) : undefined;
   throwIfAborted(signal);
   onProgress?.({ phase: 'done', progress: 1 });
 

@@ -71,6 +71,20 @@ test('a restored recording sends the full print to its landscape and only its sk
   assert.deepEqual(calls[0].record.songprint, { version: songprint.version, skyline: songprint.skyline });
 });
 
+test('weather-only analysis keeps the audio fingerprint off the terrain and library paths', async () => {
+  const { context, calls } = setup();
+  const songprint = { version: 1, skyline: Array(16).fill(.5), passages: [] };
+  let planned;
+  context.prepareSongTerrain = async (_profile, _seed, _recent, options) => { planned = options; return {}; };
+  const data = { songIdentity: { seed: 42, songProfile: profile, songprint },
+    songprintLandscapeEnabled: false, songprintAtmosphere: true };
+  context.offerWorldsThenStart(data, { localTrack: { key: 'test' } });
+  await context.pendingWorldStart.terrainReady;
+  assert.equal(planned.songprint, null);
+  assert.equal(data.songIdentity.songprint, songprint);
+  assert.equal(calls[0].record.songprint, undefined);
+});
+
 test('the actual world start records a newly built identity and storage failure cannot delay the pending world', async () => {
   const { context, calls, warnings } = setup({ rejectStorage: true });
   const data = { durationMs: 120000, timeline: [] };

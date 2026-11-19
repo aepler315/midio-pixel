@@ -7,7 +7,7 @@ import { pathPoseAt } from '../src/world/terrain/ShotPath.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildShotTimeline, restoreShotTimeline, shotTimelineData, SHOT_MOTION } from '../src/world/terrain/ShotTimeline.js';
+import { buildShotTimeline, restoreShotTimeline, shotContinuation, shotTimelineData, SHOT_MOTION } from '../src/world/terrain/ShotTimeline.js';
 import { readLibrary, motionAudit, partTimes, payoffBound, longestPayoffGap, JOIN_SPIKE_MS } from '../tools/plan-scenic-tour.mjs';
 import { shotLibraryFixture, anthemSong, dropSong, shortSong, rangeShotLibraryFixture } from './fixtures/shot-library-fixture.mjs';
 
@@ -47,6 +47,60 @@ test('the plan tiles the song: shot, link, shot, ... with links joining their ne
     assert.equal(p.items.at(-1).kind, 'shot');
     assert.ok(shotsOf(p).length >= 3);
   }
+});
+
+test('a summit cue can plan a connected arrival on an impact or at its own heard time', () => {
+  const ordinary = plan();
+  const shotId = 'shot-2';
+  assert.ok(!shownOf(ordinary).some(item => item.id === shotId));
+
+  for (const timeMs of [48000, 61000]) {
+    const summitCues = [{ timeMs, strength: .86, shots: [{ id: shotId, score: 1 }] }];
+    const directed = plan({ summitCues });
+    assert.equal(directed.fallback, null);
+    assertTiles(directed);
+    assert.deepEqual(directed.summitReturns, [{ timeMs, shotId }]);
+    const arrival = directed.items.findIndex(item => item.id === shotId && item.payoffMs === timeMs);
+    assert.ok(arrival > 0);
+    assert.equal(directed.items[arrival - 1].kind, 'link');
+    const payoff = directed.items[arrival];
+    if (timeMs === 48000) assert.equal(directed.moments[payoff.moment].timeMs, timeMs);
+    else assert.equal(payoff.moment, -1);
+
+    const timeline = buildShotTimeline(library, directed);
+    const replay = restoreShotTimeline(structuredClone(shotTimelineData(timeline)));
+    assert.equal(timeline.stateAt(timeMs).id, shotId);
+    assert.deepEqual(timeline.summitReturns, [{ timeMs, shotId, actualMs: timeMs }]);
+    assert.deepEqual(replay.summitReturns, timeline.summitReturns);
+    assert.deepEqual(replay.poseAt(timeMs), timeline.poseAt(timeMs));
+  }
+});
+
+test('offscreen and unreachable summit cues do not send the camera to an unchecked shot', () => {
+  const target = { id: 'shot-2', score: 1 };
+  const options = { visible: [{ startMs: 12000, endMs: song.durationMs }] };
+  const ordinary = plan(options);
+  assert.deepEqual(plan({ ...options, summitCues: [{ timeMs: 8000, strength: 1, shots: [target] }] }), ordinary);
+
+  const impossible = plan({ summitCues: [{ timeMs: 100, strength: 1, shots: [target] }] });
+  assert.equal(impossible.fallback, null);
+  assert.equal(impossible.summitReturns, undefined);
+  assert.deepEqual(impossible.items, plan().items);
+});
+
+test('a replan keeps only summit returns that actually happened on the frozen camera', () => {
+  const timeMs = 48000, shotId = 'shot-2';
+  const cue = { timeMs, strength: 1, shots: [{ id: shotId, score: 1 }] };
+  const initial = buildShotTimeline(library, plan({ summitCues: [cue] }));
+  const start = shotContinuation(initial, 50000);
+  const directed = plan({ start, summitCues: [{ ...cue, timeMs: 20000 }] });
+  const previous = shotTimelineData(initial);
+  previous.summitReturns = [...previous.summitReturns, { timeMs: 70000, shotId }];
+  const timeline = buildShotTimeline(library, directed, { previous, frozenThroughMs: start.timeMs });
+  assert.equal(timeline.fallback, null);
+  assert.equal(timeline.startMs, start.timeMs);
+  assert.deepEqual(timeline.summitReturns, initial.summitReturns);
+  assert.deepEqual(timeline.poseAt(timeMs), initial.poseAt(timeMs));
 });
 
 test('payoffs land on their moments; most strong impacts and the climax get one, on a hero subject (mostly its top shots)', () => {

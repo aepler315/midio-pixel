@@ -17,10 +17,11 @@
 //
 // SONG_RANGE_VERSION changes whenever these rules change; a song's layout
 // may then change too.
-import { measuredViewOutline, outlineDistance, songprintOutline, songprintReliefScale } from './SongprintTerrain.js';
+import { measuredViewOutline, songprintOutline, songprintReliefScale } from './SongprintTerrain.js';
 import { massifSkylines } from './songprintSkylines.js';
 import { planSongScenes } from './SongScenePlan.js';
 import { slotOrigin } from './StageFloor.js';
+import { compositionTarget, summitSpacing, summitCandidate, summitPairScore } from './SongprintComposition.js';
 import { chooseSongBiomes } from './BiomeSet.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { sceneOdds, SCENIC_FAIR_SHARE } from './SceneCatalog.js';
@@ -28,6 +29,7 @@ import MASSIF_CATALOG from './massifCatalogData.js';
 import { settingValue } from '../../config/appSettings.js';
 
 export const SONG_RANGE_VERSION = 3;
+const SONGPRINT_RANGE_VERSION = 4;
 
 /** Biome to material family; mirrors DEFAULT_PACKS in tools/build-range-scene.mjs. */
 export const BIOME_FAMILY = Object.freeze({
@@ -93,59 +95,88 @@ function indexOf(catalog) {
   return hit;
 }
 
-// The nearest surveyed view supplies a stable geographic anchor. Its full
-// outline directs the principal summit; the recording contributes a quarter
-// of the supporting contour so nearby performances can vary at the edges.
+// Pick the two main crests before filling the rest of the stage. The home
+// supplies the biome and a modest source preference, while the song
+// supplies the desired shapes and balance across the camera frame.
 function composeFromOutline(templates, pieces, homeView, song, songprint, family, forced) {
-  const anchor = measuredViewOutline(homeView).map(h => h / 255);
-  const support = anchor.map((height, i) => .75 * height + .25 * song[i]);
-  const measured = pieces.filter(p => massifSkylines[p.manifestSha256]);
+  const target = compositionTarget(song, measuredViewOutline(homeView));
+  const balance = summitSpacing(target);
+  const measured = pieces.filter(piece => massifSkylines[piece.manifestSha256]);
   let best = null;
   for (const template of templates) {
-    const principalSlot = template.slots.find(s => s.id === template.principalSlot);
+    const principalSlot = template.slots.find(slot => slot.id === template.principalSlot);
     if (!principalSlot || !canFill(template.slots, measured)) continue;
-    const others = template.slots.filter(s => s !== principalSlot);
-    const order = [principalSlot, ...others];
-    const left = Math.min(...order.map(s => s.tiles[0]));
-    const width = Math.max(...order.map(s => s.tiles[0] + s.tiles[2])) - left;
-    const regionUse = new Map(), chosen = new Map();
-    let available = measured;
-    let total = 0;
-    for (const [i, slot] of order.entries()) {
-      const remaining = order.slice(i + 1);
-      const candidates = available.filter(p => fits(slot, p) && canFill(remaining, available.filter(q => p !== q)));
-      const ranked = candidates.map(piece => {
-        const outline = massifSkylines[piece.manifestSha256];
-        const x = slotOrigin(slot, piece.tiles)[0] - left;
-        const bounds = i === 0 ? {} : { left: x / width, right: (x + piece.tiles[0]) / width };
-        const target = i === 0 ? anchor : support;
-        const forward = outlineDistance(target, outline, bounds);
-        const reverse = outlineDistance(target, outline, { ...bounds, mirrored: true });
-        // Prefer a local principal, and spread secondary pieces across their
-        // source regions before reusing one, as in the ordinary range plan.
-        const priority = i === 0 ? Number(piece.sourceView !== homeView.id) : (regionUse.get(piece.sourceView) || 0);
-        return { piece, priority, error: Math.min(forward, reverse), mirrored: reverse < forward };
-      }).sort((a, b) => a.priority - b.priority || a.error - b.error || a.piece.id.localeCompare(b.piece.id));
-      const match = ranked[0];
-      chosen.set(slot.id, match);
-      regionUse.set(match.piece.sourceView, (regionUse.get(match.piece.sourceView) || 0) + 1);
-      available = available.filter(p => p !== match.piece);
-      total += (i === 0 ? 1 : 1 / others.length) * match.error;
-    }
-    const principal = chosen.get(principalSlot.id).piece;
-    const local = principal.sourceView === homeView.id;
-    if (best && (Number(local) < Number(best.local) || (local === best.local && total >= best.total))) continue;
+
     const slots = template.slots.map(slot => {
+      const hero = slot === principalSlot;
+      const candidates = measured.filter(piece => fits(slot, piece)).flatMap(piece => {
+        const measure = massifSkylines[piece.manifestSha256];
+        const forward = summitCandidate(template, slot, piece, measure, target, hero, false);
+        const reverse = summitCandidate(template, slot, piece, measure, target, hero, true);
+        return [forward, reverse];
+      }).sort((a, b) => a.score - b.score || a.piece.id.localeCompare(b.piece.id));
+      return { slot, candidates };
+    });
+    const heroes = slots.find(({ slot }) => slot === principalSlot).candidates;
+    const surroundings = slots.filter(({ slot }) => slot !== principalSlot);
+    const focalCost = candidate => candidate.score + (candidate.piece.sourceView === homeView.id ? 0 : .014);
+    const pairs = [];
+    for (const hero of heroes) {
+      pairs.push({ hero, companion: null, score: focalCost(hero) + .35 });
+      for (const { candidates } of surroundings) {
+        for (const companion of candidates) {
+          if (hero.piece === companion.piece) continue;
+          const together = summitPairScore(hero, companion, balance);
+          if (together !== null) pairs.push({ hero, companion, score: focalCost(hero) + .75 * companion.score + together });
+        }
+      }
+    }
+    pairs.sort((a, b) => a.score - b.score);
+    const pair = pairs.find(({ hero, companion }) => canFill(template.slots.filter(slot => slot !== principalSlot && slot !== companion?.slot),
+      measured.filter(piece => piece !== hero.piece && piece !== companion?.piece)));
+    if (!pair) continue;
+
+    const chosen = new Map([[principalSlot.id, pair.hero]]);
+    if (pair.companion) chosen.set(pair.companion.slot.id, pair.companion);
+    const used = new Set([...chosen.values()].map(candidate => candidate.piece));
+    const regions = new Map();
+    const noteRegion = piece => regions.set(piece.sourceView, (regions.get(piece.sourceView) || 0) + 1);
+    for (const piece of used) noteRegion(piece);
+    const open = surroundings.filter(({ slot }) => !chosen.has(slot.id));
+    let support = 0;
+    for (const [index, { slot, candidates }] of open.entries()) {
+      const rest = open.slice(index + 1).map(item => item.slot);
+      const cost = candidate => {
+        const angularRelief = candidate.prominence / Math.max(.001, pair.hero.prominence);
+        const rivalry = Math.max(0, angularRelief - .85);
+        return candidate.score + .055 * (regions.get(candidate.piece.sourceView) || 0) + .12 * rivalry ** 2;
+      };
+      const ranked = candidates.filter(candidate => !used.has(candidate.piece))
+        .sort((a, b) => cost(a) - cost(b));
+      const match = ranked.find(candidate => canFill(rest, measured.filter(piece => !used.has(piece) && piece !== candidate.piece)));
+      support += cost(match);
+      chosen.set(slot.id, match);
+      used.add(match.piece);
+      noteRegion(match.piece);
+    }
+    const total = pair.score + .65 * support / Math.max(1, open.length);
+    if (best && total >= best.total) continue;
+
+    const left = Math.min(...template.slots.map(slot => slot.tiles[0]));
+    const width = Math.max(...template.slots.map(slot => slot.tiles[0] + slot.tiles[2])) - left;
+    const placements = template.slots.map(slot => {
       const { piece, mirrored } = chosen.get(slot.id);
       const x = slotOrigin(slot, piece.tiles)[0] - left;
       const reliefScale = songprintReliefScale(songprint.skyline, x / width, (x + piece.tiles[0]) / width);
       return Object.freeze({ slotId: slot.id, pieceId: piece.id, mirrored, reliefScale });
     });
-    best = { local, total, plan: Object.freeze({
-      version: SONG_RANGE_VERSION, songprintVersion: songprint.version, biome: homeView.biome, family,
+    const principal = pair.hero.piece;
+    best = { total, plan: Object.freeze({
+      version: SONGPRINT_RANGE_VERSION, songprintVersion: songprint.version, biome: homeView.biome, family,
       ...(forced ? { forced: true } : {}), templateId: template.id, baseM: template.lakeLevelM,
       principal: Object.freeze({ slotId: principalSlot.id, pieceId: principal.id, name: principal.name }),
-      slots: Object.freeze(slots), label: `World: ${principal.name} range`,
+      ...(pair.companion ? { companionSlot: pair.companion.slot.id } : {}),
+      slots: Object.freeze(placements), label: `World: ${principal.name} range`,
     }) };
   }
   return best?.plan ?? null;
@@ -271,5 +302,6 @@ export function songRangeKey(plan) {
   const seed = Number.isInteger(plan.songSeed) ? `|seed:${plan.songSeed}` : '';
   const stage = plan.camera || plan.slotOffsets ? `|stage:${JSON.stringify({ camera: plan.camera,
     offsets: Object.entries(plan.slotOffsets || {}).sort(([a], [b]) => a.localeCompare(b)) })}` : '';
-  return `${layout}${seed}${stage}`;
+  const companion = plan.companionSlot ? `|companion:${plan.companionSlot}` : '';
+  return `${layout}${seed}${stage}${companion}`;
 }

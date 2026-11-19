@@ -1,12 +1,35 @@
 // The worker, persisted bundle and terrain share this small versioned shape.
 // The library needs only the composition's skyline, never its passage timeline.
 export const SONGPRINT_VERSION = 1;
+export const SONGPRINT_PHRASE_VERSION = 1;
+export const MAX_PHRASE_FAMILIES = 4;
+export const MAX_PHRASE_OCCURRENCES = 8;
 const unit = value => Number.isFinite(value) && value >= 0 && value <= 1;
 
 export function copySongprintSkyline(print) {
   if (print?.version !== SONGPRINT_VERSION || !Array.isArray(print.skyline) || print.skyline.length !== 16) return null;
   const skyline = Array.from(print.skyline);
   return skyline.every(unit) ? { version: SONGPRINT_VERSION, skyline } : null;
+}
+
+function copyPhraseFamilies(data, durationMs) {
+  if (data?.version !== SONGPRINT_PHRASE_VERSION || !Array.isArray(data.families)
+    || data.families.length > MAX_PHRASE_FAMILIES) return null;
+  const families = [];
+  for (const family of data.families) {
+    if (!family || !unit(family.landmark01) || !Array.isArray(family.occurrences)
+      || family.occurrences.length < 2 || family.occurrences.length > MAX_PHRASE_OCCURRENCES) return null;
+    const occurrences = [];
+    let previous = -1;
+    for (const cue of family.occurrences) {
+      if (!cue || !Number.isSafeInteger(cue.timeMs) || cue.timeMs <= previous
+        || cue.timeMs > Math.ceil(durationMs) || !unit(cue.strength)) return null;
+      occurrences.push({ timeMs: cue.timeMs, strength: cue.strength });
+      previous = cue.timeMs;
+    }
+    families.push({ landmark01: family.landmark01, occurrences });
+  }
+  return { version: SONGPRINT_PHRASE_VERSION, families };
 }
 
 export function copySongprint(print, durationMs = Infinity) {
@@ -22,5 +45,6 @@ export function copySongprint(print, durationMs = Infinity) {
     passages.push({ timeMs, landmark01, strength });
     previous = timeMs;
   }
-  return { ...compact, passages };
+  const phraseFamilies = copyPhraseFamilies(print.phraseFamilies, durationMs);
+  return { ...compact, passages, ...(phraseFamilies ? { phraseFamilies } : {}) };
 }

@@ -1,5 +1,6 @@
 import { travelMs } from '../BiomeSchedule.js';
 import { sceneFitRate, sceneProgressAt } from './SceneTravel.js';
+import { planSummitRail, refitSummitRail, summitPassages, summitRailProgress, validSummitStops } from './SongprintRail.js';
 
 export const DEFAULT_RAIL_PACE = 4;
 export const RAIL_PACES = Object.freeze([1, 2, 3, 4]);
@@ -135,17 +136,27 @@ export function sceneViewWindows(sections, choiceFor, durationMs) {
   return resolveRuns(sections, choiceFor, duration).map(({ viewId, startMs, nominalEndMs }) => ({ viewId, startMs, endMs: visibleEndMs(nominalEndMs, duration) }));
 }
 
-function makeOccurrence(run, base, fitRate, requestedMultiplier, durationMs, seed, worldId) {
+function fittedProgress(base, fit, timeMs) {
+  return clamp01(fit.start + fit.gain * (sampleBase(base, timeMs) - fit.baseStart));
+}
+
+function makeOccurrence(run, base, fitRate, requestedMultiplier, durationMs, seed, worldId, stations, passages, admittedMs, throughMs) {
   const endMs = visibleEndMs(run.nominalEndMs, durationMs);
   const data = {
     viewId: run.viewId, biome: run.biome, startMs: run.startMs,
     nominalEndMs: run.nominalEndMs, endMs, transitionMs: run.transitionMs,
   };
   const naturalDelta = Math.max(0, sampleBase(base, endMs) - sampleBase(base, data.startMs)) / fitRate;
+  const fit = fitWindow(base, data.startMs, endMs, requestedMultiplier, naturalDelta);
+  // Keep the transition into the view and its closing move on the original rail.
+  const summitStartMs = Math.max(admittedMs, data.startMs + data.transitionMs);
+  const summitEndMs = Math.min(throughMs, data.nominalEndMs);
+  const summitStops = stations?.length ? planSummitRail(stations, passages,
+    timeMs => fittedProgress(base, fit, timeMs), summitStartMs, summitEndMs) : [];
   return freeze({
     id: identity('occ', { ...data, seed, worldId }), ...data,
     baseId: base.id, requestedMultiplier,
-    fit: fitWindow(base, data.startMs, endMs, requestedMultiplier, naturalDelta),
+    fit, ...(summitStops.length ? { summitStops, summitStartMs, summitEndMs } : {}),
   });
 }
 
@@ -178,9 +189,11 @@ function makePlan({ version = SNAPSHOT_VERSION, durationMs, seed, worldId, reque
       const base = unique.get(occurrence.baseId);
       const fit = occurrence.fit;
       const t = Math.max(occurrence.startMs, Math.min(occurrence.endMs, Number.isFinite(timeMs) ? timeMs : 0));
-      const progress01 = clamp01(fit.start + fit.gain * (sampleBase(base, t) - fit.baseStart));
+      const progress01 = fittedProgress(base, fit, t);
+      const directedProgress = summitRailProgress(progress01, occurrence.summitStops);
       return Object.freeze({
-        occurrenceId, viewId: occurrence.viewId, progress01,
+        occurrenceId, viewId: occurrence.viewId, progress01: directedProgress,
+        ...(progress01 !== directedProgress ? { ordinaryProgress01: progress01 } : {}),
         requestedMultiplier: occurrence.requestedMultiplier,
         effectiveMultiplier: fit.effectiveMultiplier,
         coverage01: fit.coverage01, capped: fit.capped, policy: 'rail',
@@ -195,6 +208,7 @@ export function compileSceneRailPlan({
   sections = [], choiceFor = () => null, durationMs = 0, curves = null,
   response = null, requestedMultiplier = DEFAULT_RAIL_PACE, seed = 0,
   worldId = null, previous = null, committedThroughMs = -1,
+  songprint = null, songprintAdmittedMs = 0, songprintThroughMs = durationMs,
 } = {}) {
   const duration = durationOf(durationMs);
   const multiplier = normalizeRailPace(requestedMultiplier);
@@ -225,7 +239,13 @@ export function compileSceneRailPlan({
       }
     }
   }
-  const occurrences = [...protectedRuns, ...tail.map(run => makeOccurrence(run, base, fitRate, multiplier, duration, safeSeed, safeWorld))];
+  const passages = summitPassages(songprint, songprintAdmittedMs, songprintThroughMs);
+  const occurrences = [...protectedRuns, ...tail.map(run => {
+    const view = passages.length ? choiceFor(run.biome)?.view : null;
+    const stations = view?.id === run.viewId ? view?.songprintRailStations : null;
+    return makeOccurrence(run, base, fitRate, multiplier, duration, safeSeed, safeWorld, stations,
+      passages, songprintAdmittedMs, songprintThroughMs);
+  })];
   return makePlan({ durationMs: duration, seed: safeSeed, worldId: safeWorld,
     requestedMultiplier: multiplier, bases: [...(old?.bases ?? []), base], occurrences });
 }
@@ -237,8 +257,12 @@ export function withSceneRailPace(plan, requestedMultiplier, committedThroughMs 
   const bases = new Map(snapshot.bases.map(base => [base.id, base]));
   const occurrences = snapshot.occurrences.map(occurrence => {
     if (occurrence.startMs <= committedThroughMs || occurrence.requestedMultiplier === multiplier) return occurrence;
-    return freeze({ ...occurrence, requestedMultiplier: multiplier,
-      fit: fitWindow(bases.get(occurrence.baseId), occurrence.startMs, occurrence.endMs, multiplier, occurrence.fit.naturalDelta ?? null) });
+    const base = bases.get(occurrence.baseId);
+    const { summitStops, summitStartMs, summitEndMs, ...rest } = occurrence;
+    const fit = fitWindow(base, occurrence.startMs, occurrence.endMs, multiplier, occurrence.fit.naturalDelta ?? null);
+    const refitted = summitStops ? refitSummitRail(summitStops, t => fittedProgress(base, fit, t),
+      summitStartMs, summitEndMs) : [];
+    return freeze({ ...rest, requestedMultiplier: multiplier, fit, ...(refitted.length ? { summitStops: refitted, summitStartMs, summitEndMs } : {}) });
   });
   return makePlan({ ...snapshot, requestedMultiplier: multiplier, occurrences });
 }
@@ -285,6 +309,10 @@ export function sceneRailPlanFromSnapshot(snapshot) {
     if (fit.baseStart < 0 || fit.baseStart > 1 || fit.baseDelta < 0 || fit.targetDelta < 0 || fit.targetDelta > 1 || fit.start < 0 || fit.start > 1 || fit.gain < 0 || fit.effectiveMultiplier < 0 || fit.coverage01 < 0 || fit.coverage01 > 1) invalid('fit bounds');
     const hasNatural = fit.naturalDelta !== undefined;
     if (hasNatural && (snapshot.version === 1 || !Number.isFinite(fit.naturalDelta) || fit.naturalDelta < 0)) invalid('fit natural travel');
+    const { summitStops: stops, summitStartMs, summitEndMs } = occurrence;
+    if (stops !== undefined && (!Number.isFinite(summitStartMs) || summitStartMs < occurrence.startMs
+      || !Number.isFinite(summitEndMs) || summitEndMs > occurrence.nominalEndMs
+      || !validSummitStops(stops, summitStartMs, summitEndMs))) invalid('summit timing');
     return freeze({
       id: occurrence.id, viewId: occurrence.viewId, biome: occurrence.biome,
       startMs: occurrence.startMs, nominalEndMs: occurrence.nominalEndMs, endMs: occurrence.endMs,
@@ -293,6 +321,7 @@ export function sceneRailPlanFromSnapshot(snapshot) {
       fit: { baseStart: fit.baseStart, baseDelta: fit.baseDelta, targetDelta: fit.targetDelta,
         start: fit.start, gain: fit.gain, effectiveMultiplier: fit.effectiveMultiplier,
         coverage01: fit.coverage01, capped: fit.capped, ...(hasNatural ? { naturalDelta: fit.naturalDelta } : {}) },
+      ...(stops === undefined ? {} : { summitStops: stops.map(({ timeMs, target, start, at, end }) => ({ timeMs, target, start, at, end })), summitStartMs, summitEndMs }),
     });
   });
   const plan = makePlan({ version: snapshot.version, durationMs: snapshot.durationMs, seed: snapshot.seed, worldId: snapshot.worldId,

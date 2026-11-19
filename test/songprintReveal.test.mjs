@@ -5,7 +5,7 @@ import { landscapeScoreFor } from '../src/world/alpine/LandscapeScore.js';
 import { frameSongprintLandmark } from '../src/world/alpine/SongprintReveal.js';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
 import { terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
-import { scenePoseAt } from '../src/world/terrain/SceneTravel.js';
+import { projectPoint, scenePoseAt } from '../src/world/terrain/SceneTravel.js';
 import { cone, summitWorld, LEVEL } from './fixtures/summit-world.mjs';
 
 const print = (times, positions) => ({ version: 1, passages: times.map((timeMs, i) =>
@@ -107,4 +107,44 @@ test('a confident return raises its measured slot to a recognizable relief and k
   const late = landscapeScoreFor({ ...mgr, songprintAdmittedMs: 34000 });
   assert.deepEqual(late.at(36000).slotRise01, natural(36000));
   assert.ok(late.at(58000).slotRise01.right >= .82);
+});
+
+
+test('the paired crop keeps a composed crest and its companion visible on the surveyed rail', () => {
+  const rail = { eyeM: [0, 700, 0], targetM: [0, 700, 9000], fovYDeg: 40 };
+  const principal = { slotId: 'principal', pointM: [3900, 1800, 9000] };
+  const companion = { slotId: 'companion', pointM: [-4050, 1575, 9000] };
+  const aspect = 16 / 9, tanY = Math.tan(rail.fovYDeg * Math.PI / 360), tanX = tanY * aspect;
+  const targets = [{ landmark01: .2, weight: .92 }];
+  const cue = { targets, weight: .92 };
+  const options = { tanX, tanY };
+  const lens = (pose, peak) => {
+    const p = projectPoint(rail, aspect, peak.pointM);
+    return [(p.x - pose.viewOffset.rx / tanX) / (1 - pose.viewOffset.fx),
+      (p.y - pose.viewOffset.uy / tanY) / (1 - pose.viewOffset.fx)];
+  };
+  const ordinary = frameSongprintLandmark(rail, [principal, companion], cue, options);
+  assert.ok(Math.abs(lens(ordinary, companion)[0]) > 1);
+  const paired = frameSongprintLandmark(rail, [principal, companion], cue, { ...options, composition: { principal, companion } });
+  for (const peak of [principal, companion]) assert.ok(lens(paired, peak).every(value => Math.abs(value) < .99));
+  assert.ok(paired.viewOffset.fx > 0);
+  assert.equal(paired.eyeM, rail.eyeM);
+  assert.equal(paired.targetM, rail.targetM);
+  assert.equal(paired.songprintReveal.pointM, principal.pointM);
+  assert.deepEqual(frameSongprintLandmark(rail, [principal, companion], cue, { ...options, composition: { principal, companion } }), paired);
+});
+
+test('a composed skyline is established after the opening and respects a late analysis or preview', () => {
+  const stage = { slots: ['one', 'two'].map(slotId => ({ slotId, row: 'back' })), principal: 'one', companion: 'two' };
+  const mgr = { ...manager(subject), songTerrain: { songprint: subject, songRange: { stage } } };
+  const score = landscapeScoreFor(mgr);
+  assert.equal(score.at(5000).songprintEstablish01, 0);
+  assert.ok(score.at(9500).songprintEstablish01 > .7);
+  assert.ok(score.at(21000).songprintEstablish01 < .2);
+  assert.equal(score.at(22000).songprintEstablish01, 0);
+  assert.equal(score.at(9500, { preview: true }).songprintEstablish01, undefined);
+  assert.equal(score.at(9500, { songprintStage: false }).songprintEstablish01, undefined);
+  const late = landscapeScoreFor({ ...mgr, songprintAdmittedMs: 17500 });
+  assert.equal(late.at(18500).songprintEstablish01, 0);
+  assert.deepEqual(score.at(9500), landscapeScoreFor({ ...mgr }).at(9500));
 });

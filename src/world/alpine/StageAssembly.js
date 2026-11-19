@@ -130,12 +130,13 @@ export function stageTemplate(catalog, plan) {
 }
 
 /** A stage's slots for the song's rise (song range composition, Phase 4):
- *  { slots: [{ slotId, row }], principal }, from the plan and its template. */
+ *  { slots: [{ slotId, row }], principal, companion? }, from the plan and its template. */
 export function stageRiseSlots(plan, catalog) {
   const t = stageTemplate(catalog, plan);
   return {
     slots: plan.slots.map((s) => ({ slotId: s.slotId, row: t.slots.find((x) => x.id === s.slotId)?.row ?? null })),
     principal: plan.principal?.slotId ?? null,
+    ...(plan.companionSlot ? { companion: plan.companionSlot } : {}),
   };
 }
 

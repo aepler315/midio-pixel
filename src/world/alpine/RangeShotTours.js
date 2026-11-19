@@ -17,6 +17,11 @@ import { loadShotLibrary, shotLibraryBytes, cameraFootprint } from '../terrain/S
 import { shotTourIdentityErrors } from '../terrain/SceneCatalog.js';
 import { prepareShotTimeline } from '../terrain/ShotRuntime.js';
 import { sceneViewWindows } from '../terrain/SceneRailPlan.js';
+import { summitLandmarkIndex, summitPassages } from '../terrain/SongprintRail.js';
+import { FINALE_MS } from './RangeCamera.js';
+import { lastAudibleMs } from './EffectsMusic.js';
+import { songprintLandmarks } from './BuildFocus.js';
+import { songprintShotPayoffs } from './SongprintViewpoints.js';
 import { SHOT_KEY_MS } from '../terrain/ShotTimeline.js';
 import { AUTO_TOUR_GATE, tourBeatsRail } from './CameraChoice.js';
 export { cameraFootprint };
@@ -155,8 +160,43 @@ export class RangeShotTours {
     if (s.state !== 'loading') return;
     if (entry.state !== 'ready') { s.state = 'failed'; s.reason = entry.reason; return; }
     s.library = entry.library; s.footprint = entry.footprint;
+    const mgr = this.mgr, print = mgr?.songTerrain?.songprint;
+    const passages = print ? summitPassages(print, mgr.songprintAdmittedMs ?? 0,
+      lastAudibleMs(mgr.energyCurves, mgr.durationMs) - FINALE_MS) : [];
+    const visible = this._visible(s);
+    s.summitPassages = passages.filter(cue => visible.some(span => cue.timeMs >= span.startMs && cue.timeMs <= span.endMs));
+    if (s.summitPassages.length && !s.view.glacier && !s.view.tour) {
+      s.state = 'waiting-terrain';
+      s.startedAt = null; // A future view has no deadline before its terrain is requested.
+      return;
+    }
     s.state = 'planning';
     this._startPlan(s, generation);
+  }
+
+  /** The already prepared shot footprint supplies the DEM for payoff scoring. */
+  terrainReady(viewId, prepared) {
+    const s = this.views.get(viewId);
+    if (s?.state !== 'waiting-terrain' || this.settled(viewId)) return;
+    if (prepared?.railOnly) {
+      this.keepRail(viewId, `rail kept: ${prepared.railOnly}`);
+      return;
+    }
+    s.state = 'planning';
+    s.startedAt = this._now();
+    if (prepared?.data) {
+      try {
+        const landmarks = prepared.songprintLandmarks ?? songprintLandmarks(prepared.data, s.view, { waterLevelM: prepared.waterLevelM });
+        const scores = songprintShotPayoffs(prepared.data, s.library, landmarks);
+        s.summitCues = s.summitPassages.flatMap(cue => {
+          const shots = scores[summitLandmarkIndex(cue, scores.length)];
+          return shots?.length ? [{ timeMs: cue.timeMs, strength: cue.strength, shots }] : [];
+        });
+      } catch (error) {
+        console.warn('Could not score summit viewpoints. Using the ordinary shot plan.', error);
+      }
+    }
+    this._startPlan(s, this.generation);
   }
 
   _heardMs() { return Math.max(this.heardThroughMs, (this.mgr?.tSec || 0) * 1000); }
@@ -191,7 +231,7 @@ export class RangeShotTours {
     s.visible = visible; s.sections = mgr?.sections;
     const started = this._now();
     return this._plan(s.library, mgr, { signal: controller.signal, visible, seed: mgr?.songSeed ?? 0,
-      previous: previous || null, committedThroughMs: previous ? this._heardMs() : -1 })
+      previous: previous || null, committedThroughMs: previous ? this._heardMs() : -1, summitCues: s.summitCues })
       .then((timeline) => {
         if (controller.signal.aborted || generation !== this.generation) return;
         s.planMs = this._now() - started;
@@ -216,6 +256,7 @@ export class RangeShotTours {
   prepareView(view) {
     const s = this.views.get(view.id);
     if (!s) return view;
+    if (s.state === 'waiting-terrain' && s.startedAt === null) s.startedAt = this._now();
     // Scene preparation waits on the library, so it must advance the live
     // deadline itself; no ready scene exists yet to call settled().
     this.settled(view.id);
@@ -230,7 +271,7 @@ export class RangeShotTours {
     const s = this.views.get(viewId);
     if (!s) return true;
     if (s.state === 'ready' || s.state === 'failed' || s.state === 'rail') return true;
-    if (!this.exportMode && this._now() - s.startedAt > SHOT_PLAN_TIMEOUT_MS) {
+    if (!this.exportMode && s.startedAt !== null && this._now() - s.startedAt > SHOT_PLAN_TIMEOUT_MS) {
       s.abort?.abort();
       if (s.previous) { this._hold(s, s.previous, 'replan timed out'); return true; }
       s.state = 'failed'; s.reason = 'shot plan: timed out; the rail is kept for this song';
@@ -274,7 +315,7 @@ export class RangeShotTours {
       const controller = new AbortController();
       s.refineAbort?.abort(); s.refineAbort = controller;
       this._plan(s.library, mgr, { signal: controller.signal, visible: this._visible(s, mgr),
-        seed: mgr?.songSeed ?? 0, previous: before, committedThroughMs: heardMs })
+        seed: mgr?.songSeed ?? 0, previous: before, committedThroughMs: heardMs, summitCues: s.summitCues })
         .then((timeline) => {
           if (controller.signal.aborted || generation !== this.generation || s.timeline !== before) return;
           if (this._holdReply(s, before, timeline)) return;
