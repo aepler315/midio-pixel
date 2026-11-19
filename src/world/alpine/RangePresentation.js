@@ -1178,9 +1178,11 @@ export class RangePresentation {
       }
       const turn = skyTurn(pose, cameraBasis(rail).forward);
       const referenceProj = scenicProjection(rail.fovYDeg, vp);
-      const referenceFov = Math.atan(Math.tan(referenceProj.fovYDeg * Math.PI / 360) / (frame.cameraEffects?.halfAngleScale || 1)) * 360 / Math.PI;
+      const songprintOrbit = !!pose.songprintOrbit;
+      const lensScale = 1 + ((frame.cameraEffects?.halfAngleScale || 1) - 1) * (1 - (pose.songprintOrbit?.gain ?? 0));
+      const referenceFov = Math.atan(Math.tan(referenceProj.fovYDeg * Math.PI / 360) / lensScale) * 360 / Math.PI;
       const skyCamera = { referencePose: { ...rail, fovYDeg: referenceFov }, pose: { ...pose, fovYDeg: proj.fovYDeg }, aspect: proj.aspect };
-      return { ...turn, skyCamera, tanY: Math.tan((proj.fovYDeg * Math.PI) / 360) / (frame.cameraEffects?.halfAngleScale || 1), aspect: proj.aspect };
+      return { ...turn, skyCamera, songprintOrbit, tanY: Math.tan((proj.fovYDeg * Math.PI) / 360) / lensScale, aspect: proj.aspect };
     };
     try {
       const a = one(view, 'A');
@@ -1192,12 +1194,14 @@ export class RangePresentation {
         const side = k >= .5 ? b : a;
         if (side.tourPose) return { x: 0, y: 0, tourPose: side.tourPose, ...(side.celestialOffsetDeg != null ? { celestialOffsetDeg: side.celestialOffsetDeg } : {}) };
         if (!(side.tanY > 0 && side.aspect > 0)) return still;
-        return { x: side.x / (side.tanY * side.aspect), y: side.y / side.tanY, skyCamera: Object.freeze({ from: side.skyCamera, to: side.skyCamera, mix: 0 }) };
+        return { x: side.x / (side.tanY * side.aspect), y: side.y / side.tanY, songprintOrbit: side.songprintOrbit,
+          skyCamera: Object.freeze({ from: side.skyCamera, to: side.skyCamera, mix: 0 }) };
       }
       const mix = (key) => a[key] + (b[key] - a[key]) * k;
       const tanY = mix('tanY'), aspect = mix('aspect');
       if (!(tanY > 0 && aspect > 0)) return still;
-      return { x: mix('x') / (tanY * aspect), y: mix('y') / tanY, skyCamera: Object.freeze({ from: a.skyCamera, to: k === 0 ? a.skyCamera : b.skyCamera, mix: k }) };
+      return { x: mix('x') / (tanY * aspect), y: mix('y') / tanY, songprintOrbit: (k >= .5 ? b : a).songprintOrbit,
+        skyCamera: Object.freeze({ from: a.skyCamera, to: k === 0 ? a.skyCamera : b.skyCamera, mix: k }) };
     } catch { return still; }
   }
 
@@ -1932,6 +1936,7 @@ export class RangePresentation {
       generation: this.generation,
       cameraRails: { scheduleId: this.cameraSchedule?.id ?? null, requestedMultiplier: this.cameraSchedule?.requestedMultiplier ?? 3,
         from: active ? this.frame?.railSides?.A ?? null : null, to: active ? this.frame?.railSides?.B ?? null : null },
+      songprintOrbit: active && this.skyPan?.songprintOrbit === true,
       shotTours: { enabled: this.shots.enabled, active: this.active && this.cameraTourActive, views: this.shots.status() },
       cameraStudio: this.scene?.cameraStudioStatus?.(active ? this.viewId : selectedViewId, this.frame?.cameraStudio)
         || cameraStudioStatus(this.frame?.cameraStudio, { fullCoverage: !!this.tourMode }),

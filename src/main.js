@@ -567,7 +567,7 @@ function cameraScheduleKey(worldId = lastTimelineData?.worldId) {
 let rangePaceBlocked = null;
 function syncRangePaceControl() {
   const status = rangePresentation?.status();
-  const state = railPaceControlState({ tourMode: status?.tourMode || (status?.shotTours?.active ? 'shots' : null),
+  const state = railPaceControlState({ tourMode: status?.tourMode || (status?.shotTours?.active || status?.songprintOrbit ? 'shots' : null),
     policy: status?.cameraRails?.to?.policy || status?.cameraRails?.from?.policy });
   const blocked = settingBlockedReason('rangePace');
   if (rangePaceSelect && blocked !== rangePaceBlocked) { rangePaceBlocked = blocked; settingsPanel.syncRow('rangePace'); }

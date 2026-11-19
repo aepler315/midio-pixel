@@ -77,11 +77,11 @@ async function captureComposedSequence(page, file) {
       const range = sim.biomes.rangePresentation;
       const prepared = range.scene.prepared.get(range.viewId);
       const plan = prepared?.view?.songRange?.plan;
-      const { eyeM, targetM, fovYDeg, viewOffset } = range.scene.camera.userData.rangeCameraPose;
+      const { eyeM, targetM, fovYDeg, viewOffset, songprintOrbit } = range.scene.camera.userData.rangeCameraPose;
       const composition = prepared?.view?.songprintComposition;
       return { viewId: range.viewId, key: prepared?.view?.songRange?.key, tiles: prepared?.data?.tiles?.size,
         principal: plan?.principal?.slotId, companion: plan?.companionSlot, composition, slotRise: range.frame.slotRise01,
-        eyeM, targetM, fovYDeg, viewOffset };
+        eyeM, targetM, fovYDeg, viewOffset, songprintOrbit };
     });
     assert.ok(evidence.key && evidence.tiles > 0, 'the draw used the prepared, composed terrain');
     assert.ok(evidence.principal && evidence.companion && evidence.principal !== evidence.companion,
@@ -97,6 +97,12 @@ async function captureComposedSequence(page, file) {
     frames.push({ label, timeMs, ...evidence });
   }
   const [opening, middle, finale] = frames;
+  assert.ok(frames.every(frame => frame.songprintOrbit && !(frame.viewOffset?.fx > 0)),
+    'the normal music-timed camera uses the orbit without automatic projection crop');
+  assert.ok(Math.hypot(finale.eyeM[0] - opening.eyeM[0], finale.eyeM[2] - opening.eyeM[2]) > 250,
+    'the camera physically travels across the stage');
+  assert.equal(opening.fovYDeg, middle.fovYDeg, 'the tour uses a constant lens after analysis');
+  assert.equal(finale.fovYDeg, middle.fovYDeg);
   for (const id of [opening.principal, opening.companion]) {
     assert.ok(opening.slotRise[id] > .02, 'the opening develops both leading peaks');
     assert.ok(middle.slotRise[id] >= opening.slotRise[id], 'the pair keeps its gained height');

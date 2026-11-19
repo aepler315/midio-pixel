@@ -2,6 +2,7 @@
 // Nothing here advances on draw, dispatches notes or owns graphics resources.
 import { rangeCameraMoveAt, FINALE_MS } from './RangeCamera.js';
 import { compileSongprintReveal, songprintEstablishAt } from './SongprintReveal.js';
+import { compileSongprintOrbitScore } from './SongprintOrbitScore.js';
 import { compileSongprintWeather, songprintWeatherAt } from './SongprintAtmosphere.js';
 import { compileLandRise, compileStageRise } from './LandRise.js';
 import { compileCinematicPulse } from './CinematicPulse.js';
@@ -133,6 +134,12 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   // closing move, and cues already heard at a re-analysis keep their side.
   const pulse = compileCinematicPulse({ sections: phrases, read, durationMs: duration,
     throughMs: Math.max(0, cadenceMs - FINALE_MS), previous: previous?.pulse || null, freezeThroughMs });
+  // Once admitted, finishing analysis or adding labels must not change the
+  // route's position or speed under a camera already traveling it.
+  const songprintOrbit = songprint && stage?.companion && wholeSong && !signatureScore
+    ? previous?.songprintOrbit || compileSongprintOrbitScore({
+      songprint, admittedMs, cadenceMs, finaleMs: FINALE_MS, read, pulse,
+    }) : null;
   // The range rises with the song and stands complete before the closing
   // move (LandRise.js); a re-analysis continues the climb from where it is.
   const rise = compileLandRise({ read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
@@ -176,6 +183,9 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
       ...(songprint && stage?.companion && !options.preview && !signature && options.songprintStage !== false ? {
         songprintEstablish01: songprintEstablishAt(t, admittedMs, cadenceMs - FINALE_MS),
       } : {}),
+      ...(songprintOrbit && !options.preview && !signature && options.songprintStage !== false ? {
+        songprintOrbit: songprintOrbit.at(t),
+      } : {}),
       ...(signature && riseOverride == null ? { rise01: signature.rise01, slotRise01: signature.slotRise01 } : {}) });
   };
   const riseState = (t, options) => {
@@ -191,7 +201,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   };
   return Object.freeze({ durationMs: duration, songprint, songprintAdmittedMs: admittedMs, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
     ...(songprintWeatherGestures?.length ? { songprintWeatherGestures } : {}),
-    pulse, riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, stageRise, signatureScore, at: stateAt });
+    pulse, riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, stageRise, signatureScore, songprintOrbit, at: stateAt });
 }
 
 const cache = new WeakMap();

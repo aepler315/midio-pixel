@@ -146,3 +146,52 @@ test('the closing camera move arrives on the music\'s cadence, not the file\'s p
   assert.deepEqual(score.at(110000).camera, score.at(100000).camera, 'holds through the silent tail');
   assert.equal(score.at(100000 - FINALE_MS + 500).camera.kind, 'finale');
 });
+
+const composedStage = { principal: 'B1', companion: 'H1',
+  slots: [{ slotId: 'B1', row: 'back' }, { slotId: 'H1', row: 'horizon' }] };
+const print = { version: 1, passages: [] };
+
+test('the composed camera travels with song activity and comes to rest on its audible cadence', () => {
+  const n = 120 * 50 + 1;
+  const bands = [Float32Array.from({ length: n }, (_, i) => i * 20 < 100000 ? .5 : 0)];
+  const score = compileLandscapeScore({ ...song, energyCurves: { ...energyCurves, rateHz: 50, n, bands },
+    stage: composedStage, songprint: print });
+  const orbit = t => score.at(t).songprintOrbit;
+  const distance = (a, b) => orbit(b).progress01 - orbit(a).progress01;
+  assert.deepEqual(orbit(0), { progress01: 0, gain: 1 });
+  assert.deepEqual(orbit(2000), orbit(0));
+  assert.ok(distance(26000, 32000) > 1.3 * distance(46000, 52000));
+  assert.ok(distance(98000, 100000) < distance(90000, 92000));
+  assert.deepEqual(orbit(100000), { progress01: 1, gain: 1 });
+  assert.deepEqual(orbit(110000), orbit(100000));
+  for (let t = 2000; t < 100000; t += 217) assert.ok(distance(t, t + 217) > 0);
+  for (const t of [90000, 25000, 60000, 68000]) assert.deepEqual(orbit(t), score.songprintOrbit.at(t));
+  assert.equal(score.at(28000, { preview: true }).songprintOrbit, undefined);
+  assert.equal(score.at(28000, { songprintStage: false }).songprintOrbit, undefined);
+});
+
+test('a strong harmonic return advances the physical route without changing its endpoint', () => {
+  const options = { durationMs: 120000, stage: composedStage, energyCurves: { globalEnergyNorm: () => .4 } };
+  const quiet = compileLandscapeScore({ ...options, songprint: print });
+  const returnPrint = { ...print, passages: [{ timeMs: 60000, landmark01: .7, strength: .95 }] };
+  const recurring = compileLandscapeScore({ ...options, songprint: returnPrint });
+  const distance = (score, a, b) => score.at(b).songprintOrbit.progress01 - score.at(a).songprintOrbit.progress01;
+  assert.ok(distance(recurring, 58000, 62000) > distance(quiet, 58000, 62000));
+  assert.deepEqual(recurring.at(120000).songprintOrbit, quiet.at(120000).songprintOrbit);
+});
+
+test('late Songprint admission fades from the rail and later score updates keep the route clock', () => {
+  const options = { ...song, sections: [], stage: composedStage, songprint: print };
+  const preview = compileLandscapeScore({ ...options, wholeSong: false });
+  assert.equal(preview.at(60000).songprintOrbit, undefined);
+  const admitted = compileLandscapeScore({ ...options, songprintAdmittedMs: 40000,
+    previous: preview, committedThroughMs: 40000 });
+  const seek = compileLandscapeScore({ ...options, songprintAdmittedMs: 40000 });
+  assert.equal(admitted.at(39000).songprintOrbit, undefined);
+  assert.deepEqual(admitted.at(40001).songprintOrbit, seek.at(40001).songprintOrbit);
+  assert.ok(admitted.at(43000).songprintOrbit.gain > .1 && admitted.at(43000).songprintOrbit.gain < .9);
+  assert.equal(admitted.at(50000).songprintOrbit.gain, 1);
+  const revised = compileLandscapeScore({ ...options, sections, previous: admitted, committedThroughMs: 50000 });
+  for (const t of [43000, 50001, 90000, 120000]) assert.deepEqual(revised.at(t).songprintOrbit, admitted.at(t).songprintOrbit);
+  assert.equal(compileLandscapeScore({ ...options, songprintAdmittedMs: 113000 }).at(115000).songprintOrbit, undefined);
+});

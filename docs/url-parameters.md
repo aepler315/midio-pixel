@@ -72,7 +72,7 @@ Lifecycle: when a change reaches a running page.
 - `cameraStudioHoldSec` — Time in seconds to hold at each motion arrival.
 - `cameraStudioDelaySec` — Delay in heard song seconds before camera motion begins.
 - `cameraStudioOvershoot` — Fraction of camera travel beyond the target before settling.
-- `rangeTour` — Music-timed tours play where they beat the authored rail for the song. Authored rails keep every hand-made camera path. The Teton highway tour forces one long drive through the Tetons. URL rule: `off` and `tetons` are recognized; any other value means music-timed tours.
+- `rangeTour` — Music-timed tours move through composed Songprint terrain or use a curated tour where it beats the rail. Authored rails keep the original camera paths. The Teton highway tour forces one long drive through the Tetons. URL rule: `off` and `tetons` are recognized; any other value means music-timed tours.
 - `rangePace` — How fast authored camera rails travel. Music-timed tours and Glacier keep their own timing; the pace is kept for ordinary landscapes and replays. URL rule: present wins even when invalid; an invalid value means the default pace.
 - `rangeTourGate` — Play a planned tour only where it beats the authored rail for the song. Off plays every planned tour, including weak ones. URL rule: only `off` disables the gate. Inactive unless: Needs the 3D landscape renderer. Only music-timed tours are gated.
 
@@ -87,7 +87,7 @@ Lifecycle: when a change reaches a running page.
 
 - `landDance` — How strongly the music moves ridges and drainages. 0 keeps the land still between growth steps. URL rule: `on` or empty is 1, `off` is 0, numbers clamp to 0–1, other text is 1. Inactive unless: Needs the 3D landscape renderer.
 - `rangeView` — Play every landscape against one catalog view instead of the song's own matches. Diagnostic: songs no longer choose their scenery. Inactive unless: Needs the 3D landscape renderer. The Teton highway tour forces its own view.
-- `songprintLandscape` — Choose terrain from the recording’s harmonic shape and revisit landmarks when a musical passage returns. URL rule: `1` or `on` enables the experiment for the next song. Inactive unless: Needs the 3D landscape renderer.
+- `songprintLandscape` — Choose terrain from the recording’s harmonic shape. With Music-timed tours, the camera travels past its summits and revisits landmarks as passages return. URL rule: `1` or `on` enables the experiment for the next song. Inactive unless: Needs the 3D landscape renderer.
 - `songprintAtmosphere` — Let recurring musical phrases thin valley mist and lift the wind. Strong returns can help an existing shower clear. Inactive unless: Needs the 3D landscape renderer.
 
 ## Performance

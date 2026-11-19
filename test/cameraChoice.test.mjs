@@ -66,6 +66,13 @@ const library = { terrainManifestSha256: sha, shots: [], links: [] };
 const mgr = () => ({ durationMs: 60000, sections: [{ startMs: 0, endMs: 60000, profile: { name: 'CONIFER' } }], songSeed: 7, tSec: 0 });
 const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 0)); };
 
+test('the composed camera reports a music-timed tour without a curated shot library', () => {
+  const range = { active: true, songprintOrbit: true, shotTours: { enabled: true, views: {} } };
+  const playback = { running: true, worldKind: 'alpine' };
+  assert.equal(shotTourControlState(range, playback).state, 'active');
+  assert.equal(shotTourControlState({ ...range, shotTours: { enabled: false } }, playback).state, 'off');
+});
+
 test('Auto keeps the rail for a song whose tour is mostly transit, and says why', async () => {
   const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: async () => planned({ isLink: (t) => t < 45000 }) });
   tours.setSong({ mgr: mgr(), views: [view('a')], generation: 1 });

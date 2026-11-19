@@ -59,6 +59,7 @@ import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierFie
 import { riverChannelErrors } from './RiverChannel.js';
 import { frameSongprintLandmark } from './SongprintReveal.js';
 import { songprintMistArea } from './SongprintAtmosphere.js';
+import { compileSongprintOrbit, songprintOrbitPose } from './SongprintOrbit.js';
 import { summitLandmarkIndex } from '../terrain/SongprintRail.js';
 import { buildRailFocus, songprintLandmarks } from './BuildFocus.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
@@ -2515,8 +2516,25 @@ export class RangeScene {
       poses.set(occurrenceId, resolved);
       return resolved;
     }
-    const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
-    const openingRail = { ...rail, fovYDeg: landRiseFov(rail.fovYDeg, frame.rise01, frame.timeMs) };
+    const groundAt = p?.data ? this._renderedGround(view, frame, p.data, p) : null;
+    const movement = frame.performance?.songprintOrbit;
+    let orbit = null;
+    if (movement && groundAt && frame.songprintOrbitEnabled !== false
+      && !studioEnabled && !baseRail.tour && !poseTour && !view.glacier && !frame.forcedCandidate && railView === view) {
+      if (p.songprintOrbit === undefined) p.songprintOrbit = compileSongprintOrbit(p.data, railView, p.waterLevelM);
+      orbit = p.songprintOrbit;
+    }
+    const orbitGain = orbit ? movement.gain : 0;
+    const lensFov = orbitGain === 1 ? baseRail.fovYDeg : applyLensFov(baseRail.fovYDeg, frame.cameraEffects);
+    const orbitLens = fov => {
+      if (!orbitGain) return fov;
+      if (orbitGain === 1) return baseRail.fovYDeg;
+      const before = Math.tan(fov * Math.PI / 360), after = Math.tan(baseRail.fovYDeg * Math.PI / 360);
+      return Math.atan(before + (after - before) * orbitGain) * 360 / Math.PI;
+    };
+    const rail = { ...baseRail, fovYDeg: orbitLens(lensFov) };
+    const openingRail = { ...rail,
+      fovYDeg: orbitGain === 1 ? rail.fovYDeg : orbitLens(landRiseFov(lensFov, frame.rise01, frame.timeMs)) };
     const cropLens = studioEnabled && !view.tour ? applyCameraStudio(openingRail, frame.cameraStudio).pose.fovYDeg : openingRail.fovYDeg;
     const proj = scenicProjection(cropLens, frame.scenicViewport);
     // This view's VISIBLE frustum (the overscan margin excluded): the
@@ -2527,8 +2545,7 @@ export class RangeScene {
     const tanY = Math.tan((proj.fovYDeg * Math.PI) / 360) * (visH / vp.logicalHeight), tanX = tanY * (visW / visH);
     // Cinematic section moves and the listener's zoom (RangeCamera.js),
     // computed once per frame and view: the partition passes reuse it.
-    const groundAt = p?.data ? this._renderedGround(view, frame, p.data, p) : null;
-    const authoredPose = applyCameraMoves(openingRail, studioEnabled ? null : frame.cameraMove, frame.userCamera, {
+    const authoredPose = applyCameraMoves(openingRail, studioEnabled || orbitGain === 1 ? null : frame.cameraMove, frame.userCamera, {
         heightAt: groundAt, waterLevelM: p?.waterLevelM,
         sampleStepM: p?.data?.grid?.cellSizeM, cone: { tanX, tanY },
         heightRangeM: p?.uniforms ? [p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y] : null,
@@ -2536,17 +2553,24 @@ export class RangeScene {
     const ground = groundAt ? groundAt(authoredPose.eyeM[0], authoredPose.eyeM[2]) : NaN;
     const grownPose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground,
       focusM: baseRail.tour || p?.cameraTour || view.tour ? null : p?.buildFocusM,
-      aspect: proj.aspect, overview: !p?.windowCache, timeMs: frame.timeMs });
+      aspect: proj.aspect, overview: orbitGain < 1 && !p?.windowCache, timeMs: frame.timeMs });
     // Resolve the authored opening aim before applying a projection-only
     // Studio crop. Feeding the cropped lens into keepFocusFramed would turn
     // the eye toward a different point when a listener edits the lens.
     let pose = cropLens === grownPose.fovYDeg ? grownPose : { ...grownPose, fovYDeg: cropLens };
-    const cue = frame.performance?.songprintCue, establish01 = frame.performance?.songprintEstablish01;
-    if ((cue || establish01) && p?.data && !studioEnabled && !view.tour && !view.glacier && !frame.forcedCandidate) {
+    const cue = frame.performance?.songprintCue, establish01 = frame.performance?.songprintEstablish01 ?? 0;
+    if (orbitGain < 1 && (cue || establish01) && p?.data && !studioEnabled && !view.tour && !view.glacier && !frame.forcedCandidate) {
       p.songprintLandmarks ??= songprintLandmarks(p.data, railView, { waterLevelM: p.waterLevelM });
-      pose = frameSongprintLandmark(pose, p.songprintLandmarks, cue, {
+      const fadingCue = orbitGain && cue?.targets ? { ...cue,
+        targets: cue.targets.map(target => ({ ...target, weight: target.weight * (1 - orbitGain) })) } : cue;
+      pose = frameSongprintLandmark(pose, p.songprintLandmarks, fadingCue, {
         tanX, tanY, rise01: frame.rise01, baseM: landRiseBase(p), slotRise01: p.slotRise ? frame.slotRise01 : null,
-        composition: railView.songprintComposition, establish01 });
+        composition: railView.songprintComposition, establish01: establish01 * (1 - orbitGain) });
+    }
+    if (orbitGain > 0) {
+      pose = songprintOrbitPose(pose, orbit, movement, {
+        heightAt: groundAt, waterLevelM: p.waterLevelM, baseM: landRiseBase(p), rise01: frame.rise01,
+        slotRise01: p.slotRise ? frame.slotRise01 : null, landmarks: p.songprintLandmarks ?? [], cue });
     }
     const resolved = { rail, proj, pose, tanX, tanY, cameraStudio: studioState };
     poses.set(occurrenceId, resolved);
