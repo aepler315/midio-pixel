@@ -389,7 +389,7 @@ export function buildRangeFrame({
   // An admitted stage can still fail on GPU preparation. Its catalog fallback
   // must regain the ordinary camera, relief and weather on that very frame.
   const signatureActive = visibleViews.length > 0 && visibleViews.every(v => v.signaturePerformance === 'dual-summits');
-  const songprintStage = visibleViews.some(v => v.songprintLandmarks?.length);
+  const songprintStage = visibleViews.some(v => v.songprintComposition || v.songprintLandmarks?.length);
   const score = landscapeScoreFor(mgr).at(timeMs, { preview: !!mgr.terrainPreview, signature: signatureActive, songprintStage });
   // Scenic framing opens on major musical arrivals without driving the
   // stage's independent impact/dip/tilt controls.
@@ -516,6 +516,7 @@ export function buildRangeFrame({
     cameraEffects: lens,
     // Camera: this section's slow cinematic move, and the listener's zoom.
     cameraMove: performance.camera,
+    songprintOrbitEnabled: !mgr.rangePresentation?.tourMode && mgr.rangePresentation?.shots?.enabled !== false,
     cameraStudio: normalizeCameraStudioSettings(sim.cameraStudioSettings),
     userCamera: sim.userCameraEnabled ? rangeUserCamera.sample() : null,
     scenicViewport, groundViewport,

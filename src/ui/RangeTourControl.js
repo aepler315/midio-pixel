@@ -41,6 +41,7 @@ export function shotTourControlState(range, { running = false, worldKind = null,
   if (!shots?.enabled) return result('off', 'Off — the authored camera rails play.');
   if (!running) return result('ready', 'On — each landscape plays its tour where it beats the rail for the song.');
   if (worldKind !== 'alpine') return result('unavailable', 'Unavailable — choose Landscape to use camera tours.', 'world-not-alpine');
+  if (range.active && range.songprintOrbit) return result('active', 'Active — camera traveling through the song’s terrain.');
   const viewId = range.viewId || range.selectedViewId, view = viewId ? shots.views?.[viewId] : null;
   if (!view) return result('rail', range.active ? 'Rail — this landscape has no approved tour yet.' : 'Loading scenery…');
   if (view.state === 'failed') return result('rail', `Rail — ${view.reason || 'the tour could not be planned'}.`, view.reason);

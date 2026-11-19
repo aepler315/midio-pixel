@@ -70,7 +70,7 @@ test('a composition chooses distinct, fitting real pieces and preserves their id
   assert.equal(planSongRange(null, 1, { catalog: collapsed, songprint: printFor(ross) }), null);
 });
 
-test('different musical contours change the principal pair and structure within the same home', () => {
+test('different musical contours change the landscape and near island within the same home', () => {
   const owens = viewFor('white-mountains-owens');
   const scenery = planSongScenes(null, 0, { songprint: printFor(owens) });
   const skyline = [.1, .2, .8, 1, .96, .7, .35, .12, .2, .3, .25, .1, .05, .09, .12, .15];
@@ -82,6 +82,8 @@ test('different musical contours change the principal pair and structure within 
   assert.notEqual(second.companionSlot, second.principal.slotId);
   assert.equal(first.family, second.family);
   assert.notDeepEqual(first.slots.map(slot => [slot.pieceId, slot.mirrored]), second.slots.map(slot => [slot.pieceId, slot.mirrored]));
+  assert.notEqual(first.slots.find(slot => slot.slotId === 'F2').pieceId,
+    second.slots.find(slot => slot.slotId === 'F2').pieceId);
 });
 
 test('musical height across each footprint continuously varies the relief even with identical discrete pieces', () => {

@@ -367,7 +367,7 @@ export const SETTINGS = Object.freeze([
     id: 'rangeTour', url: 'rangeTour', section: 'camera', group: 'Camera tours', tier: 'basic', maturity: 'stable',
     urlNote: '`off` and `tetons` are recognized; any other value means music-timed tours.',
     label: 'Camera tours', type: 'enum', default: 'shots', control: 'tour', statusId: 'range-tour-status',
-    description: 'Music-timed tours play where they beat the authored rail for the song. Authored rails keep every hand-made camera path. The Teton highway tour forces one long drive through the Tetons.',
+    description: 'Music-timed tours move through composed Songprint terrain or use a curated tour where it beats the rail. Authored rails keep the original camera paths. The Teton highway tour forces one long drive through the Tetons.',
     options: [
       { value: 'shots', label: 'Music-timed tours' }, { value: 'off', label: 'Authored rails only' },
       { value: 'tetons', label: 'Teton highway tour' },
@@ -463,7 +463,7 @@ export const SETTINGS = Object.freeze([
   {
     id: 'songprintLandscape', url: 'songprintLandscape', section: 'landscape', tier: 'basic', maturity: 'experimental', controlId: 'songprintLandscape',
     label: 'Returning summits', type: 'enum', default: 'off',
-    description: 'Choose terrain from the recording’s harmonic shape and revisit landmarks when a musical passage returns.',
+    description: 'Choose terrain from the recording’s harmonic shape. With Music-timed tours, the camera travels past its summits and revisits landmarks as passages return.',
     urlNote: '`1` or `on` enables the experiment for the next song.',
     options: [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }],
     parseUrl: raw => raw === '1' || raw === 'on' ? ok('on') : raw === '0' || raw === 'off' ? ok('off') : bad('expected 1, on, 0 or off', 'off'),

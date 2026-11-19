@@ -46,12 +46,16 @@ stage’s camera route. The two peaks emerge together during the opening. The re
 the stage builds through the song, with bounded relief adjustments from the
 local outline.
 
-The camera has room to frame both peaks during the opening. A confirmed
-musical return can guide the camera toward the matching landmark before the
-passage arrives. The framing preserves the companion when both summits are
-visible. A listener’s crop and forced camera modes take precedence. A late analysis fades in on heard time. A fresh replay or full export
-can use the complete descriptor from the start. Related arrangements can select
-different homes near a catalog boundary, and unrelated songs can share a peak.
+With Music-timed tours enabled, a composed range moves the camera through the
+stage in world metres. The lead summit, its companion and nearby landforms
+give the path its bearings. Energy and recurring phrases pace the movement
+on the heard clock. The composed path uses a steady lens so near shorelines
+move against the distant crests as the camera travels. Listener zoom, Camera
+Studio, authored rails and explicit tours have their own controls. Late
+analysis blends in at its admission time, and a fresh replay or full export
+can use the complete descriptor from the start. Related arrangements can
+select different homes near a catalog boundary, and unrelated songs can
+share a peak.
 
 **Recurring weather**, in the same settings section, can run independently.
 Its analysis retains groups of directly matched, non-overlapping phrases.
