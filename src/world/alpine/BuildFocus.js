@@ -171,7 +171,7 @@ function climbSeen(data, summit, samples) {
 // published summit names can still supply visible high points of its own.
 const LANDMARK_BINS = 5;
 
-function landmarksOf(data, samples) {
+function landmarksOf(data, pose, ground = null) {
   const bins = Array.from({ length: LANDMARK_BINS }, () => []);
   const add = (p, q, metadata = {}) => {
     if (!q || Math.abs(q.x) > .9 || Math.abs(q.y) > .84 || q.depth < 500) return;
@@ -186,14 +186,14 @@ function landmarksOf(data, samples) {
     const [x, z] = lm.localM, y = terrainHeightAt(data, x, z);
     if (!Number.isFinite(y)) continue;
     const p = [x, y, z];
-    add(p, projectPoint(samples.poses[1], ASPECT, p), { name: lm.name, slotId: placed?.[i]?.slotId });
+    add(p, projectPoint(pose, ASPECT, p), { name: lm.name, slotId: placed?.[i]?.slotId });
   }
   // Composed stages have one measured summit per slot. An unowned sample
   // on one of those pieces would follow the wrong stage rise.
   if (!placed) {
     const skyline = new Array(80).fill(null);
     const floor = new Float64Array(skyline.length).fill(Infinity);
-    for (const s of samples.all) {
+    for (const s of ground) {
       if (s.water || s.depth < 500 || Math.abs(s.sx) > .9) continue;
       const i = Math.min(skyline.length - 1, Math.floor((s.sx + .9) / 1.8 * skyline.length));
       if (!skyline[i] || s.sy > skyline[i].sy) skyline[i] = s;
@@ -211,7 +211,7 @@ function landmarksOf(data, samples) {
     bin.sort((a, b) => Number(!!b.name) - Number(!!a.name) || b.sy - a.sy);
     for (const candidate of bin) {
       const [x, y, z] = candidate.pointM;
-      if (!seenFrom(data, samples.eye, [x, y + 2, z])) continue;
+      if (!seenFrom(data, pose.eyeM, [x, y + 2, z])) continue;
       anchors.push(candidate);
       break;
     }
@@ -227,7 +227,7 @@ export function buildRailFocus(data, view, { waterLevelM = null, withSongprint =
   const summit = summitOf(data, samples);
   const seen = summit && climbSeen(data, summit, samples);
   return { focusM: seen != null && seen >= FOCUS_VISIBLE ? summit.p : null,
-    landmarks: withSongprint ? landmarksOf(data, samples) : null };
+    landmarks: withSongprint ? view.songprintLandmarks ?? landmarksOf(data, samples.poses[1], samples.all) : null };
 }
 
 export function buildFocusM(data, view, options) {
@@ -238,5 +238,10 @@ export function buildFocusM(data, view, options) {
  * when a print becomes available after that rail was loaded. */
 export function songprintLandmarks(data, view, { waterLevelM = null } = {}) {
   if (view?.tour || !view?.camera || !data?.tiles) return [];
-  return landmarksOf(data, viewSamples(data, view, waterLevelM));
+  if (view.songprintLandmarks) return view.songprintLandmarks;
+  if (data.manifest?.source?.provenance?.composition?.pieces) {
+    return landmarksOf(data, scenePoseAt(view, { progress01: .5 }));
+  }
+  const samples = viewSamples(data, view, waterLevelM);
+  return landmarksOf(data, samples.poses[1], samples.all);
 }

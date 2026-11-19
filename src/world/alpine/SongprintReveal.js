@@ -7,15 +7,56 @@ const clamp = (x, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
 const ease = x => { const t = clamp(x); return t * t * (3 - 2 * t); };
 const EDGE_MS = 2000;
 const CROP = .43;
+const PASSAGE_MS = 12000;
+const landmarkIndex = (position, count) => Math.min(count - 1, Math.floor(position * count));
 
-export function compileSongprintReveal(songprint, throughMs, admittedMs = 0) {
-  if (songprint?.version !== 1 || !Array.isArray(songprint.passages)) return null;
-  const passages = songprint.passages.filter(p => Number.isFinite(p?.timeMs) && Number.isFinite(p.landmark01)
+function orderedPassages(songprint) {
+  if (songprint?.version !== 1 || !Array.isArray(songprint.passages)) return [];
+  return songprint.passages.filter(p => Number.isFinite(p?.timeMs) && Number.isFinite(p.landmark01)
     && p.landmark01 >= 0 && p.landmark01 <= 1 && p.strength > 0 && p.strength <= 1)
     .sort((a, b) => a.timeMs - b.timeMs);
+}
+
+// The first non-overlapping, confident return can bring a summit into relief.
+// Keep at most two of the stage's most recurrent visible summits in this
+// schedule. The other measured pieces keep their individual musical builds.
+function compileSlotEmergence(passages, stage, startMs, throughMs) {
+  const anchors = stage?.songprintLandmarks;
+  if (!anchors?.length) return null;
+  const slots = new Map();
+  for (const p of passages) {
+    if (p.timeMs >= throughMs || p.strength < .4) continue;
+    const id = anchors[landmarkIndex(p.landmark01, anchors.length)].slotId;
+    if (!id) continue;
+    let slot = slots.get(id);
+    if (!slot) slots.set(id, slot = { id, firstMs: p.timeMs, returnMs: null, evidence: 0 });
+    if (p.timeMs - slot.firstMs < PASSAGE_MS) continue;
+    slot.evidence += p.strength;
+    // Give an admitted summit its entire six-second gather after the title
+    // or a live analysis handoff. It never jumps up partway through a rise.
+    if (slot.returnMs === null && p.timeMs - PASSAGE_MS / 2 >= startMs) slot.returnMs = p.timeMs;
+  }
+  const limit = Math.min(2, Math.max(1, Math.floor(stage.slots.length / 3)));
+  const leads = [...slots.values()].filter(s => s.returnMs !== null)
+    .sort((a, b) => b.evidence - a.evidence || a.returnMs - b.returnMs).slice(0, limit);
+  if (!leads.length) return null;
+  return (timeMs, natural) => {
+    let result = natural;
+    for (const { id, returnMs } of leads) {
+      const floor = .82 * ease(1 + (timeMs - returnMs) / (PASSAGE_MS / 2));
+      if (natural[id] >= floor || natural[id] == null) continue;
+      if (result === natural) result = { ...natural };
+      result[id] = floor;
+    }
+    return Object.freeze(result);
+  };
+}
+
+export function compileSongprintReveal(songprint, throughMs, admittedMs = 0, stage = null) {
+  const passages = orderedPassages(songprint);
   if (!passages.length) return null;
   const startMs = Math.max(OPENING_ZOOM_START_MS + OPENING_ZOOM_MS, admittedMs);
-  return t => {
+  const cueAt = t => {
     const gain = ease((t - startMs) / EDGE_MS) * ease((throughMs - t) / EDGE_MS);
     if (!gain) return null;
     let lo = 0, hi = passages.length;
@@ -42,6 +83,7 @@ export function compileSongprintReveal(songprint, throughMs, admittedMs = 0) {
     const primary = targets.length === 1 || targets[0].weight >= targets[1].weight ? targets[0] : targets[1];
     return { landmark01: primary.landmark01, weight: targets.reduce((s, p) => s + p.weight, 0), targets };
   };
+  return { cueAt, raiseSlots: compileSlotEmergence(passages, stage, startMs, throughMs) };
 }
 
 /** The crop lies inside the approved visible frustum. Its eye, aim and
@@ -56,7 +98,7 @@ export function frameSongprintLandmark(pose, anchors, cue, { tanX, tanY, rise01 
   const { forward, right, up } = cameraBasis(pose);
   let fx = 0, rx = 0, uy = 0, primary = null;
   for (const target of cue.targets) {
-    const index = Math.min(anchors.length - 1, Math.floor(target.landmark01 * anchors.length));
+    const index = landmarkIndex(target.landmark01, anchors.length);
     const anchor = anchors[index];
     const [x, y, z] = anchor.pointM;
     const h = baseM + (y - baseM) * (slotRise01?.[anchor.slotId] ?? rise01);

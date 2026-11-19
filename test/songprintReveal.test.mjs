@@ -81,3 +81,30 @@ test('the drawn pose tracks growing slot height, and studio and listener control
   for (const override of [{ cameraStudio: { enabled: true } }, { userCamera: { fx: .2, rx: 0, uy: 0 } },
     { forcedCandidate: true }]) assert.equal(scene.movedPose(view, { ...frame, ...override }).pose.songprintReveal, undefined);
 });
+
+test('a confident return raises its measured slot to a recognizable relief and keeps it there on a seek', () => {
+  const peaks = [{ slotId: 'left' }, { slotId: 'right' }];
+  const stage = { slots: ['left', 'right', 'back', 'fore'].map(slotId => ({ slotId, row: 'back' })),
+    principal: 'left', songprintLandmarks: peaks };
+  const song = print([12000, 22000, 36000, 58000, 66000], [.89, .86, .84, .85, .2]);
+  const mgr = { ...manager(song), durationMs: 200000, songTerrain: { songprint: song, songRange: { stage } } };
+  const score = landscapeScoreFor(mgr), seek = landscapeScoreFor({ ...mgr });
+  const natural = t => score.at(t, { songprintStage: false }).slotRise01;
+  const height = t => score.at(t).slotRise01.right;
+  for (const t of [0, 8000, 22000, 29999, 30000]) assert.deepEqual(score.at(t).slotRise01, natural(t));
+  assert.ok(natural(36000).right < .4, 'the natural slot alone is still too low');
+  assert.ok(height(33000) > .4 && height(33000) < .6);
+  assert.ok(height(36000) >= .82 && height(58000) >= .82);
+  let last = 0;
+  for (let t = 0; t <= mgr.durationMs; t += 250) {
+    const slots = score.at(t).slotRise01;
+    assert.ok(slots.right >= last, `summit dropped at ${t}`);
+    for (const id of ['left', 'back', 'fore']) assert.equal(slots[id], natural(t)[id]);
+    last = slots.right;
+  }
+  assert.equal(height(mgr.durationMs), 1);
+  for (const t of [57000, 33000, 0, 185000, 36000]) assert.deepEqual(seek.at(t), score.at(t));
+  const late = landscapeScoreFor({ ...mgr, songprintAdmittedMs: 34000 });
+  assert.deepEqual(late.at(36000).slotRise01, natural(36000));
+  assert.ok(late.at(58000).slotRise01.right >= .82);
+});

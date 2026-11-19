@@ -389,7 +389,8 @@ export function buildRangeFrame({
   // An admitted stage can still fail on GPU preparation. Its catalog fallback
   // must regain the ordinary camera, relief and weather on that very frame.
   const signatureActive = visibleViews.length > 0 && visibleViews.every(v => v.signaturePerformance === 'dual-summits');
-  const score = landscapeScoreFor(mgr).at(timeMs, { preview: !!mgr.terrainPreview, signature: signatureActive });
+  const songprintStage = visibleViews.some(v => v.songprintLandmarks?.length);
+  const score = landscapeScoreFor(mgr).at(timeMs, { preview: !!mgr.terrainPreview, signature: signatureActive, songprintStage });
   // Scenic framing opens on major musical arrivals without driving the
   // stage's independent impact/dip/tilt controls.
   const performance = { ...score, lens: score.revealLens || NEUTRAL_LENS };

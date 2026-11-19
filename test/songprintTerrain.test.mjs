@@ -124,6 +124,13 @@ test('playback carries the admitted print on both geographic paths and respects 
   assert.equal(composed.songprint, songprint);
   assert.equal(home(composed).songRange.plan.principal.pieceId, planSongRange(profile, 7, { songprint }).principal.pieceId);
   assert.equal(composed.sceneByBiome.get(composed.home).fallback.view.id, ross.id);
+  const landmarks = home(composed).songprintLandmarks;
+  assert.equal(composed.songRange.stage.songprintLandmarks, landmarks);
+  assert.ok(landmarks.length > 0 && landmarks.length <= composed.songRange.stage.slots.length);
+  for (const mark of landmarks) {
+    assert.ok(composed.songRange.stage.slots.some(slot => slot.slotId === mark.slotId));
+    assert.ok(mark.pointM.length === 3 && mark.pointM.every(Number.isFinite));
+  }
   for (const options of [{ search: '?songRange=0' }, { songprint, search: '?songRange=0&rangeView=teton-jackson-lake' }]) {
     const ordinary = await prepareSongTerrain(profile, 7, [], options);
     assert.equal(ordinary.songprint, undefined);

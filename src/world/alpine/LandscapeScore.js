@@ -121,8 +121,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   const previousPrint = previous?.songprint;
   const admittedMs = Math.max(songprintAdmittedMs, previous && previousPrint !== songprint
     ? freezeThroughMs : previous?.songprintAdmittedMs || 0);
-  const songprintAt = previousPrint && previousPrint === songprint && previous.songprintAdmittedMs === admittedMs
-    && previous.cadenceMs === cadenceMs ? previous.songprintAt : compileSongprintReveal(songprint, cadenceMs - FINALE_MS, admittedMs);
+  const songprintReveal = compileSongprintReveal(songprint, cadenceMs - FINALE_MS, admittedMs, stage);
   // One heard-time pulse for the camera and the build alike. It stops at the
   // closing move, and cues already heard at a re-analysis keep their side.
   const pulse = compileCinematicPulse({ sections: phrases, read, durationMs: duration,
@@ -163,7 +162,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
       lens: lensFromCues(lensCues, t, !!options.preview),
       revealLens: revealLensFromCues(lensCues, t, !!options.preview),
       ...riseState(t, options), signature,
-      ...(songprintAt ? { songprintCue: !options.preview && !signature ? songprintAt(t) : null } : {}),
+      ...(songprintReveal ? { songprintCue: !options.preview && !signature ? songprintReveal.cueAt(t) : null } : {}),
       ...(signature && riseOverride == null ? { rise01: signature.rise01, slotRise01: signature.slotRise01 } : {}) });
   };
   const riseState = (t, options) => {
@@ -171,12 +170,13 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     if (!stageRise || (stage?.signaturePerformance === 'dual-summits' && options.signature === false))
       return { rise01: held ?? rise.at(t), slotRise01: null };
     if (held != null) return { rise01: held, slotRise01: heldSlots(held) };
-    const slotRise01 = stageRise.slotsAt(t);
+    const natural = stageRise.slotsAt(t);
+    const slotRise01 = options.songprintStage === false ? natural : songprintReveal?.raiseSlots?.(t, natural) ?? natural;
     let sum = 0;
     for (const id of stageRise.slotIds) sum += slotRise01[id];
     return { rise01: sum / stageRise.slotIds.length, slotRise01 };
   };
-  return Object.freeze({ durationMs: duration, songprint, songprintAt, songprintAdmittedMs: admittedMs, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
+  return Object.freeze({ durationMs: duration, songprint, songprintAdmittedMs: admittedMs, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
     pulse, riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, stageRise, signatureScore, at: stateAt });
 }
 

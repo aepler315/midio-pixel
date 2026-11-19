@@ -20,6 +20,7 @@ import { chooseHorizonRange, MASSIF_SALT } from './HorizonRidge.js';
 import { planSongRange, songRangeEnabled, songRangeForced, songRangeLayoutParam, pilotPlan } from './SongRangePlan.js';
 import MASSIF_CATALOG from './massifCatalogData.js';
 import SCENE_CATALOG from './sceneCatalogData.js';
+import { songprintLandmarks } from '../alpine/BuildFocus.js';
 import { songRangeView, loadSongRangeStage, stageRiseSlots } from '../alpine/StageAssembly.js';
 import { loadTerrainPackage, sha256Hex } from '../alpine/RangeAssets.js';
 import { dualSummitsRequested, planDualSummitsScene, dualSummitsSceneMetadata, DUAL_SUMMITS_SIGNATURE,
@@ -70,6 +71,7 @@ export async function songRangeChoice(profile, seed, scenery, { search, fetchImp
     if (plan.forced && home) view = { ...view, biome: home };
     const stage = await loadSongRangeStage(view, { catalog: MASSIF_CATALOG, baseUrl: RANGE_ASSET_BASE, fetchImpl, loadPackage: loadTerrainPackage, sha256Hex });
     if (dualSummits) view = { ...view, signatureSummits: dualSummitsSceneMetadata(stage.manifest) };
+    if (plan.songprintVersion) view = { ...view, songprintLandmarks: songprintLandmarks(stage.data, view) };
   } catch (err) {
     songRangeStats.fallbacks++;
     songRangeStats.lastReason = String(err?.message || err);
@@ -254,6 +256,7 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
       // The stage's slots rise with the song's structure (LandscapeScore.js).
       songRange: ranged ? { viewId: ranged.view.id, key: ranged.view.songRange.key, forced: ranged.forced,
         stage: { ...stageRiseSlots(ranged.view.songRange.plan, MASSIF_CATALOG),
+          ...(ranged.view.songprintLandmarks ? { songprintLandmarks: ranged.view.songprintLandmarks } : {}),
           ...(signaturePerformance ? { signaturePerformance: signaturePerformance.id } : {}) } } : null,
       ...(signaturePerformance ? { signaturePerformance } : {}),
     };
