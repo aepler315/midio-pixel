@@ -180,6 +180,23 @@ test('a strong harmonic return advances the physical route without changing its 
   assert.deepEqual(recurring.at(120000).songprintOrbit, quiet.at(120000).songprintOrbit);
 });
 
+test('inland terrain has relief from the opening and its route guides land on music cues', () => {
+  const passages = [26000, 58000, 90000].map(timeMs => ({ timeMs, landmark01: .6, strength: .95 }));
+  const options = { durationMs: 120000, energyCurves: { globalEnergyNorm: () => .5 },
+    stage: { ...composedStage, inland: true }, songprint: { ...print, passages } };
+  const score = compileLandscapeScore(options);
+  assert.ok(score.at(0).rise01 > .48);
+  assert.equal(score.at(120000).rise01, 1);
+  assert.ok(score.at(0, { songprintStage: false }).rise01 < .1);
+  const { guides, travelMs } = score.at(0).songprintOrbit;
+  assert.deepEqual(guides.map(g => g.timeMs), passages.map(cue => cue.timeMs));
+  assert.ok(travelMs > 100000);
+  for (const guide of guides) assert.equal(score.at(guide.timeMs).songprintOrbit.progress01, guide.progress01);
+  assert.deepEqual(compileLandscapeScore(options).at(58000), score.at(58000));
+  const late = compileLandscapeScore({ ...options, songprintAdmittedMs: 40000 });
+  assert.ok(late.at(40000).rise01 < score.at(40000).rise01);
+});
+
 test('late Songprint admission fades from the rail and later score updates keep the route clock', () => {
   const options = { ...song, sections: [], stage: composedStage, songprint: print };
   const preview = compileLandscapeScore({ ...options, wholeSong: false });

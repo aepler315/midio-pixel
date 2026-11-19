@@ -3,8 +3,7 @@
 // the massif piece in each slot; this module turns the template floor
 // (StageFloor.js) and the decoded piece packages into an ordinary
 // `midio.terrain` manifest plus decoded payload bytes, which go through the
-// same validateTerrainManifest/decodeTerrain path as every catalog view. Nothing
-// downstream knows a stage was assembled.
+// same validateTerrainManifest/decodeTerrain path as every catalog view.
 //
 // Tile by tile, never a whole-grid array: each 64-cell tile's 65 x 65 heights
 // are the floor plus the relief of the (at most one) piece block covering it.
@@ -13,15 +12,18 @@
 // against the template's camera rail. Occlusion is not tested and every tile
 // is kept, so the stage has no holes: more tiles than a baked view, never
 // fewer, and no RiseGround backdrop is needed.
+// Inland stages use a sampled height field throughout the expanded grid,
+// with a finer core and coarser surroundings that do not depend on the rail.
 //
 // Hydrology: a piece sample keeps its own package's flow byte (its own water,
 // such as a caldera lake); floor samples are water inside the lake and dry
-// land outside it. No hydrology runs at runtime.
+// land outside it. Inland stages are dry. No hydrology runs at runtime.
 import { TERRAIN_SCHEMA, TERRAIN_VERSION, STRIDES, WATER_FLOW, validateTerrainManifest } from './TerrainPackage.js';
 import { TILE_CELLS, LOD_BUDGETS, VISIBILITY, FRAMINGS, SHORE_MAX_STRIDE, tileStrideError, encodeResiduals, splitPlanes, quantizationFor } from './TerrainTiles.js';
 import { decodeTerrain } from './TerrainMesh.js';
 import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, projectPoint, cameraRailErrors } from '../terrain/SceneTravel.js';
 import { stageFloorHeight, inStageLake, slotOrigin } from '../terrain/StageFloor.js';
+import { inlandHeightAt, inlandHeightBounds } from '../terrain/InlandTerrain.js';
 import { songRangeKey, songReliefJitter } from '../terrain/SongRangePlan.js';
 import { SLOT_RISE_SLOTS } from './LandRise.js';
 import { settingValue } from '../../config/appSettings.js';
@@ -29,6 +31,37 @@ import { settingValue } from '../../config/appSettings.js';
 export const STAGE_KIND = 'song-range-stage';
 export const PIECE_KIND = 'massif-piece';
 const BANDS = Object.freeze({ nearM: 1800, midM: 7000 });
+const INLAND_PAD_LOW = 17, INLAND_PAD_HIGH = 18;
+export const INLAND_SURFACE_STRIDE = 4;
+
+function inlandTemplate(t, field, baseM) {
+  const { width, height, cellSizeM, originM } = t.grid;
+  const extraCells = (INLAND_PAD_LOW + INLAND_PAD_HIGH) * TILE_CELLS;
+  const offsetM = INLAND_PAD_LOW * TILE_CELLS * cellSizeM;
+  const camera = { ...t.camera };
+  for (const name of ['eyeStartM', 'eyeEndM', 'targetStartM', 'targetEndM']) {
+    const [x, y, z] = camera[name];
+    camera[name] = [x, y + inlandHeightAt(field, baseM, x, z) - baseM, z];
+  }
+  const slots = t.slots.map(s => {
+    const [x, z, w, h] = s.tiles;
+    return { ...s, tiles: [x + INLAND_PAD_LOW, z + INLAND_PAD_LOW, w, h] };
+  });
+  return { ...t, camera, slots, grid: { width: width + extraCells, height: height + extraCells,
+    cellSizeM, originM: originM.map(value => value - offsetM) } };
+}
+
+/** Inland geometry has one continuous coarse exterior and keeps denser
+ * samples in its central travelling area. Measured massifs use their native
+ * 20 m lattice with fewer samples retained for the mobile mesh. */
+function inlandTileLod(ix, iz, tilesX, tilesZ, own, forceStride) {
+  if (forceStride) return { desktop: forceStride, mobile: forceStride };
+  if (own) return { desktop: 2, mobile: 4 };
+  const outside = Math.max(INLAND_PAD_LOW - ix, INLAND_PAD_LOW - iz,
+    ix - tilesX + INLAND_PAD_HIGH + 1, iz - tilesZ + INLAND_PAD_HIGH + 1, 0);
+  const desktop = outside <= 3 ? 8 : outside <= 11 ? 16 : 32;
+  return { desktop, mobile: Math.min(32, desktop * 2) };
+}
 
 /**
  * A composed range's finale: its massifs' relief is stretched vertically
@@ -106,8 +139,9 @@ function mirrored(block) {
 
 /** The template a plan uses, from a massif catalog. */
 export function stageTemplate(catalog, plan) {
-  const t = catalog.templates.find((x) => x.id === plan.templateId);
-  if (!t) throw new Error(`no stage template ${plan.templateId}`);
+  const original = catalog.templates.find((x) => x.id === plan.templateId);
+  if (!original) throw new Error(`no stage template ${plan.templateId}`);
+  const t = plan.inland ? inlandTemplate(original, plan.inland, plan.baseM ?? original.lake.levelM) : original;
   if (!plan.camera && !plan.slotOffsets) return t;
   if (plan.camera) {
     const errors = cameraRailErrors(plan.camera);
@@ -136,6 +170,7 @@ export function stageRiseSlots(plan, catalog) {
   return {
     slots: plan.slots.map((s) => ({ slotId: s.slotId, row: t.slots.find((x) => x.id === s.slotId)?.row ?? null })),
     principal: plan.principal?.slotId ?? null,
+    ...(plan.inland ? { inland: true } : {}),
     ...(plan.companionSlot ? { companion: plan.companionSlot } : {}),
   };
 }
@@ -179,6 +214,9 @@ export function stageSlotOwners(plan, catalog) {
  */
 export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageHash(plan)}`, forceStride = null, reliefScale = 1 } = {}) {
   const t = stageTemplate(catalog, plan);
+  const inland = plan.inland;
+  const baseM = plan.baseM ?? t.lake.levelM;
+  const floorAt = inland ? (x, z) => inlandHeightAt(inland, baseM, x, z) : (x, z) => stageFloorHeight(t, x, z);
   const { width: W, height: H, cellSizeM: c, originM } = t.grid;
   const cells = TILE_CELLS;
   const tilesX = (W - 1) / cells, tilesZ = (H - 1) / cells;
@@ -208,7 +246,7 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
     const px = originM[0] + (at[0] * cells + pk % block.width) * c, pz = originM[1] + (at[1] * cells + Math.floor(pk / block.width)) * c;
     placed.push({ slotId: s.slotId, pieceId: s.pieceId, mirrored: !!s.mirrored, tileOrigin: at, peakReliefM: peak,
       ...(s.reliefScale === undefined ? {} : { reliefScale: slotScale }),
-      peakLocalM: [px, pz], floorM: stageFloorHeight(t, px, pz) });
+      peakLocalM: [px, pz], floorM: floorAt(px, pz) });
   }
   // 'frame' scales the relief to the template's framing (stageReliefScale);
   // a number is used as given (1 = measured relief). A planned song carries a
@@ -221,19 +259,23 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   const scale = framed * songReliefJitter(plan.songSeed);
   for (const p of placed) { p.peakReliefM *= scale; p.stagePeakM = p.floorM + p.peakReliefM; delete p.floorM; }
   maxRelief *= scale;
-  // Global quantization: the floor is highest at a grid corner (distance to
-  // a convex lake is convex), and relief only adds to the floor.
-  const corners = [[0, 0], [W - 1, 0], [0, H - 1], [W - 1, H - 1]].map(([i, j]) => stageFloorHeight(t, originM[0] + i * c, originM[1] + j * c));
-  const { offsetM, stepM } = quantizationFor(t.lake.levelM, Math.max(...corners) + maxRelief);
+  // Shared quantization keeps height samples identical along tile joins.
+  // The lake floor peaks at a grid corner; the inland field has global bounds.
+  const floorBounds = inland ? inlandHeightBounds(inland, baseM) : [
+    t.lake.levelM,
+    Math.max(...[[0, 0], [W - 1, 0], [0, H - 1], [W - 1, H - 1]].map(([i, j]) => floorAt(originM[0] + i * c, originM[1] + j * c))),
+  ];
+  const { offsetM, stepM } = quantizationFor(floorBounds[0], floorBounds[1] + maxRelief);
   const quant = (v) => Math.max(1, Math.min(65535, Math.round((v - offsetM) / stepM)));
   // Rail stations and lenses, exactly as a rail-only bake sees them.
   const view = { camera: t.camera };
-  const stations = Array.from({ length: VISIBILITY.stations }, (_, k) => cameraPoseAt(view, k / (VISIBILITY.stations - 1)));
+  const stations = inland ? [] : Array.from({ length: VISIBILITY.stations }, (_, k) => cameraPoseAt(view, k / (VISIBILITY.stations - 1)));
+  const [eyeX, , eyeZ] = t.camera.eyeStartM;
   const lodFovYDeg = plan.lodFovYDeg ?? t.camera.fovYDeg;
   if (!(Number.isFinite(lodFovYDeg) && lodFovYDeg > 0 && lodFovYDeg <= t.camera.fovYDeg)) throw new Error(`${id}: invalid stage LOD field of view`);
   const focal = Object.fromEntries(Object.entries(LOD_BUDGETS).map(([k, b]) => [k, focalPx(lodFovYDeg, b.heightPx)]));
-  const n1 = cells + 1, valid = new Uint8Array(n1 * n1).fill(1);
-  const h = new Float32Array(n1 * n1), fl = new Uint8Array(n1 * n1);
+  const scratchCount = (cells + 1) ** 2, valid = new Uint8Array(scratchCount).fill(1);
+  const h = new Float32Array(scratchCount), fl = new Uint8Array(scratchCount);
   const chunks = [];
   let byteOffset = 0;
   const push = (buf) => { const at = byteOffset; chunks.push(buf); byteOffset += buf.byteLength; return at; };
@@ -243,36 +285,44 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   for (let iz = 0; iz < tilesZ; iz++) for (let ix = 0; ix < tilesX; ix++) {
     const own = owner[iz * tilesX + ix];
     const pieceScale = scale * (own?.slotScale ?? 1);
+    const inlandLod = inland ? inlandTileLod(ix, iz, tilesX, tilesZ, own, forceStride) : null;
+    const sourceStride = inlandLod ? Math.min(inlandLod.desktop, inlandLod.mobile) : 1;
+    const n1 = cells / sourceStride + 1;
     let minY = Infinity, maxY = -Infinity, wet = 0, land = 0;
     for (let v = 0; v < n1; v++) for (let u = 0; u < n1; u++) {
-      const gi = ix * cells + u, gj = iz * cells + v, x = originM[0] + gi * c, z = originM[1] + gj * c;
+      const gi = ix * cells + u * sourceStride, gj = iz * cells + v * sourceStride;
+      const x = originM[0] + gi * c, z = originM[1] + gj * c;
       let r = 0, pf = 0;
       if (own) {
         const bi = gi - own.at[0] * cells, bj = gj - own.at[1] * cells;
         const bk = bj * own.block.width + bi;
         r = own.block.relief[bk] * pieceScale; pf = own.block.flow[bk];
       }
-      const y = stageFloorHeight(t, x, z) + r;
+      const y = floorAt(x, z) + r;
       const k = v * n1 + u;
       h[k] = y;
-      fl[k] = r > 0 ? pf : inStageLake(t.lake, x, z) ? WATER_FLOW : 0;
+      fl[k] = inland ? 0 : r > 0 ? pf : inStageLake(t.lake, x, z) ? WATER_FLOW : 0;
       if (fl[k] === WATER_FLOW) wet++; else land++;
       if (y < minY) minY = y; if (y > maxY) maxY = y;
     }
     const x0 = originM[0] + ix * cells * c, z0 = originM[1] + iz * cells * c;
     const box = { min: [x0, minY, z0], max: [x0 + cells * c, maxY, z0 + cells * c] };
     const errorsM = {};
-    for (const s of STRIDES) if (s <= cells) errorsM[s] = tileStrideError(h, valid, n1, n1, 0, 0, cells, s);
+    for (const s of STRIDES) if (s >= sourceStride && s <= cells)
+      errorsM[s] = tileStrideError(h, valid, n1, n1, 0, 0, n1 - 1, s / sourceStride);
     const reach = Object.fromEntries(FRAMINGS.map((f) => [f, Infinity]));
     for (const pose of stations) for (const f of FRAMINGS) {
       if (!boxMayBeVisible(pose, VISIBILITY[f].aspect, box, VISIBILITY[f].fovScale)) continue;
       const d = Math.max(0, viewDepthToBox(pose, box));
       if (d < reach[f]) reach[f] = d;
     }
-    const framing = Number.isFinite(reach.core) ? 'core' : Number.isFinite(reach.extended) ? 'extended' : null;
-    const dist = framing ? Math.max(VISIBILITY.minDistanceM, reach[framing]) : Infinity;
+    const framing = inland ? (sourceStride <= 8 ? 'core' : sourceStride <= 16 ? 'extended' : null)
+      : Number.isFinite(reach.core) ? 'core' : Number.isFinite(reach.extended) ? 'extended' : null;
+    const dist = inland
+      ? Math.hypot(Math.max(x0 - eyeX, eyeX - box.max[0], 0), Math.max(z0 - eyeZ, eyeZ - box.max[2], 0))
+      : framing ? Math.max(VISIBILITY.minDistanceM, reach[framing]) : Infinity;
     const cap = wet && land ? SHORE_MAX_STRIDE : Infinity;
-    const lod = Object.fromEntries(Object.entries(LOD_BUDGETS).map(([k, b]) => {
+    const lod = inlandLod || Object.fromEntries(Object.entries(LOD_BUDGETS).map(([k, b]) => {
       if (forceStride) return [k, forceStride];
       if (!framing) return [k, Math.min(cells, cap)];
       let best = 1;
@@ -282,12 +332,13 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
       }
       return [k, best];
     }));
-    for (const k of Object.keys(lod)) if (framing === 'core') achieved[k] = Math.max(achieved[k], errorsM[lod[k]] * focal[k] / dist);
+    for (const k of Object.keys(lod)) if (!inland && framing === 'core') achieved[k] = Math.max(achieved[k], errorsM[lod[k]] * focal[k] / dist);
     const stride = Math.min(...Object.values(lod));
+    const storeStep = stride / sourceStride;
     const n = cells / stride + 1;
     const q = new Uint16Array(n * n), flow = new Uint8Array(n * n);
     for (let v = 0; v < n; v++) for (let u = 0; u < n; u++) {
-      const k = (v * stride) * n1 + u * stride;
+      const k = (v * storeStep) * n1 + u * storeStep;
       q[v * n + u] = quant(h[k]);
       flow[v * n + u] = fl[k];
     }
@@ -310,26 +361,32 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   const estimate = (budget) => {
     let vertices = 0, triangles = 0;
     for (const tile of tiles) { const m = cells / tile.lod[budget]; vertices += (m + 1) * (m + 1); triangles += 2 * m * m; }
-    return { vertices, triangles, meshBytes: vertices * 12 + triangles * 3 * 4, surfaceTextureBytes: Math.round(W * H * 4 * 4 / 3) };
+    const stride = inland ? INLAND_SURFACE_STRIDE : 1;
+    const texturePixels = ((W - 1) / stride + 1) * ((H - 1) / stride + 1);
+    return { vertices, triangles, meshBytes: vertices * 12 + triangles * 3 * 4, surfaceTextureBytes: Math.round(texturePixels * 4 * 4 / 3) };
   };
   const manifest = {
     schema: TERRAIN_SCHEMA, version: TERRAIN_VERSION, kind: STAGE_KIND,
     viewId: id, regionId: 'song-range-stage',
     source: { demSha256: null, provenance: { composition: { songRangeVersion: plan.version, key: songRangeKey(plan), template: t.id, reliefScale: scale,
+      ...(inland ? { inland } : {}),
       pieces: placed.map((p) => ({ slotId: p.slotId, pieceId: p.pieceId, mirrored: p.mirrored,
         ...(p.reliefScale === undefined ? {} : { reliefScale: p.reliefScale }) })) } },
     fill: null, horizontalCrs: 'Local stage metres; pieces carry their own source CRS',
-    verticalReference: plan.songprintVersion ? 'Stage floor plus measured relief times piece and composition relief scales (metres)'
+    verticalReference: inland ? 'Generated ridge and valley field plus scaled measured relief (metres)'
+      : plan.songprintVersion ? 'Stage floor plus measured relief times piece and composition relief scales (metres)'
       : 'Stage floor plus measured relief above each piece base, times composition.reliefScale (metres)', centerLonLat: null,
     sourceResolutionM: c, outputSpacingM: c },
     grid: { width: W, height: H, cellSizeM: c, originM: [...originM] },
     axes: 'X east, Y up, Z south (metres)', tileCells: cells, tilesX, tilesZ,
     quantization: { offsetM, stepM }, boundsM: bounds, bands: { ...BANDS },
     lod: { budgets: LOD_BUDGETS, fovYDeg: lodFovYDeg, visibility: VISIBILITY,
-      framings: 'assembled at runtime against the template rail without occlusion culling; every tile is kept',
-      achievedErrorPx: Object.fromEntries(Object.entries(achieved).map(([k, v]) => [k, Math.round(v * 1000) / 1000])),
+      framings: inland ? 'bounded central resolution with coarser continuous ground towards all edges'
+        : 'assembled at runtime against the template rail without occlusion culling; every tile is kept',
+      ...(inland ? {} : { achievedErrorPx: Object.fromEntries(Object.entries(achieved).map(([k, v]) => [k, Math.round(v * 1000) / 1000])) }),
       triangulation: 'quads split along the (0,0)-(1,1) diagonal; finer edges snap to the coarser neighbour' },
-    hydrology: { flow: 'each piece keeps its own package flow; floor flow 0', water: 'piece water from its own bake; floor water inside the template lake' },
+    hydrology: inland ? { flow: 'dry inland relief without drainage simulation', water: 'none' }
+      : { flow: 'each piece keeps its own package flow; floor flow 0', water: 'piece water from its own bake; floor water inside the template lake' },
     payload: { url: null, encoding: 'none', byteLength: decoded.byteLength, sha256: null, decodedByteLength: decoded.byteLength, decodedSha256: null },
     estimatedBytes: { desktop: estimate('desktop'), mobile: estimate('mobile') },
     landmarks: placed.map((p) => ({ name: catalog.pieces.find((x) => x.id === p.pieceId)?.name || p.pieceId, lonLat: null,
@@ -370,13 +427,14 @@ export function songRangeView(plan, { catalog, sceneCatalog }) {
   // The caption names the principal massif and where it really stands, then
   // the ranges the rest of the stage comes from.
   const others = places.filter((x) => x !== principal.place);
-  const place = others.length ? `${principal.place}, with massifs from ${others.join('; ')}` : principal.place;
+  const place = plan.inland ? 'Generated inland terrain' : others.length ? `${principal.place}, with massifs from ${others.join('; ')}` : principal.place;
   return {
     id: `song-range-${stageHash(plan)}`, regionId: 'song-range-stage', biome: plan.biome,
     // A composed range is an experiment the song itself selected.
     status: 'candidate', experimental: true, catalogVersion: sceneCatalog.catalogVersion,
     title: `${plan.principal.name} range`, place,
-    credit: `Elevation: ${elevations.join('; ')}; composed range of measured massifs from ${places.join('; ')}`,
+    credit: plan.inland ? `Generated inland region with measured massifs from ${places.join('; ')}. Elevation: ${elevations.join('; ')}.`
+      : `Elevation: ${elevations.join('; ')}; composed range of measured massifs from ${places.join('; ')}`,
     materialManifestUrl: material.manifestUrl, materialManifestSha256: material.manifestSha256, materialRules: {},
     camera: { ...t.camera }, characterScores: { ...principal.characterScores },
     evidence: { reviewPath: 'docs/superpowers/specs/2026-11-10-song-range-composition-design.md', review: null, approval: null,

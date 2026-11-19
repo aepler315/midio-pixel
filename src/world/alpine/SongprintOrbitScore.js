@@ -15,10 +15,27 @@ function spacedReturns(songprint, admittedMs, throughMs) {
   return returns.sort((a, b) => a.timeMs - b.timeMs);
 }
 
+function routeGuides(cues, startMs, span, progressAt) {
+  const guides = [];
+  for (const position of [.23, .5, .77]) {
+    let best = null;
+    for (const cue of cues) {
+      const time01 = (cue.timeMs - startMs) / span;
+      const progress01 = progressAt(cue.timeMs);
+      if (Math.abs(time01 - position) > .135 || progress01 < .14 || progress01 > .88
+        || progress01 - (guides.at(-1)?.progress01 ?? 0) < .16) continue;
+      const score = cue.strength - 2.4 * Math.abs(time01 - position);
+      if (!best || score > best.score) best = { timeMs: cue.timeMs, progress01, score };
+    }
+    if (best) guides.push(Object.freeze({ timeMs: best.timeMs, progress01: best.progress01 }));
+  }
+  return Object.freeze(guides);
+}
+
 /** The camera follows one song-clock route. Dynamics shape the pace over
  * several seconds, and trusted arrivals and returning passages give it
  * small pushes. The opening and cadence ease onto physical viewpoints. */
-export function compileSongprintOrbitScore({ songprint, admittedMs, cadenceMs, finaleMs, read, pulse }) {
+export function compileSongprintOrbitScore({ songprint, admittedMs, cadenceMs, finaleMs, read, pulse, inland = false }) {
   const startMs = Math.max(TITLE_CARD_HOLD_MS, admittedMs);
   const span = cadenceMs - startMs;
   if (span < MIN_TRAVEL_MS) return null;
@@ -42,16 +59,19 @@ export function compileSongprintOrbitScore({ songprint, admittedMs, cadenceMs, f
   }
   for (let i = 0; i < steps; i++) distance[i + 1] = distance[i] + .5 * (rates[i] + rates[i + 1]);
   const total = distance[steps];
+  const progressAt = timeMs => {
+    const x = steps * clamp01((timeMs - startMs) / span);
+    const i = Math.min(steps - 1, Math.floor(x)), fraction = x - i;
+    // Integrate the linear rate within the interval. Both progress and
+    // its velocity stay continuous at the sample boundaries.
+    const partial = fraction * (rates[i] + .5 * fraction * (rates[i + 1] - rates[i]));
+    return clamp01((distance[i] + partial) / total);
+  };
+  const guides = inland ? routeGuides([...returns, ...(pulse.cues ?? [])], startMs, span, progressAt) : null;
   return Object.freeze({
     at(timeMs) {
-      const x = steps * clamp01((timeMs - startMs) / span);
-      const i = Math.min(steps - 1, Math.floor(x)), fraction = x - i;
-      // Integrate the linear rate within the interval. Both progress and
-      // its velocity stay continuous at the sample boundaries.
-      const partial = fraction * (rates[i] + .5 * fraction * (rates[i + 1] - rates[i]));
-      const progress01 = clamp01((distance[i] + partial) / total);
       const gain = admittedMs > 0 ? smoothstep(startMs, startMs + fadeMs, timeMs) : 1;
-      return { progress01, gain };
+      return { progress01: progressAt(timeMs), gain, ...(guides ? { guides, travelMs: span } : {}) };
     },
   });
 }
