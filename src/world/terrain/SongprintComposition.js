@@ -27,6 +27,23 @@ export function summitSpacing(target) {
   return (right - left) / (target.length / 2);
 }
 
+function foregroundFit(template, slot, piece, origin, outline, target, mirrored) {
+  const [start, , width] = slot.tiles;
+  const stageWidth = (template.grid.width - 1) / TILE_CELLS;
+  const maxReliefM = slot.reliefM?.[1] ?? piece.peakReliefM;
+  const relativeRelief = piece.peakReliefM / maxReliefM;
+  const footprint = target.map((_, i) => {
+    const x = start + width * i / (target.length - 1);
+    const u = (x - origin[0]) / piece.tiles[0];
+    if (u < 0 || u > 1) return 0;
+    const sample = (mirrored ? 1 - u : u) * (outline.length - 1);
+    const lo = Math.floor(sample);
+    const hi = Math.min(lo + 1, outline.length - 1);
+    return relativeRelief * (outline[lo] + (outline[hi] - outline[lo]) * (sample - lo));
+  });
+  return outlineDistance(target, footprint, { left: start / stageWidth, right: (start + width) / stageWidth });
+}
+
 export function summitCandidate(template, slot, piece, measure, target, hero, mirrored) {
   const pose = cameraPoseAt({ camera: template.camera }, .5);
   const tileM = template.grid.cellSizeM * TILE_CELLS;
@@ -37,6 +54,14 @@ export function summitCandidate(template, slot, piece, measure, target, hero, mi
   const z = template.grid.originM[1] + origin[1] * tileM + v;
   const baseY = stageFloorHeight(template, x, z);
   const summit = projectPoint(pose, ASPECT, [x, baseY + piece.peakReliefM, z]);
+  const prominence = summit ? piece.peakReliefM / summit.depth : 0;
+  if (slot.row === 'front') {
+    // A near peak can sit beyond the frame while its shoreline still fills
+    // the shot. Score the width and relief of its whole footprint so an
+    // offscreen summit doesn't reduce the song to its outermost bin.
+    const shape = foregroundFit(template, slot, piece, origin, measure.outline, target, mirrored);
+    return { slot, piece, mirrored, summit, shape, prominence, score: shape };
+  }
   const left = projectPoint(pose, ASPECT, [lowX, baseY, z]);
   const right = projectPoint(pose, ASPECT, [lowX + piece.tiles[0] * tileM, baseY, z]);
   const left01 = left ? (left.x + 1) / 2 : 0, right01 = right ? (right.x + 1) / 2 : 1;
@@ -58,7 +83,7 @@ export function summitCandidate(template, slot, piece, measure, target, hero, mi
   const framing = summit ? Math.max(0, Math.abs(summit.x) - .60) : 1;
   return {
     slot, piece, mirrored, summit, shape,
-    prominence: summit ? piece.peakReliefM / summit.depth : 0,
+    prominence,
     score: shape + (hero ? .55 : .10) * framing ** 2,
   };
 }

@@ -29,7 +29,7 @@ import MASSIF_CATALOG from './massifCatalogData.js';
 import { settingValue } from '../../config/appSettings.js';
 
 export const SONG_RANGE_VERSION = 3;
-const SONGPRINT_RANGE_VERSION = 4;
+const SONGPRINT_RANGE_VERSION = 5;
 
 /** Biome to material family; mirrors DEFAULT_PACKS in tools/build-range-scene.mjs. */
 export const BIOME_FAMILY = Object.freeze({
@@ -149,7 +149,10 @@ function composeFromOutline(templates, pieces, homeView, song, songprint, family
       const cost = candidate => {
         const angularRelief = candidate.prominence / Math.max(.001, pair.hero.prominence);
         const rivalry = Math.max(0, angularRelief - .85);
-        return candidate.score + .055 * (regions.get(candidate.piece.sourceView) || 0) + .12 * rivalry ** 2;
+        // At the shoreline, the amount of visible land matters more than
+        // balancing where the terrain pieces were surveyed.
+        const regionWeight = slot.row === 'front' ? .006 : .055;
+        return candidate.score + regionWeight * (regions.get(candidate.piece.sourceView) || 0) + .12 * rivalry ** 2;
       };
       const ranked = candidates.filter(candidate => !used.has(candidate.piece))
         .sort((a, b) => cost(a) - cost(b));
