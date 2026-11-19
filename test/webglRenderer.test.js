@@ -24,9 +24,9 @@ test('WP10 the compiled optional wash uses defined ascending smoothstep edges', 
   }
 });
 
-test('resolveRendererMode defaults to canvas', () => {
-  assert.equal(resolveRendererMode(''), 'canvas');
-  assert.equal(resolveRendererMode('?foo=1'), 'canvas');
+test('resolveRendererMode defaults to webgl, with canvas as an explicit override', () => {
+  assert.equal(resolveRendererMode(''), 'webgl');
+  assert.equal(resolveRendererMode('?foo=1'), 'webgl');
   assert.equal(resolveRendererMode('renderer=canvas'), 'canvas');
 });
 
@@ -36,9 +36,9 @@ test('resolveRendererMode accepts ?renderer=webgl (case-insensitive)', () => {
   assert.equal(resolveRendererMode('renderer=webgl'), 'webgl');
 });
 
-test('resolveRendererMode rejects unknown modes', () => {
-  assert.equal(resolveRendererMode('?renderer=vulkan'), 'canvas');
-  assert.equal(resolveRendererMode('?renderer='), 'canvas');
+test('resolveRendererMode rejects unknown modes and keeps the default', () => {
+  assert.equal(resolveRendererMode('?renderer=vulkan'), 'webgl');
+  assert.equal(resolveRendererMode('?renderer='), 'webgl');
 });
 
 // Minimal canvas stub: createRenderer(canvas) must not throw in Node and

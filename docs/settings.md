@@ -10,14 +10,14 @@ before it and where each mechanism went.
 
 - **Where:** the title screen's **Settings** disclosure, and the **Settings**
   button in the playback HUD (the same panel, in a dialog; the music keeps
-  playing). A jump bar moves between sections: Appearance, Camera, Landscape,
-  Audio & playback, Experiments, Diagnostics.
-- **Ordinary, advanced, experimental:** each section shows its everyday
-  settings. *Advanced …* disclosures hold finer controls. Visual experiments
-  live under **Experiments**, behind a labelled disclosure. Quality limits,
-  renderer forcing and engineering comparisons live under **Diagnostics →
-  Engineering controls**. Their existing defaults, saved values and URL
-  overrides still work; changed values have reset controls. See the
+  playing). A jump bar moves between the sections that have menu settings —
+  Appearance, Camera and Audio & playback — plus Diagnostics.
+- **One menu rule:** the panel offers only basic, stable presentation settings
+  (`isMenuSetting()` in the registry). Advanced, experimental, developer and
+  diagnostic definitions are no longer rendered anywhere in the menu, including
+  disclosures. They stay registered, so their defaults, saved values, URL
+  overrides, appliers, reset/share and Diagnostics reporting all keep working;
+  any changed value can still be reset from Diagnostics. See the
   [keep/move decisions](settings-simplification.md).
 - **When a change applies** is shown on every setting that is not immediate:
   *Next landscape*, *Next song*, *Scene rebuild* (the scene is rebuilt in
@@ -30,10 +30,11 @@ before it and where each mechanism went.
   settings while the painted renderer is selected, or the compiled-terrain
   pilot when its packs are not on the site). Parameters with no effect in the
   current product (`rangeMsaa` under the Cinematic look) are not offered.
-- **Camera Studio and MP4 export:** Camera Studio's composition controls stay
-  in its playback overlay; resolution and frame rate stay in the Export video
-  dialog. Settings links to those controls once per feature. Each preference
-  still appears in Diagnostics and participates in reset and share links.
+- **Camera Studio and MP4 export:** the Camera Studio toggle stays in the
+  Camera section; its composition controls stay in the playback overlay.
+  Resolution and frame rate stay in the Export video dialog, linked once from
+  Audio & playback. Every field still participates in reset, share links and
+  Diagnostics.
 - **Reset:** each changed setting has ↺; Diagnostics has *Reset all settings*.
   This also turns Camera Studio off, resets its live composition and restores
   the MP4 dialog to 1080p / 30 fps. The defaults remain after a reload.
@@ -138,9 +139,11 @@ SettingsPanel.js     subsystem adapters           main.js applySettingChange
 4. Run `npm run settings:reference` to regenerate `docs/url-parameters.md`,
    and add cases to `test/settingsRegistry.test.mjs` for any special URL rule.
 
-Ordinary boolean, enum, number and text settings appear in the panel
-automatically. A feature is not complete while its only control is an
-undocumented query parameter (see AGENTS.md).
+Boolean, enum, number and text definitions whose tier is `basic` and maturity
+is `stable` appear in the panel automatically. Every other definition stays
+registered and documented, but is intentionally not offered in the menu. A
+feature is not complete while its only control is an undocumented query
+parameter (see AGENTS.md).
 
 ## Custom controls
 
@@ -181,7 +184,7 @@ so reset, override banners, diagnostics and share links include every field.
   override badges and banner, rejected/retired/unknown reporting, disabled
   reasons, ≥36 px targets, no horizontal overflow, keyboard section jumps,
   persistence across reload, reset, saving overrides, share links, the
-  experiments disclosure; with `--playback`, live frame-rate/grid changes and a
+  menu visibility rule; with `--playback`, live frame-rate/grid changes and a
   renderer restart mid-song keeping the audio engine, seed and clock. With
   `--v2` (local GPU; `SETTINGS_SMOKE_GL=swiftshader` for software GL), a 3D
   landscape renderer restart mid-song: the screen never blanks, presentation

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  SETTINGS, SECTIONS, TIERS, LIFECYCLES, RETIRED_PARAMS, SETTINGS_STORAGE_KEY,
+  SETTINGS, SECTIONS, TIERS, LIFECYCLES, RETIRED_PARAMS, SETTINGS_STORAGE_KEY, isMenuSetting,
   resolveSettings, normalizeValue, parseUrlValue, settingDefinition, shareUrl, disabledReason, urlSettingValue,
 } from '../src/config/settingsRegistry.js';
 import { SettingsStore, settingValue, configureSettings, explainSetting } from '../src/config/appSettings.js';
@@ -37,6 +37,21 @@ test('every definition is well formed', () => {
     assert.notEqual(normalizeValue(def, def.default), undefined, `${def.id} default must validate`);
     for (const req of def.requires) assert.ok(ids.has(req.id) || SETTINGS.some(d => d.id === req.id), `${def.id} requires ${req.id}`);
     assert.ok(!RETIRED_PARAMS[def.url], `${def.url} is both live and retired`);
+  }
+});
+
+test('the Settings menu offers only basic, stable presentation settings', () => {
+  const menu = SETTINGS.filter(isMenuSetting);
+  assert.deepEqual(menu.map(def => def.id), [
+    'pixelGrid', 'buildPixelDetail', 'scaling', 'cameraStudioEnabled', 'mp4Resolution', 'mp4Fps',
+    'rangeTour', 'rangePace', 'shuffle', 'continuous', 'lyrics', 'btLatency',
+  ]);
+  assert.equal(SETTINGS.length - menu.length, 48, 'every other definition stays registered but hidden');
+  for (const def of menu) {
+    assert.equal(def.tier, 'basic', def.id);
+    assert.equal(def.maturity, 'stable', def.id);
+    assert.notEqual(def.ui, false, def.id);
+    assert.ok(def.section, def.id);
   }
 });
 
@@ -258,7 +273,7 @@ test('lifecycle: changes that cannot apply now are pending until applied', () =>
   store.setContext({ playing: () => playing });
   store.set('fpsCap', 30);
   store.set('rangeMsaa', '2');
-  store.set('songRange', 'on');
+  store.set('songRange', 'off');
   store.set('voxelRange', true);
   assert.deepEqual([...store.pending.keys()].sort(), ['rangeMsaa', 'songRange', 'voxelRange']);
   store.markApplied(['renderer']);
@@ -277,10 +292,10 @@ test('share links carry only non-default settings and no automation contracts', 
   assert.equal(url.pathname, '/app/');
   assert.deepEqual([...url.searchParams], [['pixelGrid', 'classic'], ['landDance', '0.5'], ['fps', '1']]);
   const store = new SettingsStore({ search: '?rangeTour=off&rangeTourGate=off&songRange=1' });
-  assert.equal(new URL(store.shareUrl('https://example.test/')).search, '?rangeTour=off&rangeTourGate=off&songRange=1');
+  assert.equal(new URL(store.shareUrl('https://example.test/')).search, '?rangeTour=off&rangeTourGate=off', 'songRange=1 is the default now');
   // A share link round-trips to the same values.
   const again = resolveSettings({ search: new URL(store.shareUrl('https://example.test/')).search }).entries;
-  for (const id of ['rangeTour', 'rangeTourGate', 'songRange']) assert.equal(again[id].value, store.get(id));
+  for (const id of ['rangeTour', 'rangeTourGate']) assert.equal(again[id].value, store.get(id));
 });
 
 test('describe() explains requested and effective values without private data', () => {
@@ -299,7 +314,7 @@ test('settingValue: an explicit search alone decides; otherwise the page store',
   try {
     assert.equal(settingValue('landDance'), 0.3);
     assert.equal(settingValue('perf'), 'lite');
-    assert.equal(settingValue('perf', ''), 'auto', 'explicit input ignores storage, as the old parsers did');
+    assert.equal(settingValue('perf', ''), 'high', 'explicit input ignores storage, as the old parsers did');
   } finally { configureSettings({}); }
 });
 

@@ -22,7 +22,7 @@ import { TILE_CELLS, LOD_BUDGETS, VISIBILITY, FRAMINGS, SHORE_MAX_STRIDE, tileSt
 import { decodeTerrain } from './TerrainMesh.js';
 import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, projectPoint, cameraRailErrors } from '../terrain/SceneTravel.js';
 import { stageFloorHeight, inStageLake, slotOrigin } from '../terrain/StageFloor.js';
-import { songRangeKey } from '../terrain/SongRangePlan.js';
+import { songRangeKey, songReliefJitter } from '../terrain/SongRangePlan.js';
 import { SLOT_RISE_SLOTS } from './LandRise.js';
 import { settingValue } from '../../config/appSettings.js';
 
@@ -206,10 +206,14 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
       peakLocalM: [px, pz], floorM: stageFloorHeight(t, px, pz) });
   }
   // 'frame' scales the relief to the template's framing (stageReliefScale);
-  // a number is used as given (1 = measured relief).
-  const scale = reliefScale === 'frame'
+  // a number is used as given (1 = measured relief). A planned song carries a
+  // seed: its small relief variation keeps two otherwise identical layouts
+  // from standing in byte-for-byte identical terrain. Pilots keep measured
+  // relief so offline bake comparisons stay exact.
+  const framed = reliefScale === 'frame'
     ? stageReliefScale(t, placed.map((p) => ({ x: p.peakLocalM[0], z: p.peakLocalM[1], floorM: p.floorM, reliefM: p.peakReliefM })))
     : Number.isFinite(reliefScale) && reliefScale > 0 ? reliefScale : 1;
+  const scale = framed * songReliefJitter(plan.songSeed);
   for (const p of placed) { p.peakReliefM *= scale; p.stagePeakM = p.floorM + p.peakReliefM; delete p.floorM; }
   maxRelief *= scale;
   // Global quantization: the floor is highest at a grid corner (distance to

@@ -99,9 +99,9 @@ test('terrain grid is aligned to output despite camera rotation and translation'
   renderer.dispose();
 });
 
-test('direct terrain preview is explicitly selected by URL', async () => {
+test('direct terrain preview is on by default and can be turned off by URL', async () => {
   const { directTerrainExperiment } = await import('../src/render/DirectTerrainExperiment.js');
-  assert.equal(directTerrainExperiment(''), false);
+  assert.equal(directTerrainExperiment(''), true);
   assert.equal(directTerrainExperiment('?directTerrain=1'), true);
   assert.equal(directTerrainExperiment('?directTerrain=0'), false);
 });

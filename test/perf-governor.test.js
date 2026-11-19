@@ -268,10 +268,10 @@ test('resolvePerfStartLevel: ?perf=lite|high overrides the device heuristic', ()
   assert.equal(resolvePerfStartLevel('perf=lite'), 2, 'works without a leading ?');
 });
 
-test('resolvePerfStartLevel: falls back to a coarse-pointer/small-viewport device heuristic', () => {
-  assert.equal(resolvePerfStartLevel('', {}), 0, 'a normal desktop starts at full quality');
-  assert.equal(resolvePerfStartLevel('', { isCoarsePointer: true }), 1, 'touch devices start a rung down');
-  assert.equal(resolvePerfStartLevel('', { isSmallViewport: true }), 1, 'small viewports start a rung down');
+test('resolvePerfStartLevel: automatic falls back to a coarse-pointer/small-viewport device heuristic', () => {
+  assert.equal(resolvePerfStartLevel('?perf=auto', {}), 0, 'a normal desktop starts at full quality');
+  assert.equal(resolvePerfStartLevel('?perf=auto', { isCoarsePointer: true }), 1, 'touch devices start a rung down');
+  assert.equal(resolvePerfStartLevel('?perf=auto', { isSmallViewport: true }), 1, 'small viewports start a rung down');
 });
 
 test('resolvePerfStartLevel tolerates a malformed search string', () => {

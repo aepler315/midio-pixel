@@ -21,7 +21,7 @@ import { sceneOdds, SCENIC_FAIR_SHARE } from './SceneCatalog.js';
 import MASSIF_CATALOG from './massifCatalogData.js';
 import { settingValue } from '../../config/appSettings.js';
 
-export const SONG_RANGE_VERSION = 2;
+export const SONG_RANGE_VERSION = 3;
 
 /** Biome to material family; mirrors DEFAULT_PACKS in tools/build-range-scene.mjs. */
 export const BIOME_FAMILY = Object.freeze({
@@ -144,6 +144,11 @@ export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced 
     mirrored: seedTicket(seed, SALT_MIRROR + n) < 0.5 }));
   return Object.freeze({
     version: SONG_RANGE_VERSION, family, biome, ...(forced ? { forced: true } : {}), templateId: template.id, baseM: template.lakeLevelM,
+    // Identity, not composition: two songs can draw the same template, pieces
+    // and mirrors. The seed makes their ranges distinct anyway (songRangeKey),
+    // and drives a small relief variation (songReliefJitter) so no two songs
+    // stand in byte-for-byte identical terrain.
+    ...(Number.isInteger(seed) ? { songSeed: seed >>> 0 } : {}),
     principal: Object.freeze({ slotId: principalSlot.id, pieceId: principal.id, name: principal.name }),
     slots: Object.freeze(slots.map(Object.freeze)),
     label: `World: ${principal.name} range`,
@@ -171,10 +176,29 @@ export function pilotPlan(id, biome, { catalog = MASSIF_CATALOG } = {}) {
     slots: Object.freeze(pilot.slots.map((s) => Object.freeze({ ...s }))), label: `World: ${principal.name} range` });
 }
 
-/** A layout's identity: two songs with equal keys stand in the same range. */
+/** A small, seed-derived relief multiplier, applied after framing so a song's
+ *  range is never the exact terrain another song stands in. Bounded around 1
+ *  so the measured relief and the template framing stay recognisable. */
+export function songReliefJitter(seed) {
+  if (!Number.isInteger(seed)) return 1;
+  // Avalanche the seed so even neighbouring seeds land far apart in the
+  // range: two colliding layouts never share a near-identical relief.
+  let h = seed >>> 0;
+  h ^= h >>> 16; h = Math.imul(h, 0x7feb352d);
+  h ^= h >>> 15; h = Math.imul(h, 0x846ca68b);
+  h ^= h >>> 16;
+  return 0.9 + h / 0xffffffff * 0.2;
+}
+
+/** A layout's identity: two songs with equal keys stand in the same range.
+ *  A planned song carries its seed, so distinct songs never share a key even
+ *  when their template, pieces and mirrors happen to coincide. Pilots and
+ *  diagnostic layouts carry no seed and keep their published identity. */
 export function songRangeKey(plan) {
   if (!plan) return null;
   const layout = `${plan.templateId}|${plan.slots.map((s) => `${s.slotId}=${s.pieceId}${s.mirrored ? '~' : ''}`).join('|')}`;
-  return plan.camera || plan.slotOffsets ? `${layout}|stage:${JSON.stringify({ camera: plan.camera,
-    offsets: Object.entries(plan.slotOffsets || {}).sort(([a], [b]) => a.localeCompare(b)) })}` : layout;
+  const seed = Number.isInteger(plan.songSeed) ? `|seed:${plan.songSeed}` : '';
+  const stage = plan.camera || plan.slotOffsets ? `|stage:${JSON.stringify({ camera: plan.camera,
+    offsets: Object.entries(plan.slotOffsets || {}).sort(([a], [b]) => a.localeCompare(b)) })}` : '';
+  return `${layout}${seed}${stage}`;
 }

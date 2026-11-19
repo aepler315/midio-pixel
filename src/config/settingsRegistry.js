@@ -268,7 +268,7 @@ export const MP4_EXPORT_RESOLUTIONS = Object.freeze([
 // ---- the definitions ------------------------------------------------------
 
 const TERRAIN_DEBUG_OPTIONS = ['masks', 'slope', 'albedo', 'fill', 'key', 'roughness', 'specular', 'sun'];
-const V2_ONLY = { id: 'rangeRenderer', is: 'v2', reason: 'Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).' };
+const V2_ONLY = { id: 'rangeRenderer', is: 'v2', reason: 'Needs the 3D landscape renderer.' };
 
 /**
  * Field reference (docs/settings.md has the full contract):
@@ -453,7 +453,7 @@ export const SETTINGS = Object.freeze([
   {
     id: 'songRange', url: 'songRange', section: 'experiments', group: 'Terrain experiments', tier: 'experimental', maturity: 'experimental',
     urlNote: '`1`/`on` enable, `force` forces, `0`/`off` disable.',
-    label: 'Composed song ranges', type: 'enum', default: 'off',
+    label: 'Composed song ranges', type: 'enum', default: 'on',
     description: 'Compose a home range for the song from measured mountain pieces. Force plans one for every song, whatever its biome (diagnostic).',
     options: [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }, { value: 'force', label: 'Force (diagnostic)' }],
     parseUrl: raw => (raw === '1' || raw === 'on' ? ok('on') : raw === 'force' ? ok('force') : raw === '0' || raw === 'off' ? ok('off') : bad(`expected 1, on or force, got "${raw}"`, 'off')),
@@ -520,7 +520,7 @@ export const SETTINGS = Object.freeze([
   },
   {
     id: 'perf', url: 'perf', section: 'performance', group: 'Automatic quality', tier: 'developer', maturity: 'diagnostic',
-    label: 'Starting quality', type: 'enum', default: 'auto', caseInsensitive: true,
+    label: 'Starting quality', type: 'enum', default: 'high', caseInsensitive: true,
     description: 'Where automatic quality starts each song. Automatic starts phones and small screens one step down. Lite starts two steps down; Full starts at full detail.',
     options: [{ value: 'auto', label: 'Automatic' }, { value: 'lite', label: 'Lite' }, { value: 'high', label: 'Full' }],
     persist: 'saved', storage: unified('perf'), lifecycle: 'next-song',
@@ -545,7 +545,7 @@ export const SETTINGS = Object.freeze([
   },
   {
     id: 'renderer', url: 'renderer', section: 'experiments', group: 'Rendering experiments', tier: 'experimental', maturity: 'experimental',
-    label: 'WebGL post-effects overlay', type: 'enum', default: 'canvas', caseInsensitive: true,
+    label: 'WebGL post-effects overlay', type: 'enum', default: 'webgl', caseInsensitive: true,
     description: 'Draw the optional WebGL post-effects overlay on top of Canvas 2D. Falls back to Canvas 2D when WebGL is unavailable.',
     options: [{ value: 'canvas', label: 'Canvas 2D' }, { value: 'webgl', label: 'WebGL overlay' }],
     persist: 'saved', storage: unified('renderer'), lifecycle: 'renderer',
@@ -592,7 +592,7 @@ export const SETTINGS = Object.freeze([
   {
     id: 'directTerrain', url: 'directTerrain', section: 'experiments', group: 'Rendering experiments', tier: 'experimental', maturity: 'experimental',
     urlNote: 'only `1` enables it.',
-    label: 'Terrain-only pixel pipeline', type: 'boolean', default: false,
+    label: 'Terrain-only pixel pipeline', type: 'boolean', default: true,
     description: 'Compose sky, water and effects at output resolution and sample only the terrain onto the pixel grid. Colours can differ from normal playback.',
     parseUrl: strictFlag,
     persist: 'saved', storage: unified('directTerrain'), lifecycle: 'live', requires: [V2_ONLY],
@@ -733,6 +733,16 @@ export const SETTINGS = Object.freeze([
     parseUrl: raw => ok(Number(raw)), persist: 'none', lifecycle: 'next-song', ui: false, share: false,
   },
 ].map(def => Object.freeze({ url: def.id, ui: true, share: true, requires: [], ...def })));
+
+/**
+ * The Settings menu offers only basic, stable presentation settings. Every
+ * other definition stays registered — URL overrides, saved values, appliers,
+ * diagnostics and generated docs keep working — it is simply not rendered in
+ * the panel. This is the one rule the panel and its tests share.
+ */
+export function isMenuSetting(def) {
+  return def.ui !== false && !!def.section && def.tier === 'basic' && def.maturity === 'stable';
+}
 
 /** Parameters the page no longer reads. A URL that still carries one is
  *  accepted and reported as ignored, never an error. */

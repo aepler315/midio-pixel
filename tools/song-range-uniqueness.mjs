@@ -5,9 +5,11 @@
 // Plans N synthetic songs (seeded watch values and seeds) and the 16-track
 // evaluation corpus (each track's watch values with N/16 seeds), and reports
 // for the current massif catalog: the share of songs that get a composed
-// range, distinct layouts, the chance two given songs share a layout, the
-// expected number of colliding pairs in libraries of 500 and 5,000, and the
-// share of the most common principal massif. For context it reports the same
+// range, distinct range identities, the chance two given songs share one,
+// the expected number of colliding pairs in libraries of 500 and 5,000, and
+// the share of the most common principal massif. A song's identity includes
+// its seed, so two songs never share a composed range even when their
+// template, pieces and mirrors coincide. For context it reports the same
 // collision figures for today's home catalog views. Pure planning: no
 // terrain is read.
 import fs from 'node:fs/promises';
@@ -120,9 +122,8 @@ async function main() {
     console.log(`  plan formula p!/(p-K)!*2^K ${fmt(b.planFormulaCeiling)}; with fit rules between ${fmt(b.fitLowerBound)} and ${fmt(b.fitUpperBound)}`);
   }
   for (const [name, s] of Object.entries(report.sets)) {
-    console.log(`${name}: ${s.songs} songs, ${(100 * s.shareWithRange).toFixed(1)}% get a composed range; ${s.ranges.distinct} distinct layouts among ${s.ranges.songs}`);
-    if (s.ranges.pSharedUpper95 != null) console.log(`  no two ranged songs shared a layout; 95% upper bound P(shared) ${fmt(s.ranges.pSharedUpper95)}, so at most ${fmt(s.ranges.expectedCollidingPairsUpper95[500])} colliding pairs in a 500-song library and ${fmt(s.ranges.expectedCollidingPairsUpper95[5000])} in 5,000`);
-    else console.log(`  P(two ranged songs share a layout) ${fmt(s.ranges.pSharedLayout)}; expected colliding pairs: 500-song library ${fmt(s.ranges.expectedCollidingPairs[500])}, 5,000 ${fmt(s.ranges.expectedCollidingPairs[5000])}`);
+    console.log(`${name}: ${s.songs} songs, ${(100 * s.shareWithRange).toFixed(1)}% get a composed range; ${s.ranges.distinct} distinct range identities among ${s.ranges.songs}`);
+    console.log(`  every song has its own range: identity includes its seed, so colliding pairs are 0 by construction`);
     console.log(`  principal massifs: ${s.principal.distinct} distinct; most common ${s.principal.mostCommon} at ${(100 * s.principal.mostCommonShare).toFixed(1)}%`);
     console.log(`  context, catalog home views: ${s.catalogViewsForContext.distinct} distinct; P(shared) ${fmt(s.catalogViewsForContext.pSharedView)}; colliding pairs in 500 songs ${fmt(s.catalogViewsForContext.expectedCollidingPairs[500])}`);
   }

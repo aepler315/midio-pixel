@@ -1,15 +1,16 @@
 // The settings panel: generated from the registry (src/config/settingsRegistry.js)
 // into the title screen's Settings disclosure, which main.js moves into the
-// Display dialog during playback. Every definition with a section and
-// `ui !== false` appears here without hand-written markup; definitions may
-// name a registered control (`control`) and a legacy element id
-// (`controlId`) that existing tools and tests drive.
+// Display dialog during playback. Only the basic, stable presentation settings
+// accepted by isMenuSetting() appear here, without hand-written markup;
+// definitions may name a registered control (`control`) and a legacy element
+// id (`controlId`) that existing tools and tests drive.
 //
-// All basic controls stay rendered and visible when the disclosure is open
-// (sections are stacked, not tabbed) so keyboard, screen-reader and
-// automation users reach them the same way. Advanced and experimental
-// controls have labelled disclosures; engineering controls sit in Diagnostics.
-import { SECTIONS, SETTINGS, LIFECYCLES, defaultValue } from '../config/settingsRegistry.js';
+// Every remaining control stays registered for URLs, saved values, appliers
+// and diagnostics; it is just not offered in the menu. All controls that are
+// shown stay rendered and visible when the disclosure is open (sections are
+// stacked, not tabbed) so keyboard, screen-reader and automation users reach
+// them the same way.
+import { SECTIONS, SETTINGS, LIFECYCLES, defaultValue, isMenuSetting } from '../config/settingsRegistry.js';
 import { explainSetting } from '../config/appSettings.js';
 
 const controls = new Map();
@@ -175,7 +176,7 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
   const nav = el(doc, 'nav', { className: 'settingsNav', 'aria-label': 'Settings sections' });
   root.replaceChildren(pendingBar, overrideBar, nav);
 
-  const visible = SETTINGS.filter(def => def.ui !== false && def.section);
+  const visible = SETTINGS.filter(isMenuSetting);
   const isEngineering = def => def.tier === 'developer' || def.maturity === 'diagnostic';
   const engineering = visible.filter(isEngineering);
   const publicDefinitions = visible.filter(def => !isEngineering(def));
@@ -377,17 +378,21 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
     // Keeps the id tools and the graphics report have always used.
     const details = el(doc, 'details', { id: 'graphicsTroubleshooting', className: 'settingsDiagnostics' });
     const summary = el(doc, 'summary', { text: 'Diagnostics and graphics report' });
-    const engineeringControls = el(doc, 'details', { id: 'settingsEngineering', className: 'settingsAdvanced settingsEngineering' }, [
-      el(doc, 'summary', { text: `Engineering controls (${engineering.length})` }),
-      el(doc, 'p', { className: 'hint', text: 'Overrides for troubleshooting, renderer comparisons and capture review. Changed values stay active until you reset them; they are included in the configuration and share link.' }),
-    ]);
-    for (const section of SECTIONS) {
-      const defs = engineering.filter(def => def.section === section.id);
-      if (!defs.length) continue;
-      engineeringControls.append(el(doc, 'h4', { className: 'settingsGroup', text: section.label }));
-      for (const def of defs) engineeringControls.append(buildRow(def));
+    const diagnosticsChildren = [summary];
+    if (engineering.length) {
+      const engineeringControls = el(doc, 'details', { id: 'settingsEngineering', className: 'settingsAdvanced settingsEngineering' }, [
+        el(doc, 'summary', { text: `Engineering controls (${engineering.length})` }),
+        el(doc, 'p', { className: 'hint', text: 'Overrides for troubleshooting, renderer comparisons and capture review. Changed values stay active until you reset them; they are included in the configuration and share link.' }),
+      ]);
+      for (const section of SECTIONS) {
+        const defs = engineering.filter(def => def.section === section.id);
+        if (!defs.length) continue;
+        engineeringControls.append(el(doc, 'h4', { className: 'settingsGroup', text: section.label }));
+        for (const def of defs) engineeringControls.append(buildRow(def));
+      }
+      engineeringControls.addEventListener('toggle', () => { if (engineeringControls.open) probeAvailability(); });
+      diagnosticsChildren.push(engineeringControls);
     }
-    engineeringControls.addEventListener('toggle', () => { if (engineeringControls.open) probeAvailability(); });
     const engine = el(doc, 'dl', { className: 'settingsFacts' });
     const changed = el(doc, 'table', { className: 'settingsTable' });
     const params = el(doc, 'div', { className: 'settingsParams' });
@@ -419,7 +424,7 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
       el(doc, 'p', { id: 'graphicsReportStatus', className: 'hint', role: 'status' }),
       el(doc, 'textarea', { id: 'graphicsReport', hidden: true, readonly: true, rows: 12, 'aria-label': 'Graphics report' }),
     ];
-    details.append(summary, engineeringControls,
+    details.append(...diagnosticsChildren,
       el(doc, 'h4', { className: 'settingsGroup', text: 'Engine' }), engine,
       el(doc, 'h4', { className: 'settingsGroup', text: 'Settings that differ from the default' }), changed,
       params,
@@ -474,7 +479,7 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
     }
     const quality = store.get('maxQuality');
     const qualityLabel = formatValue(definitions.get('maxQuality'), quality);
-    qualityStatus.textContent = `Quality: ${qualityLabel}${quality === 'high' ? ' (default)' : ' override'}. Automatic quality reduces detail when needed to keep playback smooth.${quality === 'high' ? '' : ' Reset the quality override in Diagnostics → Engineering controls.'}`;
+    qualityStatus.textContent = `Quality: ${qualityLabel}${quality === 'high' ? ' (default)' : ' override'}. Automatic quality reduces detail when needed to keep playback smooth.${quality === 'high' ? '' : ' Reset the quality override in Diagnostics.'}`;
     syncBars();
     diagnostics.refresh();
   }

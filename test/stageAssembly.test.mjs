@@ -7,8 +7,7 @@ import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHas
   stageTemplate } from '../src/world/alpine/StageAssembly.js';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
-import { planSongRange } from '../src/world/terrain/SongRangePlan.js';
-import { songRangeKey } from '../src/world/terrain/SongRangePlan.js';
+import { planSongRange, songRangeKey, songReliefJitter } from '../src/world/terrain/SongRangePlan.js';
 import { planDualSummitsScene } from '../src/world/terrain/DualSummitsScene.js';
 import MASSIF_CATALOG from '../src/world/terrain/massifCatalogData.js';
 import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
@@ -170,6 +169,18 @@ test('a composed range ends looming: its relief scales until the tallest peak re
   assert.equal(stageReliefScale(t, peaks, { targetY: 5 }), STAGE_RELIEF.maxScale, 'never past the cap');
   const lower = stageReliefScale(t, peaks, { targetY: STAGE_RELIEF.targetY - 0.1 });
   assert.ok(lower < s, 'a lower target needs less stretch');
+});
+
+test('two songs with the same layout stand in different terrain', () => {
+  const base = planOf(pilot.layouts[0]);
+  const a = assembleStage({ ...base, songSeed: 11 }, blocksFor(base), { catalog: MASSIF_CATALOG, forceStride: 1 });
+  const b = assembleStage({ ...base, songSeed: 12 }, blocksFor(base), { catalog: MASSIF_CATALOG, forceStride: 1 });
+  assert.notEqual(a.reliefScale, b.reliefScale, 'the seed varies the relief');
+  assert.notEqual(sha(a.decoded), sha(b.decoded), 'the assembled terrain differs');
+  assert.notEqual(songRangeKey({ ...base, songSeed: 11 }), songRangeKey({ ...base, songSeed: 12 }));
+  assert.equal(assembleStage(base, blocksFor(base), { catalog: MASSIF_CATALOG, forceStride: 1 }).reliefScale,
+    assembleStage({ ...base, songSeed: 11 }, blocksFor(base), { catalog: MASSIF_CATALOG, forceStride: 1 }).reliefScale / songReliefJitter(11),
+    'a layout without a song seed keeps measured relief');
 });
 
 test('?rangeRelief fixes the scale for review captures; invalid values are ignored', () => {

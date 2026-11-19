@@ -29,13 +29,13 @@ test('library descriptions name the same home view as playback planning without 
   try {
     for (let seed = 0; seed < 100; seed++) {
       const record = createSongWorldRecord(profile, seed), plan = planSongScenes(profile, seed);
-      const label = describeSongWorld(record), choice = plan.sceneByBiome.get(plan.home);
+      const label = describeSongWorld(record, { songRange: false }), choice = plan.sceneByBiome.get(plan.home);
       assert.equal(label.viewId, choice.view.id);
       assert.equal(label.biome, plan.home);
       assert.equal(label.label, `World: ${choice.view.title}`);
       assert.equal(label.experimental, choice.view.status !== 'approved');
       assert.equal(label.matchingVersion, SCENE_MATCH_VERSION);
-      assert.equal(describeSongWorld(record), label, 'repainting reuses the cached description');
+      assert.equal(describeSongWorld(record, { songRange: false }), label, 'repainting reuses the cached description');
     }
     assert.equal(fetched, 0);
   } finally { globalThis.fetch = original; }
@@ -52,13 +52,13 @@ test('one catalog revision validates once and a new version rebuilds its index',
 });
 
 test('unknown views refresh to an explicit biome fallback and catalog revisions do not leave a stale name', () => {
-  const record = createSongWorldRecord(profile, 417), original = describeSongWorld(record);
+  const record = createSongWorldRecord(profile, 417), original = describeSongWorld(record, { songRange: false });
   const empty = { catalogVersion: catalog.catalogVersion + 1, views: [] };
-  const missing = describeSongWorld(record, { catalog: empty });
+  const missing = describeSongWorld(record, { catalog: empty, songRange: false });
   assert.equal(missing.viewId, null); assert.equal(missing.state, 'known');
   assert.match(missing.title, /Scenic view unavailable/);
   assert.notEqual(missing.label, original.label);
-  assert.equal(describeSongWorld(record).viewId, original.viewId);
+  assert.equal(describeSongWorld(record, { songRange: false }).viewId, original.viewId);
 });
 
 test('normal song planning ignores transient viewing history and RangeLibrary uses that same plan', async () => {

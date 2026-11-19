@@ -103,9 +103,10 @@ const RECOVERY_PROBE_MS = 2000;
 export const MAX_LEVEL = 6;
 
 /** Resolve the initial shed level: a `?perf=lite|high` URL override wins;
- *  otherwise a coarse-pointer/small-viewport device heuristic starts a
- *  phone a rung down so the first second is already smooth rather than
- *  janky-then-corrected. */
+ *  otherwise the saved/default value decides. The default is `high` (full
+ *  detail); `?perf=auto` opts back into the coarse-pointer/small-viewport
+ *  heuristic that starts a phone a rung down so the first second is already
+ *  smooth rather than janky-then-corrected. */
 export function resolvePerfStartLevel(search, { isCoarsePointer = false, isSmallViewport = false } = {}) {
   const p = settingValue('perf', search);
   if (p === 'lite') return 2;

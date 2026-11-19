@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planSongRange, songRangeKey, songRangeEnabled, SONG_RANGE_VERSION, BIOME_FAMILY } from '../src/world/terrain/SongRangePlan.js';
+import { planSongRange, songRangeKey, songRangeEnabled, songReliefJitter, SONG_RANGE_VERSION, BIOME_FAMILY } from '../src/world/terrain/SongRangePlan.js';
 import MASSIF_CATALOG from '../src/world/terrain/massifCatalogData.js';
 import { chooseSongBiomes } from '../src/world/terrain/BiomeSet.js';
 import { DEFAULT_PACKS } from '../tools/build-range-scene.mjs';
@@ -123,8 +123,8 @@ test('a family with too few fitting pieces falls back to no plan', () => {
   assert.equal(planSongRange(profile, seed, { catalog: thin }), null);
 });
 
-test('?songRange=1 is the switch; it defaults off', () => {
-  assert.equal(songRangeEnabled(''), false);
+test('?songRange=1 enables composition; it defaults on', () => {
+  assert.equal(songRangeEnabled(''), true);
   assert.equal(songRangeEnabled('?songRange=1'), true);
   assert.equal(songRangeEnabled('?songRange=on'), true);
   assert.equal(songRangeEnabled('?songRange=0'), false);
@@ -147,6 +147,36 @@ test('library labels: off by default, the principal massif with the flag, identi
   }
   assert.equal(compared, 10000);
   assert.ok(ranged > 100, `${ranged} songs with a composed range`);
+});
+
+test('every planned song has its own terrain identity, even when layouts collide', () => {
+  const keys = new Set();
+  let count = 0;
+  for (const { seed, profile } of songs(4000, 11)) {
+    const plan = planSongRange(profile, seed);
+    if (!plan) continue;
+    count++;
+    assert.equal(plan.songSeed, seed >>> 0);
+    assert.ok(!keys.has(songRangeKey(plan)), `song ${seed} repeats a range`);
+    keys.add(songRangeKey(plan));
+  }
+  assert.equal(count, 4000, 'every song plans a range with the shipped catalog');
+  assert.equal(keys.size, count);
+  // A seed alone changes the identity without changing the composition: the
+  // fallback view and every captured stage are per-song, not per-layout.
+  const [{ seed, profile }] = planned(1);
+  const plan = planSongRange(profile, seed);
+  assert.notEqual(songRangeKey(plan), songRangeKey({ ...plan, songSeed: (seed + 1) >>> 0 }));
+  assert.equal(songRangeKey(plan), songRangeKey(planSongRange(profile, seed)));
+});
+
+test('a seed gives each song its own bounded relief variation', () => {
+  assert.equal(songReliefJitter(undefined), 1, 'pilots and diagnostics keep measured relief');
+  for (const seed of [0, 1, 42, 0xffffffff]) {
+    const j = songReliefJitter(seed);
+    assert.ok(j >= 0.9 && j <= 1.1, `${seed}: ${j}`);
+  }
+  assert.notEqual(songReliefJitter(1), songReliefJitter(2));
 });
 
 test('uniqueness statistics: unbiased shared-layout odds, a rule-of-three bound when nothing repeats', async () => {

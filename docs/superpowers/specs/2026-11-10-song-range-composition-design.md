@@ -326,9 +326,18 @@ is exactly the catalog-view label.
 
 ### Uniqueness (`tools/song-range-uniqueness.mjs`)
 
-These figures assume today's catalog: one family (dry-conifer), 41 pieces and
-one template of 8 slots. Fitting pieces per slot are 29 for each horizon slot,
-8 for each back slot and 17 for each front slot.
+Every planned song now has its own range by construction: `songRangeKey()`
+includes the song seed, so two songs never share a composed range even when
+their template, pieces and mirrors happen to coincide. The seed also drives a
+small bounded `songReliefJitter()` applied after framing, so a collision of
+layout pieces still assembles into different terrain. Pilots and diagnostic
+layouts carry no seed and keep their published identity and measured relief.
+`SONG_RANGE_VERSION` is 3 for this identity change.
+
+The layout-only figures below are historical context from before that change;
+they describe how often the piece draws alone collide. With today's shipped
+catalog every song plans a range, and distinct seeds give distinct range
+identities.
 
 | | Synthetic (10,000) | Corpus (16 tracks x 625 seeds) |
 | --- | --- | --- |
@@ -567,8 +576,9 @@ take their 10-tile massifs.
 - If the template-order fill strands a slot, it runs once more with the most
   constrained slots first. Each slot keeps its own ticket, so a layout the
   first order completes is unchanged.
-- `SONG_RANGE_VERSION` is 2: songs now draw among three templates, so
-  layouts from version 1 change.
+- `SONG_RANGE_VERSION` is 3: version 2 drew among three templates; version 3
+  adds the seed to a range's identity and relief, so layouts from earlier
+  versions change.
 
 On 4,000 synthetic songs every song plans a range: 3,989 distinct layouts.
 Before the matching and retry, 82%; before Phase 5, about 9% (dry-conifer

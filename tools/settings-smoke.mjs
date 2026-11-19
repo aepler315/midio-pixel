@@ -3,7 +3,7 @@
 // Desktop, touch phone and JOYING-class head-unit (800×480, Android UA)
 // viewports: URL overrides and their indicators, rejected/retired/unknown
 // parameters, persistence across reloads, reset, saving overrides, share
-// links, disabled settings with reasons, keyboard reach, touch-target size,
+// links, the basic/stable-only menu rule, keyboard reach, touch-target size,
 // horizontal overflow, and screenshots. With --playback (desktop) it also
 // plays the generated sample on the painted Range and changes live and
 // renderer-lifecycle settings mid-song, checking the audio and seed carry
@@ -36,14 +36,6 @@ const scenarios = [
 const report = { status: 'running', startedAt: new Date().toISOString(), scenarios: [],
   limits: ['Chromium device emulation; no Android OS, head-unit hardware or physical touch input.'] };
 
-// A setting can move behind more than one disclosure without changing its
-// actual control id. Open every ancestor, as a keyboard user would.
-const revealControl = (page, selector) => page.locator(selector).evaluate(input => {
-  for (let node = input.parentElement; node; node = node.parentElement) {
-    if (node.tagName === 'DETAILS') node.open = true;
-  }
-});
-
 async function exercise(browser, base, scenario) {
   const row = { id: scenario.id, checks: [], status: 'running' };
   report.scenarios.push(row);
@@ -63,42 +55,43 @@ async function exercise(browser, base, scenario) {
   const openSettings = () => page.locator('#titleSettings').evaluate(el => { el.open = true; el.scrollIntoView(); });
   await openSettings();
 
-  await check('panel shows artistic and playback sections with their basic controls visible', async () => {
-    for (const id of ['appearance', 'camera', 'landscape', 'playback', 'experiments']) assert.ok(await page.locator(`#settings-${id}`).count(), id);
-    assert.equal(await page.locator('#settings-performance').count(), 0, 'an empty engineering-only section is omitted');
-    for (const id of ['display-pixelGrid', 'display-scaling', 'range-pace', 'range-tour-toggle', 'lyricGroundingBtn', 'camera-studio-toggle']) {
+  await check('the menu shows only basic, stable sections and controls', async () => {
+    for (const id of ['appearance', 'camera', 'playback']) assert.ok(await page.locator(`#settings-${id}`).count(), id);
+    for (const id of ['landscape', 'performance', 'experiments']) assert.equal(await page.locator(`#settings-${id}`).count(), 0, id);
+    for (const id of ['display-pixelGrid', 'display-buildPixelDetail', 'display-scaling', 'range-pace', 'range-tour-toggle', 'lyricGroundingBtn', 'camera-studio-toggle']) {
       assert.ok(await page.locator(`#${id}`).isVisible(), `${id} visible`);
     }
+    assert.equal(await page.locator('#settingsPanel [data-setting]:not([data-tier="basic"])').count(), 0);
+    assert.equal(await page.locator('#settingsPanel [data-maturity]:not([data-maturity="stable"])').count(), 0);
     assert.match(await page.locator('#settingsQualityStatus').innerText(), /High.*automatic|automatic.*High/i);
   });
-  await check('engineering controls are retained only in nested, collapsed Diagnostics', async () => {
-    const engineering = page.locator('#settingsEngineering');
-    assert.equal(await engineering.count(), 1);
-    assert.equal(await engineering.evaluate(el => el.open), false);
+  await check('hidden settings stay registered but out of the menu', async () => {
+    assert.equal(await page.locator('#graphicsTroubleshooting').count(), 1);
     assert.equal(await page.locator('#graphicsTroubleshooting').evaluate(el => el.open), false);
     const placement = await page.evaluate(async () => {
-      const { SETTINGS } = await import('/src/config/settingsRegistry.js');
-      return SETTINGS.filter(d => d.ui !== false && d.section && (d.tier === 'developer' || d.maturity === 'diagnostic'))
-        .map(d => ({ id: d.id, rows: document.querySelectorAll(`[data-setting="${d.id}"]`).length,
-          engineering: !!document.querySelector(`#settingsEngineering [data-setting="${d.id}"]`) }));
+      const { SETTINGS, isMenuSetting } = await import('/src/config/settingsRegistry.js');
+      const rows = id => document.querySelectorAll(`#settingsPanel [data-setting="${id}"]`).length;
+      return {
+        total: SETTINGS.length,
+        menu: SETTINGS.filter(isMenuSetting).filter(d => d.control !== 'external').map(d => ({ id: d.id, rows: rows(d.id) })),
+        hidden: SETTINGS.filter(d => !isMenuSetting(d)).map(d => ({ id: d.id, rows: rows(d.id) })),
+      };
     });
-    assert.ok(placement.length > 10);
-    assert.deepEqual(placement.filter(d => d.rows !== 1 || !d.engineering), [], JSON.stringify(placement));
-    assert.equal(await page.locator('.settingsExperiments [data-tier="developer"], .settingsExperiments [data-maturity="diagnostic"]').count(), 0);
-    assert.equal(await page.locator('#generalQuality').isVisible(), false);
-    assert.equal(await page.locator('#stageFps').isVisible(), false);
+    assert.equal(placement.total, 60);
+    assert.ok(placement.menu.length >= 10);
+    assert.deepEqual(placement.menu.filter(d => d.rows !== 1), [], JSON.stringify(placement.menu));
+    assert.deepEqual(placement.hidden.filter(d => d.rows !== 0), [], JSON.stringify(placement.hidden));
+    assert.equal(await page.locator('#settingsEngineering').count(), 0);
+    assert.equal(await page.locator('.settingsExperiments').count(), 0);
+    assert.equal(await page.locator('#generalQuality').count(), 0);
+    assert.equal(await page.locator('#stageFps').count(), 0);
   });
-  await check('dedicated camera and export controls have one navigation entry each', async () => {
-    for (const target of ['cameraStudio', 'mp4Export']) {
-      const button = page.locator(`#settingsPanel button[data-control-target="${target}"]`);
-      assert.equal(await button.count(), 1, target);
-      assert.equal(await button.isVisible(), true, target);
-      assert.equal(await button.locator('xpath=ancestor::*[@data-setting]').count(), 0, 'navigation is not a setting value input');
-    }
-    assert.equal(await page.locator('#settingsPanel [data-setting^="cameraStudio"] input:not(#camera-studio-toggle)').count(), 0);
-    assert.equal(await page.locator('#settingsPanel [data-setting="mp4Resolution"], #settingsPanel [data-setting="mp4Fps"]').count(), 0);
-    assert.equal(await page.locator('#setting-control-cameraStudio').isDisabled(), true, 'live camera controls need a landscape song');
-    assert.match(await page.locator('[data-control-group="cameraStudio"] .settingNote').innerText(), /Load a landscape song/i);
+  await check('the export dialog keeps one navigation entry; Camera Studio navigation is not in the menu', async () => {
+    const button = page.locator('#settingsPanel button[data-control-target="mp4Export"]');
+    assert.equal(await button.count(), 1);
+    assert.equal(await button.isVisible(), true);
+    assert.equal(await button.locator('xpath=ancestor::*[@data-setting]').count(), 0, 'navigation is not a setting value input');
+    assert.equal(await page.locator('#settingsPanel button[data-control-target="cameraStudio"]').count(), 0);
     assert.equal(await page.locator('#setting-control-mp4Export').isEnabled(), true, 'video output preferences can be chosen before loading a song');
   });
   await check('URL overrides are marked and listed, and not saved', async () => {
@@ -117,12 +110,10 @@ async function exercise(browser, base, scenario) {
     assert.match(text, /Landscape renderer/);
     await page.locator('#graphicsTroubleshooting > summary').click();
   });
-  await check('3D-only settings are disabled with a reason under the painted renderer', async () => {
-    await page.locator('[data-setting="landDance"]').evaluate(el => el.closest('details').open = true);
-    assert.equal(await page.locator('#setting-landDance').isDisabled(), true);
-    assert.match(await page.locator('[data-setting="landDance"] .settingNote').innerText(), /3D landscape renderer/);
-    assert.equal(await page.locator('[data-setting="rangeMsaa"]').count(), 0, 'no-op antialiasing is not offered');
+  await check('menu controls keep their state under the painted renderer', async () => {
     assert.equal(await page.locator('#range-tour-toggle').isDisabled(), false, 'tours create the 3D presentation themselves');
+    assert.equal(await page.locator('#display-pixelGrid').isDisabled(), false);
+    assert.equal(await page.locator('#camera-studio-toggle').isDisabled(), false);
   });
   await check('touch targets are at least 36 px and nothing overflows horizontally', async () => {
     const sizes = await page.evaluate(() => [...document.querySelectorAll('#settingsPanel select, #settingsPanel button, #settingsPanel .settingCheck, #settingsPanel input[type=number]')]
@@ -142,17 +133,10 @@ async function exercise(browser, base, scenario) {
     await page.keyboard.press('Tab');
     assert.ok(await page.evaluate(() => !!document.activeElement.closest('#settingsPanel')));
   });
-  await check('keyboard: Diagnostics opens before its Engineering controls disclosure', async () => {
+  await check('keyboard: Diagnostics opens from its nav button', async () => {
     await page.locator('.settingsNav button', { hasText: 'Diagnostics' }).focus();
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.activeElement === document.querySelector('#graphicsTroubleshooting > summary'));
-    assert.equal(await page.locator('#settingsEngineering').evaluate(el => el.open), false);
-    await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#settingsEngineering > summary')), true);
-    await page.keyboard.press('Enter');
-    assert.equal(await page.locator('#settingsEngineering').evaluate(el => el.open), true);
-    assert.equal(await page.locator('#generalQuality').isVisible(), true);
-    await page.locator('#settingsEngineering').evaluate(el => { el.open = false; });
     await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = false; });
   });
   await page.screenshot({ path: path.join(out, `${scenario.id}-settings.png`), fullPage: false });
@@ -194,40 +178,22 @@ async function exercise(browser, base, scenario) {
     assert.ok([...params.keys()].length <= nonDefault.length, href);
     assert.ok(!params.has('fps') && !params.has('bogus') && !params.has('style'), href);
   });
-  await check('experimental settings sit behind a labelled disclosure', async () => {
-    const box = page.locator('.settingsExperiments');
-    assert.equal(await box.evaluate(el => el.open), false);
-    await box.locator('summary').click();
-    assert.ok(await page.locator('[data-setting="songRange"]').isVisible());
-    assert.match(await page.locator('[data-setting="songRange"] .settingBadges').innerText(), /Experimental/);
-    assert.equal(await page.locator('[data-setting="compiledTerrain"]').isVisible(), false, 'compiled terrain belongs to Engineering');
-    await revealControl(page, '#setting-compiledTerrain');
-    await page.waitForFunction(() => /npm run build:compiled-terrain/.test(document.querySelector('[data-setting="compiledTerrain"] .settingNote')?.textContent || ''), null, { timeout: 5000 });
-    await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = false; });
+  await check('no experiments section or disclosure is rendered', async () => {
+    assert.equal(await page.locator('#settings-experiments').count(), 0);
+    assert.equal(await page.locator('.settingsExperiments').count(), 0);
+    assert.equal(await page.locator('[data-setting="songRange"]').count(), 0);
   });
   await page.screenshot({ path: path.join(out, `${scenario.id}-experiments.png`), fullPage: false });
-  await check('saved and URL quality overrides can be reset from Engineering without degrading the default', async () => {
+  await check('a saved quality override is reported and resettable from Diagnostics', async () => {
     await page.evaluate(() => localStorage.setItem('midio-pixel:render-quality:v1', 'low'));
     await page.goto(base + '/');
     await openSettings();
-    assert.equal(await page.locator('#generalQuality').isVisible(), false);
     assert.match(await page.locator('#settingsQualityStatus').innerText(), /Low/);
-    await revealControl(page, '#generalQuality');
-    assert.equal(await page.locator('#generalQuality').inputValue(), '0');
-    await page.locator('[data-setting="maxQuality"] .settingReset').click();
-    assert.equal(await page.locator('#generalQuality').inputValue(), '2');
-    assert.equal(await page.evaluate(() => window.__SMW.settings.settings.find(s => s.id === 'maxQuality').value), 'high');
-    await page.reload();
-    await openSettings();
-    assert.equal(await page.locator('#generalQuality').inputValue(), '2');
-    await page.goto(base + '/?maxQuality=medium');
-    await openSettings();
-    assert.match(await page.locator('.settingsOverrides').innerText(), /General quality/);
-    await revealControl(page, '#generalQuality');
-    await page.locator('[data-setting="maxQuality"] .settingReset').click();
-    assert.equal(await page.locator('#generalQuality').inputValue(), '2');
-    assert.equal(new URL(page.url()).searchParams.has('maxQuality'), false);
+    await page.locator('#graphicsTroubleshooting > summary').click();
+    await page.locator('[data-diagnostic-setting="maxQuality"] button').click();
     assert.match(await page.locator('#settingsQualityStatus').innerText(), /High/);
+    assert.equal(await page.evaluate(() => window.__SMW.settings.settings.find(s => s.id === 'maxQuality').value), 'high');
+    await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = false; });
   });
   await check('grouped external preferences remain visible, shareable and individually resettable in Diagnostics', async () => {
     await page.goto(base + '/?cameraStudioDistance=1.4&mp4Fps=60');
@@ -310,8 +276,7 @@ async function exercisePlayback(page, base, check) {
   });
   await check('live: frame rate and pixel detail apply without restarting the song', async () => {
     const before = await page.evaluate(() => window.__SMW.audioEngine.nowMs);
-    await revealControl(page, '#stageFps');
-    await page.locator('#stageFps').selectOption('30');
+    await page.evaluate(() => window.__SMW.settings.set('fpsCap', 30));
     await page.waitForFunction(() => window.__SMW.fpsCap === 30);
     await page.locator('#display-pixelGrid').selectOption('medium');
     await page.waitForFunction(() => window.__SMW.presentationDiagnostics?.grid?.width === 480 || window.__SMW.presentationDiagnostics?.native?.width === 480 || true);
@@ -319,14 +284,13 @@ async function exercisePlayback(page, base, check) {
     assert.ok(state.same && state.seed, JSON.stringify(state));
     assert.ok(state.now >= before, `audio clock moved backwards: ${before} -> ${state.now}`);
   });
-  await check('renderer restart waits for Apply now, then keeps the audio, seed and position', async () => {
-    await page.locator('.settingsExperiments summary').click();
-    await page.locator('#setting-renderer').selectOption('webgl');
+  await check('renderer change waits for Apply now, then keeps the audio, seed and position', async () => {
+    await page.evaluate(() => window.__SMW.settings.set('renderer', 'canvas'));
     await page.locator('.settingsPending').waitFor({ state: 'visible' });
     assert.match(await page.locator('.settingsPending').innerText(), /WebGL post-effects overlay/);
     const before = await page.evaluate(() => window.__SMW.audioEngine.nowMs);
     await page.locator('.settingsPending button', { hasText: 'Apply now' }).click();
-    await page.waitForFunction(() => window.__SMW.rendererMode === 'webgl', null, { timeout: 30_000 });
+    await page.waitForFunction(() => window.__SMW.rendererMode === 'canvas', null, { timeout: 30_000 });
     await page.waitForFunction(b => window.__SMW.audioEngine.nowMs > b, before, { timeout: 30_000 });
     const state = await page.evaluate(() => ({ same: window.__SMW.audioEngine === window.__settingsAudio, seed: window.__SMW.songSeed === window.__settingsSeed,
       pending: window.__SMW.settings.pending.length }));
@@ -334,15 +298,12 @@ async function exercisePlayback(page, base, check) {
     assert.equal(state.pending, 0);
     assert.equal(await page.locator('.settingsPending').isVisible(), false);
   });
-  await check('the P key and the Show frame rate checkbox are one setting', async () => {
+  await check('the P key toggles the frame-rate setting', async () => {
     await page.locator('#displaySettingsClose').click();
     const before = await page.evaluate(() => window.__SMW.settings.settings.find(s => s.id === 'fps').value);
     await page.keyboard.press('p');
     const after = await page.evaluate(() => window.__SMW.settings.settings.find(s => s.id === 'fps').value);
     assert.equal(after, !before);
-    await page.locator('#displaySettingsBtn').click();
-    await revealControl(page, '#setting-fps');
-    assert.equal(await page.locator('#setting-fps').isChecked(), after);
   });
   await page.screenshot({ path: path.join(out, 'desktop-playback-settings.png') });
 }
@@ -405,8 +366,7 @@ async function exerciseV2Restart(base) {
     };
     const warningsBefore = warnings.length;
     await openSettings();
-    await revealControl(page, '#setting-canopySummary');
-    await page.locator('#setting-canopySummary').uncheck();
+    await page.evaluate(() => window.__SMW.settings.set('canopySummary', false));
     await page.locator('.settingsPending button', { hasText: 'Apply now' }).waitFor();
     await check('a 3D renderer setting waits for Apply now during playback', async () => {
       assert.match(await page.locator('.settingsPending').innerText(), /Distant canopy summary/);
@@ -459,7 +419,7 @@ async function exerciseV2Restart(base) {
     });
     await check('repeated restarts leave no WebGL context warnings', async () => {
       for (const on of [true, false, true]) {
-        await page.locator('#setting-canopySummary').setChecked(on);
+        await page.evaluate(v => window.__SMW.settings.set('canopySummary', v), on);
         await page.locator('.settingsPending button', { hasText: 'Apply now' }).click();
         await page.waitForFunction(() => window.__SMW.rangeState?.runtime === 'ready' && window.__SMW.rangeState?.active, null, { timeout: 300_000 });
       }
