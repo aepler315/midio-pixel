@@ -35,6 +35,7 @@ test('direct mode renders at output resolution and composites only a terrain par
   const renderer = createPresentingRenderer({ canvas: out, presentation, residency, rendererFactory: () => inner });
   // From quality rung 2 Cinematic sheds its cell reconstruction: nearest.
   assert.equal(renderer.draw({ biomes: manager, perf: { level: 2 } }, 0).presented, true);
+  assert.equal(renderer.diagnostics.effectiveLook, 'cinematic');
   assert.equal(manager.highResolutionSky, true);
   assert.equal(manager.directFullResolution, true);
   assert.equal(range.cinematicPixel, true);

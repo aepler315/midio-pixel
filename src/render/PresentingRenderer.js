@@ -260,10 +260,10 @@ export class PresentingRenderer {
     if (!canvas) return this.output.diagnostics.frame;
     const ctx = canvas.getContext('2d');
     compositePixelFrame(ctx, source, canvas.width, canvas.height, this.output.presentation.scaling);
-    const result = this.output.finishDirectFrame();
+    const result = this.output.finishDirectFrame('pixel');
     this._voxelFrame = !!result.presented;
     Object.assign(this.output.diagnostics, { directTerrain: false, voxelRange: this._voxelFrame,
-      effectiveLook: 'pixel', working: { width: source.width, height: source.height } });
+      working: { width: source.width, height: source.height } });
     return result;
   }
   _drawDirect(sim, alpha, { preparing, manager, range }) {

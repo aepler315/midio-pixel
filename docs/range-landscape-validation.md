@@ -18,9 +18,9 @@ fixed per-biome fits leave the musical horizon exposed. Forest and dry faces
 retain intrinsic shading; distant vegetation receives the same atmospheric
 depth as the ridge carrying it. Ground response and performer identity remain.
 
-![Matched forest and desert frames, before and after](evidence/range-20260926/before-after.jpg)
+[Matched forest and desert frames, before and after](https://github.com/aepler315/Midio-5/blob/4952a459acfa5c24b4b6b7e8013048a70eb01a14/docs/evidence/range-20260926/before-after.jpg)
 
-![All eleven real-biome fixtures](evidence/range-20260926/all-biomes.jpg)
+[All eleven real-biome fixtures](https://github.com/aepler315/Midio-5/blob/4952a459acfa5c24b4b6b7e8013048a70eb01a14/docs/evidence/range-20260926/all-biomes.jpg)
 
 The initial recovered candidate was not accepted: it retained gray forest
 highlights, dark cover patches, and overly shallow ranges. Live canvas probes
@@ -30,10 +30,10 @@ Independent review also caught an exhausted-dominant edge case in visibility
 fitting. A dedicated regression now proves that another actual blocker yields
 when the first reaches its minimum. All review findings are resolved.
 
-![SpaceRidge isolated against the same full scene](evidence/range-20260926/signature.jpg)
+[SpaceRidge isolated against the same full scene](https://github.com/aepler315/Midio-5/blob/4952a459acfa5c24b4b6b7e8013048a70eb01a14/docs/evidence/range-20260926/signature.jpg)
 
-[Ten-second travel clip](evidence/range-20260926/travel-motion.mp4) ·
-[Capture provenance and metrics](evidence/range-20260926/manifest.json)
+[Ten-second travel clip](https://github.com/aepler315/Midio-5/blob/4952a459acfa5c24b4b6b7e8013048a70eb01a14/docs/evidence/range-20260926/travel-motion.mp4) ·
+[Capture provenance and metrics](https://github.com/aepler315/Midio-5/blob/4952a459acfa5c24b4b6b7e8013048a70eb01a14/docs/evidence/range-20260926/manifest.json)
 
 ## Evidence contract
 

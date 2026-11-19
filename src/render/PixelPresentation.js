@@ -253,12 +253,13 @@ export class PixelPresentation {
     this.diagnostics.output = { width: canvas.width, height: canvas.height };
     return canvas;
   }
-  finishDirectFrame() {
+  finishDirectFrame(effectiveLook = this.presentation.cinematicPixel ? 'cinematic' : 'pixel') {
     const pending = this._pending, canvas = this.canvas;
     if (!pending || pending.generation !== this.generation || pending.outputSize !== `${canvas.width}x${canvas.height}`) return this.failFrame('stale-frame');
     this._pending = null;
     const result = { presented: true, generation: this.generation, frameId: ++this.frameId };
     this.diagnostics.frame = result;
+    this.diagnostics.effectiveLook = effectiveLook;
     this.diagnostics.directTerrain = true;
     this._capture = { ...result, canvas, pixelated: false, terrainPixelated: true,
       scaling: this.presentation.scaling, width: canvas.width, height: canvas.height,

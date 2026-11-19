@@ -16,13 +16,12 @@ them as view provenance:
 - `range-v2/`: each view's acceptance captures.
 - `terrain-continuation/`: the `reviewPath` of two views.
 
-Every other folder was removed from the working tree; git history keeps
-it. The last commit that holds the complete archive is `4952a45` (main,
-2026-10-10). To inspect an old folder locally:
+The remaining historical folders are in the original Midio-5 repository.
+Browse the [evidence archive at the October 10 snapshot](https://github.com/aepler315/Midio-5/tree/4952a459acfa5c24b4b6b7e8013048a70eb01a14/docs/evidence) or restore a folder with a GitHub account that can read Midio-5. From the Midio Pixel checkout, for example:
 
 ```sh
-git checkout 4952a45 -- docs/evidence/<folder>   # e.g. pixel-repair
-git restore --staged docs/evidence/<folder>
+git fetch --no-tags https://github.com/aepler315/Midio-5.git 4952a459acfa5c24b4b6b7e8013048a70eb01a14
+git restore --source=FETCH_HEAD --worktree -- docs/evidence/pixel-repair
 ```
 
 | Folder | Size | Recorded for |

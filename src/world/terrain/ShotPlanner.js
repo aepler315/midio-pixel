@@ -824,21 +824,23 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     // The committed start's first leg is held to the hard limits only, and
     // keeps the committed knot's speed when it lands on that knot.
     const committed = P.root && !!start, pinV = committed && si === nextSlot && shots[B].id === start.next.id ? start.next.speedMps : null;
+    if (!committed && (v < vmin - 1e-9 || v > T.capMargin * T.maxSpeedMps)) return false;
     let cap = legCap(P.t, slot.t, leg);
-    if (!committed && (v < vmin - 1e-9 || v > T.capMargin * cap)) return false;
+    if (!committed && v > T.capMargin * cap) return false;
     let Vk = v, Ak = 0;
     if (P.root) { if (pinned) { Vk = startSpeed; Ak = startAccel; } }
     else {
       Vk = P.pinV ?? knotSpeed(P.vbar, P.dt, v, dtS);
       if (!okLimits(intervalLimits(P.V, P.A, Vk, 0, P.vbar, P.dt), leg.priorCap ?? P.cap, P.bend, P.turn)) return false;
     }
-    if (!okLimits(intervalLimits(Vk, Ak, pinV ?? v, 0, v, dtS), cap, leg.bend, leg.turn)) return false;
+    const limits = intervalLimits(Vk, Ak, pinV ?? v, 0, v, dtS);
+    if (!okLimits(limits, cap, leg.bend, leg.turn)) return false;
     if (leg.lazyLink >= 0) {
       // Legal without its link's own bend: measure that now and check again.
       leg.bend = Math.max(leg.bend, ix.linkBend(leg.lazyLink)); leg.climb = Math.max(leg.climb, ix.linkClimb(leg.lazyLink)); leg.lazyLink = -1;
       cap = legCap(P.t, slot.t, leg);
       if (!committed && v > T.capMargin * cap) return false;
-      if (!okLimits(intervalLimits(Vk, Ak, pinV ?? v, 0, v, dtS), cap, leg.bend, leg.turn)) return false;
+      if (!okLimits(limits, cap, leg.bend, leg.turn)) return false;
     }
     // Soft costs of what a viewer sees scale with the leg's share on screen.
     const hidden = slot.kind === 'hidden', seen = vis.mean(P.t, slot.t);
@@ -982,6 +984,7 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
   // ahead at most and `least` at least: the speed nearest the comfortable
   // pace that keeps the last interval in the limits, or undefined.
   const endSpeed = (P, tau, least, avail, end, quick = false) => {
+    if (avail / tau < Math.max(vmin, least / tau)) return quick ? null : undefined;
     if (end.climbRanges) {
       // Support can change at each reached neighbour. Search the separate
       // monotone intervals, then prefer the one nearest the comfort target.
