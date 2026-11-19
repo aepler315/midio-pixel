@@ -57,7 +57,8 @@ import { tourGround, railGroundData, setTerrainDrawMode, drawnIndexCount } from 
 import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance, resetLandDanceRequest } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { riverChannelErrors } from './RiverChannel.js';
-import { buildFocusM } from './BuildFocus.js';
+import { frameSongprintLandmark } from './SongprintReveal.js';
+import { buildRailFocus, songprintLandmarks } from './BuildFocus.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetPartsAsync } from './WaterSubset.js';
@@ -1943,7 +1944,7 @@ export class RangeScene {
         }
         // The summit the opening camera keeps framed while the range rises
         // (BuildFocus.js), read from what the rail sees.
-        const focusM = buildFocusM(data, view, { waterLevelM });
+        const focus = buildRailFocus(data, view, { waterLevelM, withSongprint: opts.withSongprint });
         // Per-band depth scenes for travel frames, where a side's nearer
         // bands are drawn only in some columns (same geometry and material;
         // a mesh has one parent, so these are separate mesh objects).
@@ -2019,7 +2020,7 @@ export class RangeScene {
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
-          waterSubsets, rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, buildFocusM: focusM,
+          waterSubsets, rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, buildFocusM: focus.focusM, songprintLandmarks: focus.landmarks,
           tourSchedule: forest.tour ? new TourForestSchedule(forest.tour.index, { horizontal: true }) : null,
         };
         if (forest.tour) {
@@ -2537,7 +2538,13 @@ export class RangeScene {
     // Resolve the authored opening aim before applying a projection-only
     // Studio crop. Feeding the cropped lens into keepFocusFramed would turn
     // the eye toward a different point when a listener edits the lens.
-    const pose = cropLens === grownPose.fovYDeg ? grownPose : { ...grownPose, fovYDeg: cropLens };
+    let pose = cropLens === grownPose.fovYDeg ? grownPose : { ...grownPose, fovYDeg: cropLens };
+    const cue = frame.performance?.songprintCue;
+    if (cue && p?.data && !studioEnabled && !view.tour && !view.glacier && !frame.forcedCandidate) {
+      p.songprintLandmarks ??= songprintLandmarks(p.data, railView, { waterLevelM: p.waterLevelM });
+      pose = frameSongprintLandmark(pose, p.songprintLandmarks, cue, {
+        tanX, tanY, rise01: frame.rise01, baseM: landRiseBase(p), slotRise01: p.slotRise ? frame.slotRise01 : null });
+    }
     const resolved = { rail, proj, pose, tanX, tanY, cameraStudio: studioState };
     poses.set(occurrenceId, resolved);
     this._ensureTourWindow(p, frame.timeMs, { pose, proj });

@@ -110,3 +110,29 @@ test('an identity is kept or dropped whole, never half', () => {
   assert.equal(restored.songIdentity, null, 'its seed does not outlive its profile');
   same(buildSongIdentity(restored), identity, 'and the identity is rebuilt from the whole song');
 });
+
+test('only the full pass freezes a Songprint, including restored and legacy identities', () => {
+  const full = analyse();
+  const print = { version: 1, skyline: Array.from({ length: 16 }, (_, i) => i/15),
+    passages: [{ timeMs: 6000, landmark01: .67, strength: .9 }] };
+  full.songprint = print;
+  full.songIdentity = buildSongIdentity(full);
+  assert.deepEqual(full.songIdentity.songprint, print);
+  const opening = asOpening(analyse(15000), DURATION);
+  assert.equal(provisionalIdentity({ ...opening, songprint: print }).songprint, undefined);
+  assert.equal(packBundle({ ...opening, songprint: print }).songprint, undefined);
+  const packed = JSON.parse(JSON.stringify(packBundle(full, { fingerprint: FP })));
+  assert.deepEqual(packed.songprint, print);
+  assert.equal(packed.songIdentity.songprint, undefined, 'store a single copy of the passage list');
+  const restored = unpackBundle(packed);
+  assert.deepEqual(restored.songprint, print);
+  assert.deepEqual(adoptFullAnalysis(opening, restored).songIdentity.songprint, print);
+  for (const malformed of [undefined, { ...print, version: 99 }, { ...print, skyline: [1] },
+    { ...print, passages: [{ timeMs: DURATION + 10, landmark01: .5, strength: 1 }] }]) {
+    const legacy = unpackBundle({ ...packed, songprint: malformed });
+    assert.ok(legacy);
+    assert.equal(Object.hasOwn(legacy, 'songprint'), false);
+    assert.equal(buildSongIdentity(legacy).songprint, undefined);
+  }
+  assert.equal(unpackBundle({ ...packed, songprint: null }).songprint, null, 'measured, insufficient evidence');
+});

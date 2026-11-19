@@ -46,7 +46,7 @@ test('the Settings menu offers only basic, stable presentation settings', () => 
     'pixelGrid', 'buildPixelDetail', 'scaling', 'cameraStudioEnabled', 'mp4Resolution', 'mp4Fps',
     'rangeTour', 'rangePace', 'shuffle', 'continuous', 'lyrics', 'btLatency',
   ]);
-  assert.equal(SETTINGS.length - menu.length, 48, 'every other definition stays registered but hidden');
+  assert.equal(SETTINGS.length - menu.length, 49, 'every other definition stays registered but hidden');
   for (const def of menu) {
     assert.equal(def.tier, 'basic', def.id);
     assert.equal(def.maturity, 'stable', def.id);

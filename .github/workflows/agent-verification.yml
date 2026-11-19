@@ -109,6 +109,8 @@ jobs:
           --out .smoke/agent-visual-reference --reviewer upstream-base-source
           --reason "Matched PR base source; generated pictures are not artistically approved"
           --source-commit "$BASE_SHA"
+      - name: Verify Songprint upload, landmark return and cached replay
+        run: node tools/songprint-landscape-smoke.mjs
       - name: Render candidate with identical controls
         run: npm run verify:visual:capture -- --out .smoke/agent-visual-candidate
       - name: Compare with the inspected images or explicit source fallback
@@ -131,6 +133,7 @@ jobs:
             .smoke/agent-visual-reference/
             .smoke/agent-visual-candidate/
             .smoke/agent-visual-diff/
+            .smoke/songprint-browser/
             test/fixtures/verification/baseline/
           include-hidden-files: true
           retention-days: 14

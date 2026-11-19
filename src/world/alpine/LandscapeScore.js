@@ -1,6 +1,7 @@
 // A song's phrase, camera and weather decisions share one heard-time score.
 // Nothing here advances on draw, dispatches notes or owns graphics resources.
 import { rangeCameraMoveAt, FINALE_MS } from './RangeCamera.js';
+import { compileSongprintReveal } from './SongprintReveal.js';
 import { compileLandRise, compileStageRise } from './LandRise.js';
 import { compileCinematicPulse } from './CinematicPulse.js';
 import { compileDualSummitsPerformance } from './DualSummitsPerformance.js';
@@ -37,7 +38,7 @@ export function riseOverrideFrom(search) {
  */
 export function compileLandscapeScore({ energyCurves, sections = [], timeline = [], durationMs = 0,
   seed = 0, previous = null, committedThroughMs = -1, riseOverride = riseOverrideFrom(), stage = null, wholeSong = true,
-  signature = null, signatureHistory = null } = {}) {
+  signature = null, signatureHistory = null, songprint = null, songprintAdmittedMs = 0 } = {}) {
   const duration = Math.max(0, Number(durationMs) || 0);
   const signatureScore = signature?.id === 'dual-summits' ? compileDualSummitsPerformance({ durationMs: duration,
     energyCurves, sections, previous: previous?.signatureScore || signatureHistory,
@@ -116,6 +117,12 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     .map((c, index) => c.index === index ? c : Object.freeze({ ...c, index })));
   // The music's own end: the closing camera move arrives on it, not on padding.
   const cadenceMs = lastAudibleMs(energyCurves, duration);
+  // A print arriving after playback began can only change future framing.
+  const previousPrint = previous?.songprint;
+  const admittedMs = Math.max(songprintAdmittedMs, previous && previousPrint !== songprint
+    ? freezeThroughMs : previous?.songprintAdmittedMs || 0);
+  const songprintAt = previousPrint && previousPrint === songprint && previous.songprintAdmittedMs === admittedMs
+    && previous.cadenceMs === cadenceMs ? previous.songprintAt : compileSongprintReveal(songprint, cadenceMs - FINALE_MS, admittedMs);
   // One heard-time pulse for the camera and the build alike. It stops at the
   // closing move, and cues already heard at a re-analysis keep their side.
   const pulse = compileCinematicPulse({ sections: phrases, read, durationMs: duration,
@@ -156,6 +163,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
       lens: lensFromCues(lensCues, t, !!options.preview),
       revealLens: revealLensFromCues(lensCues, t, !!options.preview),
       ...riseState(t, options), signature,
+      ...(songprintAt ? { songprintCue: !options.preview && !signature ? songprintAt(t) : null } : {}),
       ...(signature && riseOverride == null ? { rise01: signature.rise01, slotRise01: signature.slotRise01 } : {}) });
   };
   const riseState = (t, options) => {
@@ -168,7 +176,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     for (const id of stageRise.slotIds) sum += slotRise01[id];
     return { rise01: sum / stageRise.slotIds.length, slotRise01 };
   };
-  return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
+  return Object.freeze({ durationMs: duration, songprint, songprintAt, songprintAdmittedMs: admittedMs, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
     pulse, riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, stageRise, signatureScore, at: stateAt });
 }
 
@@ -187,17 +195,19 @@ export function scoreStage(mgr) {
 export function landscapeScoreFor(mgr) {
   let hit = cache.get(mgr);
   const timeline = mgr.conductor?.timeline;
+  const songprint = mgr.songTerrain?.songprint ?? null;
+  const songprintAdmittedMs = mgr.songprintAdmittedMs || 0;
   const signature = mgr.songTerrain?.signaturePerformance || null;
   const stage = scoreStage(mgr), wholeSong = !Number.isFinite(mgr.analyzedThroughMs);
   if (!hit || hit.curves !== mgr.energyCurves || hit.sections !== mgr.sections || hit.timeline !== timeline || hit.duration !== mgr.durationMs
-    || hit.stage !== stage || hit.wholeSong !== wholeSong || hit.signature !== signature) {
+    || hit.stage !== stage || hit.wholeSong !== wholeSong || hit.signature !== signature || hit.songprint !== songprint || hit.songprintAdmittedMs !== songprintAdmittedMs) {
     const previous = hit?.score || mgr.landscapeHistory?.previous || null;
     const committedThroughMs = hit ? (mgr.tSec || 0) * 1000 : mgr.landscapeHistory?.committedThroughMs ?? -1;
     const score = compileLandscapeScore({ energyCurves: mgr.energyCurves, sections: mgr.sections, timeline,
-      durationMs: mgr.durationMs, seed: mgr.songSeed || 0, previous, committedThroughMs, stage, wholeSong, signature,
+      durationMs: mgr.durationMs, seed: mgr.songSeed || 0, previous, committedThroughMs, stage, wholeSong, signature, songprint, songprintAdmittedMs,
       signatureHistory: signature && signaturePlans.get(signature) });
     if (signature && score.signatureScore) signaturePlans.set(signature, score.signatureScore);
-    hit = { curves: mgr.energyCurves, sections: mgr.sections, timeline, duration: mgr.durationMs, stage, wholeSong, signature, score };
+    hit = { curves: mgr.energyCurves, sections: mgr.sections, timeline, duration: mgr.durationMs, stage, wholeSong, signature, songprint, songprintAdmittedMs, score };
     cache.set(mgr, hit);
     mgr.landscapeScore = score;
   }

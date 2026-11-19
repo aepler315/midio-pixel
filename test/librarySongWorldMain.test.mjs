@@ -28,6 +28,7 @@ function setup({ rejectStorage = false } = {}) {
     prepareSongTerrain: async (p, seed) => { const plan = planSongScenes(p, seed); plans.push(plan); return plan; },
     pendingWorldStart: null, lastFitDiagnostic: null, recordFitDiagnostic: () => null,
     readBulkExportFromUrl: () => null, DEFAULT_WORLD_ID: 'alpine', BIOME_WAIT_MS: 2500, IDENTITY_START_HOLD_MS: 5000,
+    IDENTITY_SONG_RANGE_WAIT_MS: 20000, IDENTITY_TERRAIN_GIVE_UP_MS: 30000,
     setTimeout: () => 0, continuousPlayback: { isCurrent: () => true }, playSelectedWorld() {},
     console: { warn: (...values) => warnings.push(values), error: (...values) => { throw Error(values.join(' ')); } },
   });
@@ -53,6 +54,21 @@ test('the actual world start persists the identity profile used by playback, rat
   assert.equal(calls.length, 1); assert.equal(calls[0].track, track);
   assert.deepEqual(calls[0].record, createSongWorldRecord(profile, 417));
   assert.equal(describeSongWorld(calls[0].record).viewId, plans[0].sceneByBiome.get(plans[0].home).view.id);
+});
+
+test('a restored recording sends the full print to its landscape and only its skyline to the library', async () => {
+  const { context, calls } = setup();
+  const songprint = { version: 1, skyline: Array.from({ length: 16 }, (_, i) => i / 15),
+    passages: [{ timeMs: 6000, landmark01: .3, strength: .5 }] };
+  let planned;
+  context.prepareSongTerrain = async (_p, _seed, _recent, options) => { planned = options; return {}; };
+  const data = { songIdentity: { seed: 42, songProfile: profile, songprint } };
+  context.offerWorldsThenStart(data, { localTrack: { key: 'test' } });
+  await context.pendingWorldStart.terrainReady;
+  assert.deepEqual(planned.songprint, songprint);
+  assert.equal(planned.songRangeWaitMs, context.IDENTITY_SONG_RANGE_WAIT_MS);
+  assert.deepEqual(data.songIdentity.songprint, songprint);
+  assert.deepEqual(calls[0].record.songprint, { version: songprint.version, skyline: songprint.skyline });
 });
 
 test('the actual world start records a newly built identity and storage failure cannot delay the pending world', async () => {

@@ -191,18 +191,22 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
     let block = blocks.get(s.pieceId);
     if (!slot || !block) throw new Error(`${id}: slot ${s.slotId} or piece ${s.pieceId} missing`);
     if (s.mirrored) block = mirrored(block);
+    const slotScale = s.reliefScale ?? 1;
+    if (!Number.isFinite(slotScale) || slotScale < .92 || slotScale > 1.08) throw new Error(`invalid relief for slot ${s.slotId}`);
     const at = slotOrigin(slot, block.tiles);
     if (!at) throw new Error(`${s.pieceId} does not fit slot ${s.slotId}`);
     for (let dz = 0; dz < block.tiles[1]; dz++) for (let dx = 0; dx < block.tiles[0]; dx++) {
       const k = (at[1] + dz) * tilesX + at[0] + dx;
       if (owner[k]) throw new Error(`${id}: slots ${owner[k].slotId} and ${s.slotId} overlap`);
-      owner[k] = { block, at, slotId: s.slotId };
+      owner[k] = { block, at, slotId: s.slotId, slotScale };
     }
     let peak = 0, pk = 0;
     for (let k = 0; k < block.relief.length; k++) if (block.relief[k] > peak) { peak = block.relief[k]; pk = k; }
+    peak *= slotScale;
     maxRelief = Math.max(maxRelief, peak);
     const px = originM[0] + (at[0] * cells + pk % block.width) * c, pz = originM[1] + (at[1] * cells + Math.floor(pk / block.width)) * c;
     placed.push({ slotId: s.slotId, pieceId: s.pieceId, mirrored: !!s.mirrored, tileOrigin: at, peakReliefM: peak,
+      ...(s.reliefScale === undefined ? {} : { reliefScale: slotScale }),
       peakLocalM: [px, pz], floorM: stageFloorHeight(t, px, pz) });
   }
   // 'frame' scales the relief to the template's framing (stageReliefScale);
@@ -237,6 +241,7 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   const achieved = Object.fromEntries(Object.keys(LOD_BUDGETS).map((k) => [k, 0]));
   for (let iz = 0; iz < tilesZ; iz++) for (let ix = 0; ix < tilesX; ix++) {
     const own = owner[iz * tilesX + ix];
+    const pieceScale = scale * (own?.slotScale ?? 1);
     let minY = Infinity, maxY = -Infinity, wet = 0, land = 0;
     for (let v = 0; v < n1; v++) for (let u = 0; u < n1; u++) {
       const gi = ix * cells + u, gj = iz * cells + v, x = originM[0] + gi * c, z = originM[1] + gj * c;
@@ -244,7 +249,7 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
       if (own) {
         const bi = gi - own.at[0] * cells, bj = gj - own.at[1] * cells;
         const bk = bj * own.block.width + bi;
-        r = own.block.relief[bk] * scale; pf = own.block.flow[bk];
+        r = own.block.relief[bk] * pieceScale; pf = own.block.flow[bk];
       }
       const y = stageFloorHeight(t, x, z) + r;
       const k = v * n1 + u;
@@ -310,9 +315,11 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
     schema: TERRAIN_SCHEMA, version: TERRAIN_VERSION, kind: STAGE_KIND,
     viewId: id, regionId: 'song-range-stage',
     source: { demSha256: null, provenance: { composition: { songRangeVersion: plan.version, key: songRangeKey(plan), template: t.id, reliefScale: scale,
-      pieces: placed.map((p) => ({ slotId: p.slotId, pieceId: p.pieceId, mirrored: p.mirrored })) } },
+      pieces: placed.map((p) => ({ slotId: p.slotId, pieceId: p.pieceId, mirrored: p.mirrored,
+        ...(p.reliefScale === undefined ? {} : { reliefScale: p.reliefScale }) })) } },
     fill: null, horizontalCrs: 'Local stage metres; pieces carry their own source CRS',
-    verticalReference: 'Stage floor plus measured relief above each piece base, times composition.reliefScale (metres)', centerLonLat: null,
+    verticalReference: plan.songprintVersion ? 'Stage floor plus measured relief times piece and composition relief scales (metres)'
+      : 'Stage floor plus measured relief above each piece base, times composition.reliefScale (metres)', centerLonLat: null,
     sourceResolutionM: c, outputSpacingM: c },
     grid: { width: W, height: H, cellSizeM: c, originM: [...originM] },
     axes: 'X east, Y up, Z south (metres)', tileCells: cells, tilesX, tilesZ,

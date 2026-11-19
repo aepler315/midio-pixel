@@ -866,3 +866,19 @@ test('permission completion cannot restore access to a forgotten root', async ()
   assert.equal(lib.root, null);
   assert.equal(lib.handle, null);
 });
+
+test('a later ordinary play preserves the compact skyline for the same library recording', async () => {
+  const rich = { ...songWorld(), songprint: { version: 1, skyline: Array.from({ length: 16 }, (_, i) => i/15),
+    passages: [{ timeMs: 6000, strength: .9, landmark01: .3 }] } };
+  const compact = { version: 1, skyline: rich.songprint.skyline };
+  for (const stored of [true, false]) {
+    const scope = stored ? scopeWith(fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') })) : {};
+    const lib = new MusicLibrary({ scope });
+    if (stored) await lib.pickFolder();
+    else await lib.adoptFileList([Object.assign(fakeFile('a.mp3'), { webkitRelativePath: 'Music/a.mp3' })]);
+    await lib.noteSongWorld(lib.tracks[0], rich);
+    await lib.noteSongWorld(lib.tracks[0], songWorld(8));
+    assert.deepEqual(lib.tracks[0].songWorld.songprint, compact);
+    if (stored) assert.deepEqual((await listTracks(lib.root.id, scope))[0].songWorld.songprint, compact);
+  }
+});

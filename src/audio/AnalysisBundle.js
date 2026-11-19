@@ -33,6 +33,7 @@ import { ANALYSIS_REVISION } from './AnalysisRevision.js';
 import { BANDS } from './bands.js';
 import { Role } from '../core/NoteEvent.js';
 import { Lane } from '../core/Casting.js';
+import { copySongprint } from './SongprintData.js';
 import { buildSongProfile, snapshotSongProfile, PROFILE_VERSION, validSongProfileSnapshot } from './SongProfile.js';
 
 /** Bump when the shape changes incompatibly. `unpackBundle` refuses a
@@ -142,6 +143,8 @@ function quantize01(arr) {
  */
 export function packBundle(data, { fingerprint, name = '', identity = null } = {}) {
   const curves = data.energyCurves;
+  const songprint = data.opening ? undefined : data.songprint === null ? null
+    : copySongprint(data.songprint ?? data.songIdentity?.songprint, data.durationMs) ?? undefined;
   const timeline = data.timeline || [];
   const n = timeline.length;
   const tMs = new Float32Array(n), durMs = new Float32Array(n);
@@ -162,6 +165,7 @@ export function packBundle(data, { fingerprint, name = '', identity = null } = {
 
   return {
     v: BUNDLE_VERSION,
+    ...(songprint === undefined ? {} : { songprint }),
     key: fingerprint?.key || '',
     // The frames themselves, not just the key: a different rip of the same
     // master hashes to a different key, and only the sequence can be aligned
@@ -297,6 +301,7 @@ export function unpackBundle(bundle) {
       && (byteLength == null || b64ToBytes(value).length === byteLength);
     const ordered = (values, max, strict = false) => Array.from(values).every((v,i) => Number.isFinite(v) && v >= 0 && v <= max && (!i || (strict ? v > values[i-1] : v >= values[i-1])));
     const duration = bundle.durationMs;
+    const songprint = bundle.songprint === null ? null : copySongprint(bundle.songprint, duration) ?? undefined;
     for (const snapshot of [bundle.songProfile,bundle.songIdentity?.songProfile]) {
       if (snapshot?.version === PROFILE_VERSION && !validSongProfileSnapshot(snapshot)) return null;
     }
@@ -437,10 +442,12 @@ export function unpackBundle(bundle) {
       // from another profile version is dropped whole -- keeping its seed
       // with a rebuilt profile would make a look no analysis ever made -- and
       // the identity is then rebuilt from the restored whole-song analysis.
+      ...(songprint === undefined ? {} : { songprint }),
       songIdentity: bundle.songIdentity && Number.isFinite(bundle.songIdentity.seed)
         && bundle.songIdentity.songProfile?.version === PROFILE_VERSION
         ? {
           seed: bundle.songIdentity.seed >>> 0,
+          ...(songprint ? { songprint } : {}),
           songProfile: bundle.songIdentity.songProfile,
           customBiome: bundle.songIdentity.customBiome || null,
         }

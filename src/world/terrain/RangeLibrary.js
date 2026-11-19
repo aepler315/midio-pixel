@@ -8,6 +8,8 @@
 // one in the middle and a low one in front (RangeMatcher.matchRidgeSet).
 // Each range's module holds the skyline scanned for its far layer; that one
 // skyline is what the song's ridge draws, whichever ridge it stands on.
+import { settingValue } from '../../config/appSettings.js';
+import { hashSeed } from '../../utils/math.js';
 import { RANGES, LOADERS } from './ranges/index.js';
 import { RIDGE_BANDS, matchRidgeSet } from './RangeMatcher.js';
 import { readRecentRanges } from './RangeHistory.js';
@@ -49,12 +51,12 @@ function byDeadline(promise, deadline) {
  * catalog view (logged once per song, counted in songRangeStats). The
  * catalog choice rides along as `fallback` for later failures.
  */
-export async function songRangeChoice(profile, seed, scenery, { search, fetchImpl, signature } = {}) {
+export async function songRangeChoice(profile, seed, scenery, { search, fetchImpl, signature, songprint } = {}) {
   const dualSummits = dualSummitsRequested({ signature, search });
   const layout = songRangeLayoutParam(search);
   if (!dualSummits && !songRangeEnabled(search) && !layout) return null;
   const plan = dualSummits ? planDualSummitsScene(scenery.home)
-    : layout ? pilotPlan(layout, scenery.home) : planSongRange(profile, seed, { forced: songRangeForced(search) });
+    : layout ? pilotPlan(layout, scenery.home) : planSongRange(profile, seed, { forced: songRangeForced(search), songprint, scenery });
   if (!plan) return null;
   songRangeStats.planned++;
   const home = scenery.home;
@@ -155,22 +157,31 @@ export async function prepareSongRange(profile, seed) {
  * ({ view, fallbackReason }) from the curated catalog, drawn once per song.
  */
 export async function prepareSongTerrain(profile, seed, recent = readRecentRanges(),
-  { songRangeWaitMs = SONG_RANGE_WAIT_MS, search, fetchImpl, signature } = {}) {
+  { songRangeWaitMs = SONG_RANGE_WAIT_MS, search, fetchImpl, signature, songprint } = {}) {
   const startedAt = Date.now();
   try {
-    const scenery = planSongScenes(profile, seed);
+    const directed = songprint && (dualSummitsRequested({ signature, search }) || songRangeLayoutParam(search)
+      || settingValue('rangeView', search) || settingValue('rangeTour', search) === 'tetons');
+    const scenery = planSongScenes(profile, seed, { songprint: directed ? null : songprint });
+    const activePrint = scenery.songprintVersion ? songprint : null;
+    // The back and foreground scans are secondary to the surveyed home.
+    // Across performances, keep those layers fixed to that location as well.
+    const ridgeSeed = activePrint ? hashSeed(scenery.sceneByBiome.get(scenery.home).view.id) : seed;
+    const ridgeProfile = activePrint ? null : profile;
+    const ridgeHistory = activePrint ? [] : recent;
     const biomes = scenery.biomes;
     if (!biomes.length) return null;
     // The composed range loads alongside the home biome, never after it.
-    const rangeOptions = { fetchImpl, signature };
+    const rangeOptions = { fetchImpl, signature, songprint: activePrint };
     if (search !== undefined) rangeOptions.search = search;
     const composing = songRangeChoice(profile, seed, scenery, rangeOptions).catch((err) => {
       console.warn('[song range] composed range unavailable; keeping the catalog view', err);
       return null;
     });
     const byBiome = new Map();
+    const ridgesFor = biome => chooseBiomeRidges(biome, ridgeProfile, ridgeSeed, { recent: ridgeHistory });
     const load = async (biome) => {
-      const set = chooseBiomeRidges(biome, profile, seed, { recent });
+      const set = ridgesFor(biome);
       const loaded = await Promise.all(RIDGE_BANDS.map(async (b) => {
         const match = set[b.ridge];
         if (!match) return null;
@@ -193,7 +204,7 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
       byBiome.set(biome, entry);
       return entry;
     };
-    const homeIds = Object.values(chooseBiomeRidges(biomes[0], profile, seed, { recent }))
+    const homeIds = Object.values(ridgesFor(biomes[0]))
       .map((m) => m?.range?.id).filter(Boolean);
     const loadSkyline = async (range, what) => {
       if (!range) return null;
@@ -205,8 +216,8 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
         return null;
       }
     };
-    const horizonRange = chooseHorizonRange(seed, { exclude: homeIds });
-    const massifRange = chooseHorizonRange(seed, {
+    const horizonRange = chooseHorizonRange(ridgeSeed, { exclude: homeIds });
+    const massifRange = chooseHorizonRange(ridgeSeed, {
       exclude: [...homeIds, horizonRange?.id].filter(Boolean), salt: MASSIF_SALT,
     });
     const [home, horizon, massif] = await Promise.all([
@@ -237,6 +248,7 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
     } : null;
     const terrain = {
       biomes, home: biomes[0], byBiome, whenAll, allLoaded: false,
+      ...(activePrint ? { songprint: activePrint } : {}),
       range: home.ranges.far, ranges: home.ranges, profiles: home.profiles, horizon, massif,
       sceneByBiome, catalogVersion: scenery.catalogVersion, matchingVersion: scenery.matchingVersion,
       // The stage's slots rise with the song's structure (LandscapeScore.js).

@@ -13,7 +13,7 @@ import { validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync } from './ForestCover.js';
 import { createForest, forestSpanBytes } from './ForestGL.js';
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
-import { buildFocusM } from './BuildFocus.js';
+import { buildRailFocus } from './BuildFocus.js';
 import { mirrorLevelFor } from './WaterMirror.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { BANDS } from './TerrainMesh.js';
@@ -183,7 +183,7 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
     for (const d of forest.depth) depthScene.add(d);
     for (const band of BANDS) for (const d of forest.depthByBand?.[band] || []) depthScenes[band].add(d);
     // The opening camera's summit focus, as production reads it.
-    const focusM = buildFocusM(data, view, { waterLevelM: null });
+    const focus = buildRailFocus(data, view, { withSongprint: opts.withSongprint });
     // Link check, as production: a failed program must not publish.
     const gl = scene.renderer.getContext();
     const targets = [...BANDS.map(band => [scenes[band]]), [depthScene]];
@@ -228,7 +228,7 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
       stats: { triangles: m.stats.triangles, vertices: m.stats.vertices, bytes: built.gpuBytes, trees: forest.counts, featureBytes: 0 },
       gpuKey, cpuKey, cpuOwner: { release: () => scene.residency?.releaseReservation(cpuRes) },
       rules, waterLevelM: null, mirrorLevelM: mirrorLevelFor(data, null), materialKey: null, materialOwner: null,
-      buildFocusM: focusM,
+      buildFocusM: focus.focusM, songprintLandmarks: focus.landmarks,
       compiled, compiledDispose: () => built.dispose(),
     };
     if (res && !scene.residency.commit(res, prepared, (p) => scene._retire(view.id, p))) {
