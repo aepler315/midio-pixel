@@ -22,6 +22,8 @@ import { massifSkylines } from './songprintSkylines.js';
 import { planSongScenes } from './SongScenePlan.js';
 import { slotOrigin } from './StageFloor.js';
 import { compositionTarget, summitSpacing, summitCandidate, summitPairScore } from './SongprintComposition.js';
+import { makeInlandTerrain } from './InlandTerrain.js';
+import { hashSeed } from '../../utils/math.js';
 import { chooseSongBiomes } from './BiomeSet.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { sceneOdds, SCENIC_FAIR_SHARE } from './SceneCatalog.js';
@@ -29,7 +31,7 @@ import MASSIF_CATALOG from './massifCatalogData.js';
 import { settingValue } from '../../config/appSettings.js';
 
 export const SONG_RANGE_VERSION = 3;
-const SONGPRINT_RANGE_VERSION = 5;
+const SONGPRINT_RANGE_VERSION = 6;
 
 /** Biome to material family; mirrors DEFAULT_PACKS in tools/build-range-scene.mjs. */
 export const BIOME_FAMILY = Object.freeze({
@@ -101,6 +103,7 @@ function indexOf(catalog) {
 function composeFromOutline(templates, pieces, homeView, song, songprint, family, forced) {
   const target = compositionTarget(song, measuredViewOutline(homeView));
   const balance = summitSpacing(target);
+  const inland = makeInlandTerrain(hashSeed(JSON.stringify(songprint.skyline)), songprint);
   const measured = pieces.filter(piece => massifSkylines[piece.manifestSha256]);
   let best = null;
   for (const template of templates) {
@@ -179,6 +182,7 @@ function composeFromOutline(templates, pieces, homeView, song, songprint, family
       ...(forced ? { forced: true } : {}), templateId: template.id, baseM: template.lakeLevelM,
       principal: Object.freeze({ slotId: principalSlot.id, pieceId: principal.id, name: principal.name }),
       ...(pair.companion ? { companionSlot: pair.companion.slot.id } : {}),
+      ...(inland ? { inland } : {}),
       slots: Object.freeze(placements), label: `World: ${principal.name} range`,
     }) };
   }
@@ -306,5 +310,6 @@ export function songRangeKey(plan) {
   const stage = plan.camera || plan.slotOffsets ? `|stage:${JSON.stringify({ camera: plan.camera,
     offsets: Object.entries(plan.slotOffsets || {}).sort(([a], [b]) => a.localeCompare(b)) })}` : '';
   const companion = plan.companionSlot ? `|companion:${plan.companionSlot}` : '';
-  return `${layout}${seed}${stage}${companion}`;
+  const inland = plan.inland ? `|inland:${JSON.stringify(plan.inland)}` : '';
+  return `${layout}${seed}${stage}${companion}${inland}`;
 }

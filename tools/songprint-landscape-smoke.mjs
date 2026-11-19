@@ -79,15 +79,18 @@ async function captureComposedSequence(page, file) {
       const plan = prepared?.view?.songRange?.plan;
       const { eyeM, targetM, fovYDeg, viewOffset, songprintOrbit } = range.scene.camera.userData.rangeCameraPose;
       const composition = prepared?.view?.songprintComposition;
+      const grid = prepared?.data?.grid;
       return { viewId: range.viewId, key: prepared?.view?.songRange?.key, tiles: prepared?.data?.tiles?.size,
         principal: plan?.principal?.slotId, companion: plan?.companionSlot, composition, slotRise: range.frame.slotRise01,
-        eyeM, targetM, fovYDeg, viewOffset, songprintOrbit };
+        inland: !!plan?.inland, regionWidthM: grid ? (grid.width - 1) * grid.cellSizeM : null,
+        water: range.scene.hasWater(range.viewId), eyeM, targetM, fovYDeg, viewOffset, songprintOrbit };
     });
     assert.ok(evidence.key && evidence.tiles > 0, 'the draw used the prepared, composed terrain');
     assert.ok(evidence.principal && evidence.companion && evidence.principal !== evidence.companion,
       'the rendered composition establishes an identifiable pair');
     assert.equal(evidence.composition?.principal.slotId, evidence.principal);
     assert.equal(evidence.composition?.companion.slotId, evidence.companion);
+    assert.ok(evidence.inland && evidence.regionWidthM === 89600 && !evidence.water, 'the complete inland stage has no water passes');
     return { evidence, png };
   };
   const frames = [];

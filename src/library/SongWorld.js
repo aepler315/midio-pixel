@@ -62,7 +62,8 @@ export function describeSongWorld(record, {
   if (range) {
     const names = range.slots.map((s) => massifs.pieces.find((p) => p.id === s.pieceId)?.name).filter(Boolean);
     const value = Object.freeze({ state: 'known', label: range.label,
-      title: [`Song range: ${range.principal.name}`, `Massifs: ${names.join(', ')}`, 'Composed range (experimental)'].join(' · '),
+      title: [`Song range: ${range.principal.name}`, `Massifs: ${names.join(', ')}`,
+        range.inland ? 'Procedural inland region with surveyed massifs (experimental)' : 'Composed range (experimental)'].join(' · '),
       viewId: view?.id ?? null, biome: plan.home, experimental: true,
       songRange: Object.freeze({ key: songRangeKey(range), principal: range.principal.pieceId, version: range.version }),
       catalogVersion: plan.catalogVersion, matchingVersion: SCENE_MATCH_VERSION });

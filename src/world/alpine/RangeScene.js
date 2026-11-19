@@ -60,6 +60,7 @@ import { riverChannelErrors } from './RiverChannel.js';
 import { frameSongprintLandmark } from './SongprintReveal.js';
 import { songprintMistArea } from './SongprintAtmosphere.js';
 import { compileSongprintOrbit, songprintOrbitPose } from './SongprintOrbit.js';
+import { compileInlandFlight, inlandFlightPose } from './InlandFlight.js';
 import { summitLandmarkIndex } from '../terrain/SongprintRail.js';
 import { buildRailFocus, songprintLandmarks } from './BuildFocus.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
@@ -69,7 +70,7 @@ import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable }
 import { attachForestCulling, restoreForestCulling } from './ForestCulling.js';
 import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
 import { LAND_RISE_START, SLOT_RISE_SLOTS, riseFromUniforms, risenHeight } from './LandRise.js';
-import { stageSlotOwners } from './StageAssembly.js';
+import { INLAND_SURFACE_STRIDE, stageSlotOwners } from './StageAssembly.js';
 import MASSIF_CATALOG from '../terrain/massifCatalogData.js';
 import { landRiseBase, landRiseCamera, landRiseFov } from './LandRiseCamera.js';
 import { dualSummitsPose } from './DualSummitsPerformance.js';
@@ -105,6 +106,8 @@ export const MIRROR_INK_SKIP = .004;
 export const CANVAS_TRIM_FRAMES = 90;
 // Full/lite pairs share instances and retain two scalar attributes per batch.
 const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8;
+const staticSurfaceStride = data => data.manifest?.source?.provenance?.composition?.inland ? INLAND_SURFACE_STRIDE : 1;
+const surfacePixels = (grid, stride) => ((grid.width - 1) / stride + 1) * ((grid.height - 1) / stride + 1);
 
 /** What a static view's GPU reservation charges for `trees` placed trees:
  *  mesh, seam fringes and the rail's border copies, and tree instances,
@@ -123,7 +126,7 @@ export function staticViewBytes(data, est, trees, { budget = 'desktop', landDanc
   const samples = HIERARCHY_MAX_SAMPLES[budget === 'mobile' ? 'mobile' : 'desktop'];
   const hierarchyCost = grid && landDance ? modes * samples * samples * 4 : 0;
   const mistFlowCost = grid ? modes * MIST_FLOW_MAX_SAMPLES ** 2 * 8 : 0;
-  const gridPx = grid ? grid.width * grid.height : 0;
+  const gridPx = grid ? surfacePixels(grid, staticSurfaceStride(data)) : 0;
   return 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx
     + modes * 2 * 3 * 768 * 6 * 4 + horizonCost + hierarchyCost + mistFlowCost
     + (grid ? riseGroundBytes() + openingCoverageBytes(data) : 0) + forestSpanBytes(trees);
@@ -1210,7 +1213,7 @@ export class RangeScene {
     const gpu = staticViewBytes(cpu.data, est, bound.count, { budget: this.budget, landDance: requestedLandDance() });
     // The surface borrows the kept records' idle construction allowance
     // (prepare): only its scratch beyond that is charged beside them.
-    const scratch = Math.max(0, cpu.data.grid.width * cpu.data.grid.height * SURFACE_BUILD_BYTES_PER_PIXEL - forestIdleBytes(bound.count));
+    const scratch = Math.max(0, surfacePixels(cpu.data.grid, staticSurfaceStride(cpu.data)) * SURFACE_BUILD_BYTES_PER_PIXEL - forestIdleBytes(bound.count));
     if (this.residency.canFit(Math.max(placement, forestRetainedBytes(bound.count) + gpu + scratch), protect)) return 'fits';
     return this.budget !== 'mobile' && this.residency.canFit(placement, protect) ? 'placed' : null;
   }
@@ -1630,8 +1633,8 @@ export class RangeScene {
         // Its temporary lanes retire before receiver construction (RGBA +
         // mask, 5 B/px). Upload drops both CPU texture copies; the view owns
         // the GPU textures, while this build peak is charged as scratch.
-        const textureStride = view.tour ? (this.budget === 'mobile' ? 4 : 2) : 1;
-        const gridPx = ((cpu.data.grid.width - 1) / textureStride + 1) * ((cpu.data.grid.height - 1) / textureStride + 1);
+        const textureStride = view.tour ? (this.budget === 'mobile' ? 4 : 2) : staticSurfaceStride(data);
+        const gridPx = surfacePixels(data.grid, textureStride);
         // A package with tour ground keeps a second set of hints, sun
         // horizon and land hierarchy: the rail's, baked without that ground.
         const twoModes = !view.tour && tourGround(data), modes = twoModes ? 2 : 1;
@@ -1947,7 +1950,9 @@ export class RangeScene {
         }
         // The summit the opening camera keeps framed while the range rises
         // (BuildFocus.js), read from what the rail sees.
-        const focus = buildRailFocus(data, view, { waterLevelM, withSongprint: opts.withSongprint });
+        const focus = view.songRange?.plan?.inland
+          ? { focusM: view.songprintComposition?.principal?.pointM ?? null, landmarks: view.songprintLandmarks ?? [] }
+          : buildRailFocus(data, view, { waterLevelM, withSongprint: opts.withSongprint });
         // Per-band depth scenes for travel frames, where a side's nearer
         // bands are drawn only in some columns (same geometry and material;
         // a mesh has one parent, so these are separate mesh objects).
@@ -2521,8 +2526,22 @@ export class RangeScene {
     let orbit = null;
     if (movement && groundAt && frame.songprintOrbitEnabled !== false
       && !studioEnabled && !baseRail.tour && !poseTour && !view.glacier && !frame.forcedCandidate && railView === view) {
-      if (p.songprintOrbit === undefined) p.songprintOrbit = compileSongprintOrbit(p.data, railView, p.waterLevelM);
-      orbit = p.songprintOrbit;
+      if (railView.songRange?.plan?.inland) {
+        const { guides, travelMs } = movement;
+        const cached = p.inlandFlight;
+        // Terrain can survive a seek, new playback, or export. A route
+        // also belongs to the available song time and its transition guides.
+        if (!cached || cached.guides !== guides || cached.travelMs !== travelMs) {
+          const key = JSON.stringify([travelMs, (guides ?? []).map(guide => guide.progress01)]);
+          const route = cached?.key === key ? cached.route : compileInlandFlight(p.data, railView, movement);
+          p.inlandFlight = { guides, travelMs, key, route };
+        }
+        orbit = p.inlandFlight.route;
+      }
+      if (!orbit) {
+        if (p.songprintOrbit === undefined) p.songprintOrbit = compileSongprintOrbit(p.data, railView, p.waterLevelM);
+        orbit = p.songprintOrbit;
+      }
     }
     const orbitGain = orbit ? movement.gain : 0;
     const lensFov = orbitGain === 1 ? baseRail.fovYDeg : applyLensFov(baseRail.fovYDeg, frame.cameraEffects);
@@ -2568,7 +2587,8 @@ export class RangeScene {
         composition: railView.songprintComposition, establish01: establish01 * (1 - orbitGain) });
     }
     if (orbitGain > 0) {
-      pose = songprintOrbitPose(pose, orbit, movement, {
+      const sample = orbit.kind === 'inland' ? inlandFlightPose : songprintOrbitPose;
+      pose = sample(pose, orbit, movement, {
         heightAt: groundAt, waterLevelM: p.waterLevelM, baseM: landRiseBase(p), rise01: frame.rise01,
         slotRise01: p.slotRise ? frame.slotRise01 : null, landmarks: p.songprintLandmarks ?? [], cue });
     }

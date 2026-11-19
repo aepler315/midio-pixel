@@ -70,9 +70,10 @@ playback. Every song plays its own audio.
 ### Returning summits and recurring weather
 
 Open **Settings → Landscape** before loading a song. Turn on **Returning summits**
-to give the song a distinctive pair of summits. With **Camera tours** set to
-**Music-timed tours**, the camera travels around the composed terrain and
-revisits landmarks as musical passages return. Turn on
+to build a dry inland region from the song's harmonic outline and measured
+mountain pieces. With **Camera tours** set to **Music-timed tours**, the
+camera travels between passes, ridges and valleys. Musical transitions guide
+the view and the song's energy sets the pace. Turn on
 **Recurring weather** to give a recurring phrase a valley-mist clearing and wind
 gesture shaped by that recording. The two controls work independently and
 apply to your next song.

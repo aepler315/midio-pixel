@@ -138,7 +138,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   // route's position or speed under a camera already traveling it.
   const songprintOrbit = songprint && stage?.companion && wholeSong && !signatureScore
     ? previous?.songprintOrbit || compileSongprintOrbitScore({
-      songprint, admittedMs, cadenceMs, finaleMs: FINALE_MS, read, pulse,
+      songprint, admittedMs, cadenceMs, finaleMs: FINALE_MS, read, pulse, inland: stage.inland === true,
     }) : null;
   // The range rises with the song and stands complete before the closing
   // move (LandRise.js); a re-analysis continues the climb from where it is.
@@ -194,7 +194,13 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
       return { rise01: held ?? rise.at(t), slotRise01: null };
     if (held != null) return { rise01: held, slotRise01: heldSlots(held) };
     const natural = stageRise.slotsAt(t);
-    const slotRise01 = options.songprintStage === false ? natural : songprintReveal?.raiseSlots?.(t, natural) ?? natural;
+    const composed = options.songprintStage !== false;
+    const revealed = composed ? songprintReveal?.raiseSlots?.(t, natural) ?? natural : natural;
+    // The inland region has an established valley floor and foothills at
+    // the opening. Its remaining relief still follows the shared slot rise.
+    const ground01 = composed && stage.inland ? .48 * (admittedMs > 0 ? ease((t - admittedMs) / 6000) : 1) : 0;
+    const slotRise01 = ground01 ? Object.freeze(Object.fromEntries(stageRise.slotIds.map(id =>
+      [id, ground01 + (1 - ground01) * revealed[id]]))) : revealed;
     let sum = 0;
     for (const id of stageRise.slotIds) sum += slotRise01[id];
     return { rise01: sum / stageRise.slotIds.length, slotRise01 };
