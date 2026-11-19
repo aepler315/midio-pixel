@@ -1,7 +1,7 @@
 // A song's phrase, camera and weather decisions share one heard-time score.
 // Nothing here advances on draw, dispatches notes or owns graphics resources.
 import { rangeCameraMoveAt, FINALE_MS } from './RangeCamera.js';
-import { compileSongprintReveal } from './SongprintReveal.js';
+import { compileSongprintReveal, songprintEstablishAt } from './SongprintReveal.js';
 import { compileSongprintWeather, songprintWeatherAt } from './SongprintAtmosphere.js';
 import { compileLandRise, compileStageRise } from './LandRise.js';
 import { compileCinematicPulse } from './CinematicPulse.js';
@@ -144,7 +144,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   // song, so its slots rise staggered until the whole song is in.
   const formed = wholeSong ? sections.filter((s) => formLabelled(s)
     && Number.isFinite(s.startMs) && Number.isFinite(s.endMs) && s.endMs > s.startMs) : [];
-  const stageRise = stage?.slots?.length ? compileStageRise({ slots: stage.slots, principal: stage.principal,
+  const stageRise = stage?.slots?.length ? compileStageRise({ slots: stage.slots, principal: stage.principal, companion: stage.companion,
     sections: formed, read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
     previous: previous?.stageRise?.progressAt || null, paceAt: pulse.paceAt,
     previousScalar: previous && !previous.stageRise ? previous.riseProgressAt || null : null, freezeThroughMs }) : null;
@@ -173,6 +173,9 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
         songprintWeather: options.preview || signature ? null : songprintWeatherAt(songprintWeatherGestures, t),
       } : {}),
       ...(songprintReveal ? { songprintCue: !options.preview && !signature ? songprintReveal.cueAt(t) : null } : {}),
+      ...(songprint && stage?.companion && !options.preview && !signature && options.songprintStage !== false ? {
+        songprintEstablish01: songprintEstablishAt(t, admittedMs, cadenceMs - FINALE_MS),
+      } : {}),
       ...(signature && riseOverride == null ? { rise01: signature.rise01, slotRise01: signature.slotRise01 } : {}) });
   };
   const riseState = (t, options) => {

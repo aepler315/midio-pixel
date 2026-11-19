@@ -2541,11 +2541,12 @@ export class RangeScene {
     // Studio crop. Feeding the cropped lens into keepFocusFramed would turn
     // the eye toward a different point when a listener edits the lens.
     let pose = cropLens === grownPose.fovYDeg ? grownPose : { ...grownPose, fovYDeg: cropLens };
-    const cue = frame.performance?.songprintCue;
-    if (cue && p?.data && !studioEnabled && !view.tour && !view.glacier && !frame.forcedCandidate) {
+    const cue = frame.performance?.songprintCue, establish01 = frame.performance?.songprintEstablish01;
+    if ((cue || establish01) && p?.data && !studioEnabled && !view.tour && !view.glacier && !frame.forcedCandidate) {
       p.songprintLandmarks ??= songprintLandmarks(p.data, railView, { waterLevelM: p.waterLevelM });
       pose = frameSongprintLandmark(pose, p.songprintLandmarks, cue, {
-        tanX, tanY, rise01: frame.rise01, baseM: landRiseBase(p), slotRise01: p.slotRise ? frame.slotRise01 : null });
+        tanX, tanY, rise01: frame.rise01, baseM: landRiseBase(p), slotRise01: p.slotRise ? frame.slotRise01 : null,
+        composition: railView.songprintComposition, establish01 });
     }
     const resolved = { rail, proj, pose, tanX, tanY, cameraStudio: studioState };
     poses.set(occurrenceId, resolved);

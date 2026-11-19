@@ -86,41 +86,89 @@ export function compileSongprintReveal(songprint, throughMs, admittedMs = 0, sta
   return { cueAt, raiseSlots: compileSlotEmergence(passages, stage, startMs, throughMs) };
 }
 
+// Let the title's existing close-up widen first, then give the established
+// pair one shot before the passage-specific framing takes over.
+export function songprintEstablishAt(timeMs, admittedMs, throughMs) {
+  const start = Math.max(OPENING_ZOOM_START_MS + OPENING_ZOOM_MS, admittedMs);
+  const end = Math.min(22000, throughMs);
+  if (end - start < 6000) return 0;
+  return .8 * ease((timeMs - start) / 2400) * ease((end - timeMs) / 6200);
+}
+
+function project(anchor, eye, axes, tanX, tanY, baseM, rise01, slotRise01) {
+  const [x, y, z] = anchor.pointM;
+  const height = baseM + (y - baseM) * (slotRise01?.[anchor.slotId] ?? rise01);
+  const dx = x - eye[0], dy = height - eye[1], dz = z - eye[2];
+  const dot = v => dx * v[0] + dy * v[1] + dz * v[2];
+  const depth = dot(axes.forward);
+  if (!(depth > 0)) return null;
+  const px = dot(axes.right) / (depth * tanX), py = dot(axes.up) / (depth * tanY);
+  const visible = ease((1 - Math.max(Math.abs(px), Math.abs(py))) / .2);
+  return { px, py, visible, drawnM: [x, height, z] };
+}
+
+function pairedCrop(lead, companion) {
+  if (!lead?.visible || !companion?.visible) return null;
+  const spanX = Math.abs(lead.px - companion.px), spanY = Math.abs(lead.py - companion.py);
+  const visible = Math.min(lead.visible, companion.visible) * ease((spanX - .06) / .16);
+  if (!visible) return null;
+  const crop = clamp(1 - Math.max(spanX / 1.76, spanY / 1.68), 0, CROP);
+  // Protect the box covering both crests, leaving more room for terrain
+  // under them. When fit and taste disagree, keep both inside the frame.
+  const center = (a, b, extra = 0) => clamp(.58 * a + .42 * b - extra,
+    Math.max(-crop, Math.max(a, b) - (1 - crop)),
+    Math.min(crop, Math.min(a, b) + (1 - crop)));
+  return { crop, x: center(lead.px, companion.px), y: center(lead.py, companion.py, .16), visible };
+}
+
 /** The crop lies inside the approved visible frustum. Its eye, aim and
  * terrain footprint stay on the active route. At an off-screen landmark
  * it returns smoothly to the original framing instead of chasing it. */
 export function frameSongprintLandmark(pose, anchors, cue, { tanX, tanY, rise01 = 1,
-  slotRise01 = null, baseM = 0 } = {}) {
-  if (!anchors?.length || !cue?.targets?.length || !(tanX > 0 && tanY > 0)) return pose;
+  slotRise01 = null, baseM = 0, composition = null, establish01 = 0 } = {}) {
+  const targets = anchors?.length ? cue?.targets || [] : [];
+  const establish = composition ? establish01 : 0;
+  if ((!targets.length && !establish) || !(tanX > 0 && tanY > 0)) return pose;
   const user = pose.viewOffset;
   const automatic = 1 - ease((user?.fx || 0) / .12);
   if (!automatic) return pose;
-  const { forward, right, up } = cameraBasis(pose);
-  let fx = 0, rx = 0, uy = 0, primary = null;
-  for (const target of cue.targets) {
-    const index = landmarkIndex(target.landmark01, anchors.length);
-    const anchor = anchors[index];
-    const [x, y, z] = anchor.pointM;
-    const h = baseM + (y - baseM) * (slotRise01?.[anchor.slotId] ?? rise01);
-    const dx = x - pose.eyeM[0], dy = h - pose.eyeM[1], dz = z - pose.eyeM[2];
-    const dot = v => dx * v[0] + dy * v[1] + dz * v[2];
-    const depth = dot(forward);
-    if (!(depth > 0)) continue;
-    const px = dot(right) / (depth * tanX), py = dot(up) / (depth * tanY);
-    const visible = ease((1 - Math.max(Math.abs(px), Math.abs(py))) / .2);
-    const weight = automatic * target.weight * visible;
+  const axes = cameraBasis(pose);
+  const at = anchor => project(anchor, pose.eyeM, axes, tanX, tanY, baseM, rise01, slotRise01);
+  const opening = establish > 0 ? pairedCrop(at(composition.principal), at(composition.companion)) : null;
+  const pairWeight = opening ? establish * opening.visible : 0;
+  let fx = opening ? opening.crop * automatic * pairWeight : 0;
+  let rx = opening ? opening.x * tanX * automatic * pairWeight : 0;
+  let uy = opening ? opening.y * tanY * automatic * pairWeight : 0;
+  let primary = null;
+  for (const target of targets) {
+    const index = landmarkIndex(target.landmark01, anchors.length), anchor = anchors[index];
+    const sample = at(anchor);
+    if (!sample?.visible) continue;
+    const weight = automatic * (1 - pairWeight) * target.weight * sample.visible;
     if (!weight) continue;
-    fx += CROP * weight;
-    rx += weight * clamp(px, -CROP * .98, CROP * .98) * tanX;
-    uy += weight * clamp(py - .15, -CROP * .98, CROP * .98) * tanY;
+    let crop = CROP, x = clamp(sample.px, -CROP * .98, CROP * .98),
+      y = clamp(sample.py - .15, -CROP * .98, CROP * .98);
+    const companion = anchor.slotId && anchor.slotId === composition?.principal.slotId ? composition.companion
+      : anchor.slotId && anchor.slotId === composition?.companion.slotId ? composition.principal : null;
+    if (companion) {
+      const pair = pairedCrop(sample, at(companion));
+      if (pair) {
+        crop += (pair.crop - crop) * pair.visible;
+        x += (pair.x - x) * pair.visible;
+        y += (pair.y - y) * pair.visible;
+      }
+    }
+    fx += crop * weight;
+    rx += weight * x * tanX;
+    uy += weight * y * tanY;
     if (primary?.index === index) primary.weight += weight;
     else if (!primary || weight > primary.weight) primary = { index, name: anchor.name ?? null,
-      pointM: anchor.pointM, drawnM: [x, h, z], weight };
+      pointM: anchor.pointM, drawnM: sample.drawnM, weight };
   }
-  if (!primary) return pose;
+  if (!primary && !fx) return pose;
   // Compose the listener's crop inside the automatic crop during takeover.
   // Both centres stay inside their respective parent image.
   const scale = 1 - fx;
   return { ...pose, viewOffset: { fx: fx + scale * (user?.fx || 0),
-    rx: rx + scale * (user?.rx || 0), uy: uy + scale * (user?.uy || 0) }, songprintReveal: primary };
+    rx: rx + scale * (user?.rx || 0), uy: uy + scale * (user?.uy || 0) }, ...(primary ? { songprintReveal: primary } : {}) };
 }

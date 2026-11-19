@@ -35,6 +35,81 @@ function repeatedMotifs() {
   return Buffer.concat([header, pcm]);
 }
 
+function colorCount(png) {
+  const pixels = PNG.sync.read(png), colors = new Set();
+  for (let i = 0; i < pixels.data.length; i += 4 * 19) colors.add(pixels.data.readUInt32BE(i));
+  return colors.size;
+}
+
+async function resetExportClock(page) {
+  return page.evaluate(async () => {
+    if (window.__SMW_EXPORT_ERROR) throw new Error(window.__SMW_EXPORT_ERROR);
+    const app = window.__SMW;
+    app.beginBulkExport(app.exportSize);
+    await app.rangeReady({ timeoutMs: 120000 });
+    return app.durationMs;
+  });
+}
+
+/** Reopen the cached fixture under the same visible Settings choices and the
+ * ordinary composed-range default. The export clock makes its frames exact. */
+async function captureComposedSequence(page, file) {
+  const url = new URL(page.url());
+  url.searchParams.delete('rangeRenderer');
+  url.searchParams.delete('songRange');
+  url.searchParams.delete('rangeTour');
+  const cacheHit = page.waitForEvent('console', {
+    predicate: m => m.text().startsWith('[analysis] restored from cache'), timeout: 120000,
+  });
+  await page.goto(url.href);
+  await page.locator('#titleSettings').evaluate(node => { node.open = true; });
+  assert.equal(await page.locator('#songprintLandscape').inputValue(), 'on');
+  await Promise.all([cacheHit, page.locator('#fileInput').setInputFiles(file)]);
+  await page.waitForFunction(() => window.__SMW?.exportReady || window.__SMW_EXPORT_ERROR, null, { timeout: 120000 });
+  const durationMs = await resetExportClock(page);
+  const snap = async timeMs => {
+    const rendered = await captureFrame(page, timeMs);
+    assert.ok(rendered.range.active && rendered.range.runtime === 'ready', rendered.range.reason);
+    const png = Buffer.from(rendered.png, 'base64');
+    assert.ok(colorCount(png) > 32, 'the composed view renders a nonblank scene');
+    const evidence = await page.evaluate(() => {
+      const { sim } = window.__SMW;
+      const range = sim.biomes.rangePresentation;
+      const prepared = range.scene.prepared.get(range.viewId);
+      const plan = prepared?.view?.songRange?.plan;
+      const { eyeM, targetM, fovYDeg, viewOffset } = range.scene.camera.userData.rangeCameraPose;
+      const composition = prepared?.view?.songprintComposition;
+      return { viewId: range.viewId, key: prepared?.view?.songRange?.key, tiles: prepared?.data?.tiles?.size,
+        principal: plan?.principal?.slotId, companion: plan?.companionSlot, composition, slotRise: range.frame.slotRise01,
+        eyeM, targetM, fovYDeg, viewOffset };
+    });
+    assert.ok(evidence.key && evidence.tiles > 0, 'the draw used the prepared, composed terrain');
+    assert.ok(evidence.principal && evidence.companion && evidence.principal !== evidence.companion,
+      'the rendered composition establishes an identifiable pair');
+    assert.equal(evidence.composition?.principal.slotId, evidence.principal);
+    assert.equal(evidence.composition?.companion.slotId, evidence.companion);
+    return { evidence, png };
+  };
+  const frames = [];
+  for (const [label, timeMs] of [['opening', 10000], ['middle', Math.round(durationMs * .55)], ['finale', durationMs - 2000]]) {
+    const { evidence, png } = await snap(timeMs);
+    await fs.writeFile(path.join(output, `composed-${label}.png`), png);
+    frames.push({ label, timeMs, ...evidence });
+  }
+  const [opening, middle, finale] = frames;
+  for (const id of [opening.principal, opening.companion]) {
+    assert.ok(opening.slotRise[id] > .02, 'the opening develops both leading peaks');
+    assert.ok(middle.slotRise[id] >= opening.slotRise[id], 'the pair keeps its gained height');
+    assert.equal(finale.slotRise[id], 1, 'the finale shows the complete pair');
+  }
+  assert.ok(frames.every(frame => frame.key === opening.key), 'the chosen stage carries the entire song');
+  await resetExportClock(page);
+  const replay = (await snap(middle.timeMs)).evidence;
+  assert.deepEqual({ label: middle.label, timeMs: middle.timeMs, ...replay }, middle,
+    'the same camera and terrain heights are restored after rewinding');
+  return frames;
+}
+
 const file = path.join(output, 'repeating-motifs.wav');
 await fs.writeFile(file, repeatedMotifs());
 let server, browser;
@@ -84,9 +159,8 @@ try {
   assert.ok(camera.targets.some(t => Math.abs(t.landmark01 - cues[2].landmark01) < .01 && t.weight > .5),
     'the returning motif reached the camera on the heard clock');
   const png = Buffer.from(frame.png, 'base64');
-  const pixels = PNG.sync.read(png), colors = new Set();
-  for (let i = 0; i < pixels.data.length; i += 4 * 19) colors.add(pixels.data.readUInt32BE(i));
-  assert.ok(colors.size > 32, 'nonblank geographic scene');
+  const colors = colorCount(png);
+  assert.ok(colors > 32, 'nonblank geographic scene');
   await fs.writeFile(path.join(output, 'returning-landmark.png'), png);
 
   const weatherTime = await page.evaluate(async () => {
@@ -128,9 +202,9 @@ try {
   await page.reload();
   await page.waitForFunction(() => window.__SMW?.settings);
   await Promise.all([hit, page.locator('#fileInput').setInputFiles(file)]);
-  await page.waitForFunction(() => window.__SMW?.exportReady, null, { timeout: 120000 });
+  await page.waitForFunction(() => window.__SMW?.exportReady || window.__SMW_EXPORT_ERROR, null, { timeout: 120000 });
+  await resetExportClock(page);
   assert.deepEqual(await terrain(), first);
-  await page.evaluate(() => window.__SMW.beginBulkExport(window.__SMW.exportSize));
   await captureFrame(page, weatherTime);
   const replay = await readWeather();
   assert.equal(replay.cue.timeMs, weather.cue.timeMs);
@@ -140,8 +214,11 @@ try {
   // must match exactly; the scaled gesture may differ slightly.
   assert.ok(Math.abs(replay.cue.mistDensityMul - weather.cue.mistDensityMul) < .015);
   assert.ok(Math.abs(replay.cue.windGust01 - weather.cue.windGust01) < .015);
+  const composed = await captureComposedSequence(page, file);
+  await fs.writeFile(path.join(output, 'composed-sequence.json'), JSON.stringify(composed, null, 2));
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ view: first.home, passages: cues, camera, weather, colors: colors.size, cachedReplay: true }));
+  console.log(JSON.stringify({ view: first.home, passages: cues, camera, weather, colors,
+    cachedReplay: true, composed: { view: composed[0].viewId, frames: composed.map(frame => [frame.label, frame.timeMs]) } }));
 } finally {
   await browser?.close();
   await server?.close();

@@ -70,6 +70,20 @@ test('a composition chooses distinct, fitting real pieces and preserves their id
   assert.equal(planSongRange(null, 1, { catalog: collapsed, songprint: printFor(ross) }), null);
 });
 
+test('different musical contours change the principal pair and structure within the same home', () => {
+  const owens = viewFor('white-mountains-owens');
+  const scenery = planSongScenes(null, 0, { songprint: printFor(owens) });
+  const skyline = [.1, .2, .8, 1, .96, .7, .35, .12, .2, .3, .25, .1, .05, .09, .12, .15];
+  const options = { scenery, songprint: { version: 1, skyline, passages: [] } };
+  const first = planSongRange(null, 0, options);
+  const second = planSongRange(null, 0, { ...options, songprint: { ...options.songprint, skyline: [...skyline].reverse() } });
+  assert.ok(first.companionSlot && second.companionSlot);
+  assert.notEqual(first.companionSlot, first.principal.slotId);
+  assert.notEqual(second.companionSlot, second.principal.slotId);
+  assert.equal(first.family, second.family);
+  assert.notDeepEqual(first.slots.map(slot => [slot.pieceId, slot.mirrored]), second.slots.map(slot => [slot.pieceId, slot.mirrored]));
+});
+
 test('musical height across each footprint continuously varies the relief even with identical discrete pieces', () => {
   const songprint = printFor(ross);
   const quieter = { ...songprint, skyline: songprint.skyline.map(h => .9 * h + .05) };
@@ -128,7 +142,15 @@ test('playback carries the admitted print on both geographic paths and respects 
   assert.equal(composed.songRange.stage.songprintLandmarks, landmarks);
   const stations = home(composed).songprintRailStations;
   assert.equal(stations.length, landmarks.length);
-  assert.ok(stations.every(positions => positions.some(({ progress01, score }) => progress01 === .5 && score > 0)));
+  // The stricter camera planning margins can exclude an edge landmark
+  // retained for crop-only reveals. The intended pair must share a station.
+  const pair = home(composed).songprintComposition;
+  assert.ok(pair?.principal && pair.companion);
+  const principalIndex = landmarks.findIndex(mark => mark.slotId === pair.principal.slotId);
+  const companionIndex = landmarks.findIndex(mark => mark.slotId === pair.companion.slotId);
+  assert.ok(principalIndex >= 0 && companionIndex >= 0);
+  const companionProgress = new Set(stations[companionIndex].map(({ progress01 }) => progress01));
+  assert.ok(stations[principalIndex].some(({ progress01 }) => companionProgress.has(progress01)));
   assert.ok(landmarks.length > 0 && landmarks.length <= composed.songRange.stage.slots.length);
   for (const mark of landmarks) {
     assert.ok(composed.songRange.stage.slots.some(slot => slot.slotId === mark.slotId));
