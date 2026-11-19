@@ -71,8 +71,8 @@ playback. Every song plays its own audio.
 
 Start the local server, open [Returning summits](http://localhost:8080/?songprintLandscape=1),
 and choose one recording. Play a second performance of the same song separately.
-Listen for a returning riff or chorus and watch which summit the camera brings into
-view. Each performance keeps its own timing, light and movement. Open the
+Listen for a returning riff or chorus and watch the camera approach a viewpoint
+that shows its summit. Each performance keeps its own timing, light and movement. Open the
 [standard landscape](http://localhost:8080/?songprintLandscape=0) to compare.
 
 ## Your music library

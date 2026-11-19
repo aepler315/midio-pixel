@@ -11,6 +11,16 @@ landscape appearance. Adjacent sections showing the same view share one
 move. Incoming and outgoing landscapes have independent progress through
 transitions, including the outgoing late-arrival allowance.
 
+With Returning Summits enabled, a confirmed recurring passage can influence
+the route before it arrives. On a composed range the camera adjusts its pace
+along the surveyed rail to reach a better viewpoint at the passage. It keeps
+moving forward, with a smooth return to the ordinary pace. For catalog views
+with a prepared shot library, the planner favors legal shot payoffs that can
+see the summit. Terrain line of sight and a neighboring visible crest favor
+angles that make the summit easier to recognize. A cue with no reachable
+viewpoint uses the ordinary camera. The saved rail schedule includes the
+chosen station and timing, so seeking and video export replay the move.
+
 The music-timed structural camera and the construction share one
 `CinematicPulse`: trusted section turns and chorus/drop entries produce a
 short alternating accent on the framing and a bounded gain on the climb. The

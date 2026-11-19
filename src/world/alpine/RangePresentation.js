@@ -17,7 +17,8 @@ import { compileSceneRailPlan, sceneRailPlanFromSnapshot, withSceneRailPace } fr
 import { scenePoseAt, cameraBasis } from '../terrain/SceneTravel.js';
 import { loadTourPackage } from '../terrain/TourPackage.js';
 import { prepareTourTimeline } from '../terrain/TourRuntime.js';
-import { applyCameraMoves } from './RangeCamera.js';
+import { applyCameraMoves, FINALE_MS } from './RangeCamera.js';
+import { lastAudibleMs } from './EffectsMusic.js';
 import { cameraStudioStatus } from './CameraStudio.js';
 import { skyTurn, projectRangeCelestials, projectRailCelestials } from './RangeSkyComposition.js';
 import { convertLightBetween } from './LightSpace.js';
@@ -344,6 +345,8 @@ export class RangePresentation {
       sections: mgr.sections, choiceFor: biome => this._choiceFor(biome), durationMs: mgr.durationMs,
       curves: mgr.energyCurves, response: mgr.world?.response, seed: mgr.songSeed, worldId: mgr.worldId,
       requestedMultiplier, previous: restored, committedThroughMs: cameraRefineThroughMs ?? -1,
+      songprint: terrain?.songprint, songprintAdmittedMs: mgr.songprintAdmittedMs ?? 0,
+      songprintThroughMs: terrain?.songprint ? lastAudibleMs(mgr.energyCurves, mgr.durationMs) - FINALE_MS : 0,
     }) : restored;
     this._sideFrames = null;
     this._preparing.clear();
@@ -514,7 +517,11 @@ export class RangePresentation {
   _prepare(view, now = Date.now()) {
     if (view.tourManifestUrl && !this.tour) return;
     if (view.tourManifestUrl) view = { ...view, tour: this.tour };
-    if (!this.scene || this.scene.contextLost || this.failures.has(view.id) || this.scene.isReady(view.id) || this._preparing.has(view.id)) return;
+    if (!this.scene || this.scene.contextLost || this.failures.has(view.id) || this._preparing.has(view.id)) return;
+    if (this.scene.isReady(view.id)) {
+      this.shots.terrainReady?.(view.id, this.scene.prepared?.get(view.id));
+      return;
+    }
     // A shot-tour view is prepared for its library's camera footprint, so
     // it waits (briefly) for the library; without one it keeps its rail.
     view = this.shots.prepareView(view);
@@ -534,6 +541,7 @@ export class RangePresentation {
         this._signatureBudgetRefusals.delete(view.id);
         // A tour the device cannot hold: the view keeps its rail this song.
         if (prepared?.railOnly && view.cameraPaths) this.shots.keepRail?.(view.id, `rail kept: ${prepared.railOnly}`);
+        else this.shots.terrainReady?.(view.id, prepared);
       })
       .catch((err) => {
         if (gen !== this.generation) return; // stale: the new song decides again
@@ -678,7 +686,11 @@ export class RangePresentation {
     const policy = preview ? 'preview' : view.glacier ? 'glacier'
       : prepared?.cameraTour || view.tour || shotTimelineOf(this, view.id) ? 'tour'
       : sceneViewEligible(view) ? 'rail' : 'candidate';
-    if (policy === 'rail') return state;
+    if (policy === 'rail') {
+      if (state.ordinaryProgress01 !== undefined && (view.id !== state.viewId || frame.cameraStudio?.enabled))
+        return Object.freeze({ ...state, progress01: state.ordinaryProgress01 });
+      return state;
+    }
     return Object.freeze({ ...state, policy,
       progress01: policy === 'preview' ? .5 : policy === 'glacier' ? frame.glacier.journey01 : frame.progress01,
       effectiveMultiplier: 1, coverage01: 1, capped: false });

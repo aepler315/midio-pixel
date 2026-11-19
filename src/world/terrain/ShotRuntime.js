@@ -23,7 +23,7 @@ export function plannableShotLibrary(library) {
 }
 
 /** The worker request for one song: everything structured-cloneable. */
-export function shotPlanRequest(library, mgr, { visible = null, previous = null, committedThroughMs = 0, seed = 0, tunables = {} } = {}) {
+export function shotPlanRequest(library, mgr, { visible = null, previous = null, committedThroughMs = 0, seed = 0, tunables = {}, summitCues = [] } = {}) {
   const sections = mgr?.sections || [], durationMs = mgr?.durationMs || 0, curves = mgr?.energyCurves;
   const energy = new Float32Array(Math.ceil(durationMs / SHOT_ENERGY_STEP_MS) + 1);
   for (let i = 0; i < energy.length; i++) {
@@ -32,7 +32,7 @@ export function shotPlanRequest(library, mgr, { visible = null, previous = null,
   }
   const roles = sectionRoles({ sections, durationMs, energyCurves: curves, conductorSchedule: mgr?.conductorSchedule || [], noteEvents: mgr?.conductor?.timeline || [] });
   return { library: plannableShotLibrary(library), sections, roles, energy, energyStepMs: SHOT_ENERGY_STEP_MS, durationMs,
-    visible: visible || [{ startMs: 0, endMs: durationMs }], seed, previous: previous ? shotTimelineData(previous) : null, committedThroughMs, tunables };
+    visible: visible || [{ startMs: 0, endMs: durationMs }], seed, previous: previous ? shotTimelineData(previous) : null, committedThroughMs, tunables, ...(summitCues.length ? { summitCues } : {}) };
 }
 
 /** Plan and build a song's shot timeline in a module worker. Resolves with

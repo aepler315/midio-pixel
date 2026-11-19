@@ -126,6 +126,9 @@ test('playback carries the admitted print on both geographic paths and respects 
   assert.equal(composed.sceneByBiome.get(composed.home).fallback.view.id, ross.id);
   const landmarks = home(composed).songprintLandmarks;
   assert.equal(composed.songRange.stage.songprintLandmarks, landmarks);
+  const stations = home(composed).songprintRailStations;
+  assert.equal(stations.length, landmarks.length);
+  assert.ok(stations.every(positions => positions.some(({ progress01, score }) => progress01 === .5 && score > 0)));
   assert.ok(landmarks.length > 0 && landmarks.length <= composed.songRange.stage.slots.length);
   for (const mark of landmarks) {
     assert.ok(composed.songRange.stage.slots.some(slot => slot.slotId === mark.slotId));

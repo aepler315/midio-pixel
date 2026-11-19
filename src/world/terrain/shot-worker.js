@@ -18,7 +18,7 @@ const reply = (timeline, planningTables) => ({ message: { timeline, planningTabl
 export function handleShotMessage(data) {
   try {
     const { sections = [], roles = [], energy = null, energyStepMs = 100, durationMs = 0, visible = null, seed = 0,
-      committedThroughMs = 0, tunables = {} } = data || {};
+      committedThroughMs = 0, tunables = {}, summitCues = [] } = data || {};
     const library = restoreShotLibrary(data.library);
     // The cold geometry scan stays off the rendering thread. The caller
     // caches these small tables for later requests using the same library.
@@ -31,7 +31,7 @@ export function handleShotMessage(data) {
       start = shotContinuation(previous, committedThroughMs, { leadMs: SHOT_COMMIT_LEAD_MS });
       if (!start) return defer('nothing left to replan');
     }
-    const plan = planShotTour(library, { durationMs, sections, roles, energy, energyStepMs, visible, seed, start, tunables });
+    const plan = planShotTour(library, { durationMs, sections, roles, energy, energyStepMs, visible, seed, start, tunables, summitCues });
     if (start && plan.fallback) return defer(plan.fallback);
     return reply(shotTimelineData(buildShotTimeline(library, plan, { previous, frozenThroughMs: start ? start.timeMs : -1, tunables })), planningTables);
   } catch (error) {
