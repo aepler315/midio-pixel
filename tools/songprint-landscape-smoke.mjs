@@ -171,15 +171,27 @@ try {
   assert.ok(weatherTime, 'audio analysis and Settings produce a qualifying weather return');
   const weatherFrame = await captureFrame(page, weatherTime);
   assert.ok(weatherFrame.range.active && weatherFrame.range.runtime === 'ready');
-  const readWeather = () => page.evaluate(async () => {
+  const readWeather = () => page.evaluate(async timeMs => {
     const { atmosphereMusic, mistParams } = await import('/src/world/alpine/RangeAtmosphere.js');
-    const { frame, scene, viewId } = window.__SMW.sim.biomes.rangePresentation;
+    const { compileLandscapeScore } = await import('/src/world/alpine/LandscapeScore.js');
+    const { sim } = window.__SMW;
+    const mgr = sim.biomes;
+    const { frame, scene, viewId } = mgr.rangePresentation;
     const { rules, uniforms } = scene.prepared.get(viewId);
     const ordinary = mistParams({ rules, calm01: 1 - (frame.music?.groove ?? 0) }).density
       * (frame.narrative?.atmosphere ?? 1) * atmosphereMusic(frame.effects).mistDensityMul;
+    const score = mgr.landscapeScore;
+    const cleanScore = compileLandscapeScore({ energyCurves: mgr.energyCurves, durationMs: mgr.durationMs,
+      songprintAtmosphere: mgr.songprintAtmosphere, songprintWeatherPrint: mgr.songprintWeatherPrint });
     return { cue: frame.performance.songprintWeather, mistDensity: uniforms.uMistDensity.value, ordinary,
-      localClearing: uniforms.uMistSongprint?.value.toArray() ?? [0, 0, 0, 0] };
-  });
+      localClearing: uniforms.uMistSongprint?.value.toArray() ?? [0, 0, 0, 0],
+      frameTimeMs: frame.timeMs, heardTimeMs: sim.heardTimeMs, viewId,
+      preview: !!mgr.terrainPreview, analyzedThroughMs: mgr.analyzedThroughMs,
+      admittedMs: mgr.songprintWeatherAdmittedMs, cadenceMs: score?.cadenceMs, freezeThroughMs: score?.freezeThroughMs,
+      gestures: score?.songprintWeatherGestures, plannedCue: score?.at(frame.timeMs).songprintWeather,
+      cleanGestures: cleanScore.songprintWeatherGestures, energy: [-3000, -2000, -1000, 0, 1000, 2000]
+        .map(offset => mgr.energyCurves?.globalEnergyNorm(timeMs + offset)) };
+  }, weatherTime);
   const weather = await readWeather();
   assert.ok(weather.cue?.mistDensityMul < 1 && weather.cue.windGust01 > 0);
   assert.ok(weather.mistDensity > 0, 'the real valley mist uniforms are active');
@@ -207,6 +219,7 @@ try {
   assert.deepEqual(await terrain(), first);
   await captureFrame(page, weatherTime);
   const replay = await readWeather();
+  assert.ok(replay.cue, `cached weather return is missing ${JSON.stringify({ weatherTime, weather, replay })}`);
   assert.equal(replay.cue.timeMs, weather.cue.timeMs);
   assert.equal(replay.cue.familyIndex, weather.cue.familyIndex);
   assert.deepEqual(replay.localClearing.slice(0, 3), weather.localClearing.slice(0, 3));
