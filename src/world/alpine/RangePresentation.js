@@ -18,6 +18,7 @@ import { scenePoseAt, cameraBasis } from '../terrain/SceneTravel.js';
 import { loadTourPackage } from '../terrain/TourPackage.js';
 import { prepareTourTimeline } from '../terrain/TourRuntime.js';
 import { applyCameraMoves, FINALE_MS } from './RangeCamera.js';
+import { songprintLandmarks } from './BuildFocus.js';
 import { lastAudibleMs } from './EffectsMusic.js';
 import { cameraStudioStatus } from './CameraStudio.js';
 import { skyTurn, projectRangeCelestials, projectRailCelestials } from './RangeSkyComposition.js';
@@ -519,7 +520,13 @@ export class RangePresentation {
     if (view.tourManifestUrl) view = { ...view, tour: this.tour };
     if (!this.scene || this.scene.contextLost || this.failures.has(view.id) || this._preparing.has(view.id)) return;
     if (this.scene.isReady(view.id)) {
-      this.shots.terrainReady?.(view.id, this.scene.prepared?.get(view.id));
+      const prepared = this.scene.prepared?.get(view.id);
+      // Turning weather on for a retained view should prepare landmarks
+      // before playback reaches the first clearing.
+      if (this._riseMgr?.songprintAtmosphere && prepared?.mistFlow?.field && prepared.songprintLandmarks == null) {
+        prepared.songprintLandmarks = songprintLandmarks(prepared.data, view, { waterLevelM: prepared.waterLevelM });
+      }
+      this.shots.terrainReady?.(view.id, prepared);
       return;
     }
     // A shot-tour view is prepared for its library's camera footprint, so
