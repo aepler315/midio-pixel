@@ -62,6 +62,16 @@ try {
       rivers: m?.hydrology?.region?.rivers?.length ?? null, riverFlow: m?.hydrology?.riverFlow ?? null,
       tiles: m?.tiles?.length, estimated: m?.estimatedBytes, trees: prepared?.stats?.trees ?? null,
       triangles: prepared?.stats?.triangles ?? null, timings: prepared?.timings ?? null,
+      legTimesMs: (() => {
+        const score = smw.sim.biomes.landscapeScore, route = prepared?.inlandFlight?.route;
+        if (!score?.songprintOrbit || !route) return null;
+        const marks = route.times.slice(1, -1), out = [];
+        let k = 0;
+        for (let t = 0; t <= smw.durationMs && k < marks.length; t += 250) {
+          if (score.songprintOrbit.at(t).progress01 >= marks[k]) { out.push(t); k++; }
+        }
+        return out;
+      })(),
       route: prepared?.inlandFlight?.route ? { kind: prepared.inlandFlight.route.kind, times: prepared.inlandFlight.route.times,
         landmarks: prepared.inlandFlight.route.landmarks } : null };
   });

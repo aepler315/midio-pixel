@@ -6,10 +6,10 @@ import { gunzipSync } from 'node:zlib';
 import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHash, STAGE_KIND, stageReliefScale, reliefScaleFrom, STAGE_RELIEF,
   INLAND_SURFACE_STRIDE, stageRiseSlots, stageTemplate } from '../src/world/alpine/StageAssembly.js';
 import { decodeTerrain, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
-import { WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
+import { INLAND_RIVER_FLOW, WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { planSongRange, songRangeKey, songReliefJitter } from '../src/world/terrain/SongRangePlan.js';
 import { planDualSummitsScene } from '../src/world/terrain/DualSummitsScene.js';
-import { inlandHeightAt, makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
+import { makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
 import MASSIF_CATALOG from '../src/world/terrain/massifCatalogData.js';
 import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
 import { PROFILE_VERSION } from '../src/audio/SongProfile.js';
@@ -103,10 +103,11 @@ test('an assembled stage is a complete, deterministic terrain package with the l
   assert.ok(Math.min(...strides) <= 4 && Math.max(...strides) >= 32, JSON.stringify([Math.min(...strides), Math.max(...strides)]));
 });
 
-test('an inland song stage doubles the existing axes and keeps continuous dry coverage', () => {
+test('an inland song stage doubles the existing axes and carries the region and its rivers', () => {
   const base = planOf(pilot.layouts[0]);
   const inland = makeInlandTerrain(315, { version: 1, skyline: Array.from({ length: 16 }, (_, i) => i / 15) });
-  const plan = { ...base, inland };
+  // Inland plans keep the returning pair only; the region supplies the rest.
+  const plan = { ...base, inland, companionSlot: 'H2', slots: base.slots.filter(s => s.slotId === 'B2' || s.slotId === 'H2') };
   const original = stageTemplate(MASSIF_CATALOG, base);
   const extended = stageTemplate(MASSIF_CATALOG, plan);
   const { grid } = extended;
@@ -123,16 +124,24 @@ test('an inland song stage doubles the existing axes and keeps continuous dry co
   const stage = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
   const data = decodeTerrain(stage.manifest, stage.decoded);
   assert.equal(data.tiles.size, 70 * 70);
-  assert.ok(stage.decoded.byteLength < 3 * 1024 * 1024);
+  assert.ok(stage.decoded.byteLength < 3.5 * 1024 * 1024);
+  assert.ok(stage.manifest.estimatedBytes.mobile.meshBytes < 8 * 1024 * 1024, 'mobile mesh stays within the inland allowance');
   assert.equal(stage.manifest.estimatedBytes.mobile.surfaceTextureBytes,
     Math.round(((grid.width - 1) / INLAND_SURFACE_STRIDE + 1) ** 2 * 16 / 3));
-  for (const tile of data.tiles.values()) assert.ok(tile.flowBytes.every(value => value === 0));
+  // Rivers are a terrain surface class; massifs stay dry.
+  const { hydrology } = stage.manifest;
+  assert.equal(hydrology.riverFlow, INLAND_RIVER_FLOW);
+  assert.ok(hydrology.region.rivers.some(r => r.trunk && r.flown));
+  let wet = 0;
+  for (const tile of data.tiles.values()) for (const f of tile.flowBytes) if (f === INLAND_RIVER_FLOW) wet++;
+  assert.ok(wet > 500);
+  for (const tile of data.tiles.values()) assert.ok(tile.flowBytes.every(f => f !== WATER_FLOW), 'no lake water and no mirror receivers');
   assert.equal(data.byIndex.get('0,0').stride, 32);
   const [ix, iz] = stage.placed[0].tileOrigin;
   assert.equal(data.byIndex.get(`${ix},${iz}`).stride, 2);
-  for (const [x, z] of [[grid.originM[0], grid.originM[1]], [grid.originM[0] + tileMetres, grid.originM[1] + tileMetres]]) {
-    assert.ok(Math.abs(terrainHeightAt(data, x, z) - inlandHeightAt(inland, plan.baseM, x, z)) <= stage.manifest.quantization.stepM);
-  }
+  // A flown valley tile is drawn finely; the core stores atlas spacing.
+  assert.ok([...data.tiles.values()].some(t => t.lod.desktop === 2 && !stage.placed.some(p => p.tileOrigin[0] === t.ix && p.tileOrigin[1] === t.iz)));
+  assert.ok([...data.tiles.values()].filter(t => t.lod.desktop >= 4 && t.lod.desktop <= 16).every(t => t.stride <= 4));
   for (const tile of data.tiles.values()) {
     const right = data.byIndex.get(`${tile.ix + 1},${tile.iz}`);
     const bottom = data.byIndex.get(`${tile.ix},${tile.iz + 1}`);
@@ -141,6 +150,8 @@ test('an inland song stage doubles the existing axes and keeps continuous dry co
     if (bottom) for (let x = 0; x <= 64; x += Math.max(tile.stride, bottom.stride))
       assert.equal(tile.heightsM[(tile.samples - 1) * tile.samples + x / tile.stride], bottom.heightsM[x / bottom.stride]);
   }
+  // Repeatable: the same plan assembles the same bytes, sliced or not.
+  assert.deepEqual(assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG }).decoded, stage.decoded);
 });
 
 test('mirroring a slot mirrors its massif about the block centre', () => {

@@ -59,6 +59,9 @@ export function inlandMaterialRules(view, rules, catalog = MASSIF_CATALOG) {
   out.snowFullM = Math.max(out.snowFullM, out.snowlineM + 300);
   out.forestDensity = Math.max(rules.forestDensity ?? 0, INLAND_MIN_FOREST_DENSITY);
   out.forestMaxSlopeDeg = Math.max(rules.forestMaxSlopeDeg ?? 0, 34);
+  // Valley woods are full-size trees, a little larger than life so stands
+  // keep their mass on the native pixel grid, even where a pack keeps scrub.
+  out.treeScale = Math.round(100 * Math.max(.8, rules.treeScale ?? RULE_DEFAULTS.treeScale) * 1.25) / 100;
   if (Number.isFinite(out.forestFloorM)) out.forestFloorM = Math.min(out.forestFloorM, Math.round(floorM + .12 * (topM - floorM)));
   return out;
 }

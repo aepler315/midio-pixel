@@ -286,7 +286,6 @@ export const INLAND_CORRIDOR_M = 1000;
 const INLAND_FULL_M = 650;
 // The mobile mesh draws a sparser lattice of the same stands.
 const inlandLattice = budget => budget === 'mobile' ? 21 : INLAND_LATTICE_M;
-const INLAND_TREE_SCALE = 1.25;
 const INLAND_TREE_CAP = Object.freeze({ desktop: 240000, mobile: 150000 });
 const clamp01 = n => Math.min(1, Math.max(0, n));
 export const hasInlandWoodland = data => data.manifest?.hydrology?.riverFlow === INLAND_RIVER_FLOW && !!data.manifest.hydrology.region;
@@ -355,8 +354,6 @@ function* placeInlandForestSteps(data, view, rules, seed, budget) {
   const floor = rules.forestFloorM ?? RULE_DEFAULTS.forestFloorM;
   const corridorAt = inlandCorridor(data);
   const renderedHeightAt = makeTerrainMeshHeightSampler(data, budget);
-  const scale = (rules.treeScale ?? RULE_DEFAULTS.treeScale) * INLAND_TREE_SCALE;
-  const treeRules = { ...rules, treeScale: scale };
   const cs = data.grid.cellSizeM, L = inlandLattice(budget);
   for (const [, x0, z0, size] of inlandForestTiles(data, treeline, corridorAt)) {
     for (let iz = Math.ceil(z0 / L); iz * L < z0 + size; iz++) {
@@ -379,7 +376,7 @@ function* placeInlandForestSteps(data, view, rules, seed, budget) {
         if (inlandStand(seed, x, z, density, moisture, slope) < .5 || touchesRiverCell(data, x, z)) continue;
         const meshY = renderedHeightAt(x, z);
         if (!Number.isFinite(meshY)) continue;
-        const traits = treeTraits(Math.floor(x / LATTICE_M), Math.floor(z / LATTICE_M), seed, y, slope, treeRules, view);
+        const traits = treeTraits(Math.floor(x / LATTICE_M), Math.floor(z / LATTICE_M), seed, y, slope, rules, view);
         board.push(x, meshY, z, traits.height, traits.width, traits.species, traits.id, habitat.band);
       }
       yield;

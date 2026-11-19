@@ -55,16 +55,14 @@ test('near-camera ground beyond the placed forest footprint keeps continuous can
   assert.equal(coverage.sampleOpeningCoverage(field, 1000, 1500).forest, 0);
 });
 
-test('inland trees keep full shader coverage away from the original rail', () => {
-  const distant = { camera: { ...view.camera, eyeStartM: [-12000, 200, 0], eyeEndM: [-12000, 200, 3000] } };
+test('inland instances own the stands along the flown valleys; the mean canopy owns the rest', () => {
   const data = terrain();
-  data.manifest = { hydrology: { riverFlow: INLAND_RIVER_FLOW } };
-  const field = coverage.buildOpeningCoverage(data, distant);
+  data.manifest = { boundsM: { min: [-20000, 0, -20000], max: [20000, 1000, 20000] },
+    hydrology: { riverFlow: INLAND_RIVER_FLOW, region: { rivers: [{ flown: true, course: [[1500, 0], [1500, 3000]] }] } } };
+  const field = coverage.buildOpeningCoverage(data, view);
   assert.equal(coverage.sampleOpeningCoverage(field, 1500, 1500).forest, 1);
-  assert.equal(coverage.sampleOpeningCoverage(field, 2500, 1500).forest, 0);
-  assert.equal(coverage.sampleOpeningCoverage(field, 2500, 1500, true).forest, 1);
-  assert.equal(coverage.sampleOpeningCoverage(field, 3500, 1500, true).forest, 0);
-  assert.equal(coverage.sampleOpeningCoverage(field, 5000, 1500).forest, 0);
+  assert.equal(coverage.sampleOpeningCoverage(field, 1500, 1500, true).forest, 1);
+  assert.equal(coverage.sampleOpeningCoverage(field, 3800, 1500).forest, 0);
 });
 
 test('sliced construction preserves bytes and cancellation stops before another row', async () => {

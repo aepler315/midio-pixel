@@ -330,7 +330,12 @@ export function* coarseLandformSteps(field, design, massifs, { halfM, n = COARSE
     }
     area.fill(1);
     for (let st = top - 1; st >= 0; st--) { const i = stack[st]; if (rcv[i] !== i) area[rcv[i]] += area[i]; }
-    if (!erode) break;
+    if (!erode) {
+      // The final network: hollows fill to their spill level, so no dry pit
+      // sits below the river that crosses it.
+      for (let i = 0; i < N; i++) if (filled[i] > h[i]) h[i] = filled[i];
+      break;
+    }
     // Implicit stream-power incision from the outlets upwards. Hollows
     // keep sediment to their spill level.
     const kdt = K * dt;
@@ -615,16 +620,18 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
         const channel = lerp(a.channelM, b.channelM, t), floorHalf = lerp(a.floorM, b.floorM, t);
         gorge = lerp(a.gorge, b.gorge, t);
         const broad = lerp(a.broad, b.broad, t);
-        const across = Math.max(0, d + (valueNoise(seed ^ 0x77, x / 700, z / 700) - .5) * .6 * (floorHalf - channel));
+        // The floor's edge wanders; the channel follows its own course.
+        const edge = Math.max(channel, floorHalf + (valueNoise(seed ^ 0x77, x / 700, z / 700) - .5) * .6 * (floorHalf - channel));
+        const across = d;
         // Walls: gentle benches in open reaches, steep in a gorge.
         const wallTan = lerp(lerp(.55, .22, broad), 1.7, gorge);
         let target;
         if (across < channel) target = bed - 3 * (1 - (across / channel) ** 2);
-        else if (across < floorHalf) target = bed + 1 + 5 * ((across - channel) / Math.max(1, floorHalf - channel)) ** 2;
-        else target = bed + 6 + (across - floorHalf) * wallTan;
+        else if (across < edge) target = bed + 1 + 5 * ((across - channel) / Math.max(1, edge - channel)) ** 2;
+        else target = bed + 6 + (across - edge) * wallTan;
         const k = lerp(30, 8, gorge);
         ground = smin(base, target, k);
-        floorMask = 1 - smooth((across - floorHalf) / 160);
+        floorMask = 1 - smooth((across - edge) / 160);
         // Water needs about one atlas texel either side to read as a river.
         wet = across < Math.max(channel, 40);
         flow = wet ? REGION_RIVER_FLOW : Math.round(REGION_MAX_DRY_FLOW
@@ -730,7 +737,9 @@ export function regionAnchors(region, centre = [0, 0]) {
     broadReaches: runs('broad', .45, 'broad'), passes: regionPasses(region, big).map(p => ({ ...p, x: r1(p.x + cx), z: r1(p.z + cz) })) };
 }
 
-/** Lowest crossings between neighbouring river basins on the coarse lattice. */
+/** Passes: the lowest crossing of the divide between two neighbouring river
+ *  basins on the coarse lattice, kept where it stands well above both rivers
+ *  (a saddle on a ridge, not a low swell on a shared floor). */
 function regionPasses(region, rivers) {
   const { coarse, reliefM, floorM } = region;
   const { n, dx, halfM, h, rcv } = coarse;
@@ -747,12 +756,23 @@ function regionPasses(region, rivers) {
       const key = la < lb ? `${la}:${lb}` : `${lb}:${la}`;
       const saddle = Math.max(h[a], h[b]);
       const hit = best.get(key);
-      if (!hit || saddle < hit.saddle) best.set(key, { saddle, cell: h[a] > h[b] ? a : b });
+      if (!hit || saddle < hit.saddle) best.set(key, { saddle, cell: h[a] > h[b] ? a : b, pair: [la, lb] });
     }
   }
-  return [...best.entries()].map(([key, { saddle, cell }]) => ({
-    id: `pass-${key.replace(':', '-')}`, x: -halfM + (cell % n) * dx, z: -halfM + Math.floor(cell / n) * dx,
-    heightM: Math.round(floorM + reliefM * saddle),
-  })).filter(p => Math.max(Math.abs(p.x), Math.abs(p.z)) < .62 * halfM)
-    .sort((a, b) => a.heightM - b.heightM).slice(0, 8);
+  const byId = new Map(rivers.map(r => [r.id, r]));
+  const bedNear = (id, x, z) => {
+    let bed = Infinity, d = Infinity;
+    for (const p of byId.get(id).points) {
+      const q = Math.hypot(p.x - x, p.z - z);
+      if (q < d) { d = q; bed = p.bed; }
+    }
+    return bed;
+  };
+  return [...best.entries()].map(([key, { saddle, cell, pair }]) => {
+    const x = -halfM + (cell % n) * dx, z = -halfM + Math.floor(cell / n) * dx;
+    const heightM = Math.round(floorM + reliefM * saddle);
+    return { id: `pass-${key.replace(':', '-')}`, x, z, heightM, reliefM: heightM - Math.max(bedNear(pair[0], x, z), bedNear(pair[1], x, z)) };
+  }).filter(p => Math.max(Math.abs(p.x), Math.abs(p.z)) < .62 * halfM && p.reliefM >= 180 && p.reliefM <= 1400)
+    .sort((a, b) => Math.abs(a.reliefM - 450) - Math.abs(b.reliefM - 450)).slice(0, 8)
+    .map(({ reliefM: rise, ...p }) => ({ ...p, reliefM: Math.round(rise) }));
 }

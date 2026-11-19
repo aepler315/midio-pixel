@@ -158,15 +158,15 @@ function planStages(data, region, pair, stations, bounds) {
   const pace = energy.map(e => clamp(e / mean, .6, 1.6));
   const summit = pair.principal.pointM, companion = pair.companion.pointM;
   const summitsMid = blend(summit, companion, .5);
-  // Stage kinds: first low, last reveal; middle by energy.
-  const kinds = Array.from({ length: legs }, (_, i) => {
-    if (legs === 1) return 'low';
-    if (i === 0) return 'low';
-    if (i === legs - 1) return 'finale';
-    return pace[i] >= 1 ? 'low' : 'climb';
-  });
-  // Middle stages alternate when energy alone would repeat a kind.
-  for (let i = 1; i < legs - 1; i++) if (kinds[i] === kinds[i - 1] && kinds[i] === 'low') kinds[i] = 'climb';
+  // Stage kinds: the opening runs low and the close reveals the summits.
+  // Middle stages alternate between valley runs and pass climbs; the music
+  // decides the order, sending the quieter stage up for the wide view.
+  const kinds = Array.from({ length: legs }, (_, i) => legs === 1 || i === 0 ? 'low' : i === legs - 1 ? 'finale' : null);
+  const middle = kinds.map((k, i) => k ? -1 : i).filter(i => i >= 0);
+  if (middle.length) {
+    const quietFirst = middle.length === 1 || pace[middle[0]] <= pace[middle[1]];
+    middle.forEach((leg, j) => { kinds[leg] = (j % 2 === 0) === quietFirst ? 'climb' : 'low'; });
+  }
   const keys = [], boundaries = [0];
   // Opening: a stretch of the trunk inside the travelled area, flown
   // upstream so the valley and the ranges open ahead.
@@ -194,7 +194,10 @@ function planStages(data, region, pair, stations, bounds) {
     const last = keys.at(-1);
     if (kind === 'low') {
       let { river, index, dir } = at;
-      if (leg > 0 && at.next) {
+      if (leg > 0 && at.entered) {
+        ({ river, index, dir } = at);
+        used.add(river.id);
+      } else if (leg > 0 && at.next) {
         // Descend from the pass into the valley it looks over.
         river = at.next.river; index = at.next.index; used.add(river.id);
         dir = bestDirection(river.points, index, want, keys);
@@ -264,7 +267,20 @@ function planStages(data, region, pair, stations, bounds) {
       lookTo[1] = lerp(climb[1] - 250, summitsMid[1], .5);
       keys.push({ eyeM: midway, targetM: blend(last.targetM, lookTo, .5) });
       keys.push({ eyeM: climb, targetM: lookTo });
-      at = { ...at, next };
+      // Over the top and down into the valley beyond, so the next stage
+      // opens low with the new river ahead.
+      if (next && kinds[leg + 1] === 'low') {
+        const q = next.river.points[next.index];
+        const dir = bestDirection(next.river.points, next.index, LOW_SPEED * legSec[leg + 1] * pace[leg + 1], keys);
+        const run = walk(next.river.points, next.index, dir, 1200);
+        const entry = lowKeys(data, run.points, 1);
+        const down = blend(climb, entry[0].eyeM, .55);
+        down[1] = Math.max(lerp(climb[1], entry[0].eyeM[1], .7), groundMax(data, down[0], down[2], 300) + REVEAL_CLEAR_M * .5);
+        keys.push({ eyeM: down, targetM: blend(lookTo, entry[0].targetM, .6) });
+        keys.push(entry[0]);
+        at = { river: next.river, index: next.index, dir, next: null, entered: true };
+        void q;
+      } else at = { ...at, next };
     } else {
       // Finale: rise to face the returning summits across the region.
       const from = last.eyeM;
