@@ -2016,6 +2016,12 @@ function startTimeline(timelineData, extra = {}) {
       // the bundled Tetons, and uses real terrain only in alpine-kind worlds.
       terrainProfiles: timelineData.terrain?.profiles || null,
       songTerrain: timelineData.terrain || null,
+      // Live seeks keep the moments the full print became available. Exports
+      // have the full print from frame zero, including on their first draw.
+      songprintAdmittedMs: exportMode ? 0 : timelineData.songprintAdmittedMs ?? 0,
+      songprintAtmosphere: timelineData.songprintAtmosphere === true,
+      songprintWeatherPrint: timelineData.songIdentity?.songprint ?? null,
+      songprintWeatherAdmittedMs: exportMode ? 0 : timelineData.songprintWeatherAdmittedMs ?? 0,
       residency: sharedResidency(),
       chapterState: extra.chapterState || (timelineData.chapterState?.seed === pinned ? timelineData.chapterState : null),
     });
@@ -2026,12 +2032,6 @@ function startTimeline(timelineData, extra = {}) {
     showErrorBanner('Could not build the world: ' + (err?.message || err));
     return;
   }
-  // The live run remembers when the complete print first became available.
-  // Seeking can then reconstruct the prefix. An offline export has the full print from frame zero.
-  sim.biomes.songprintAdmittedMs = exportMode ? 0 : timelineData.songprintAdmittedMs ?? 0;
-  sim.biomes.songprintAtmosphere = timelineData.songprintAtmosphere === true;
-  sim.biomes.songprintWeatherPrint = timelineData.songIdentity?.songprint ?? null;
-  sim.biomes.songprintWeatherAdmittedMs = exportMode ? 0 : timelineData.songprintWeatherAdmittedMs ?? 0;
   if (exportMode) cameraRun?.retainTours(heardTours);
   else cameraRun = openCameraRun(cameraRun, { data: timelineData, seed: sim.songSeed,
     intent: extra.cameraRunIntent || 'fresh', requestedMultiplier: requestedRailPace, tours: heardTours });

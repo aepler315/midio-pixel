@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { EnergyCurves } from '../src/audio/EnergyCurves.js';
+import { Conductor } from '../src/core/Conductor.js';
+import { ParamBus } from '../src/core/ParamBus.js';
+import { Simulation } from '../src/sim/Simulation.js';
 import { buildRangeFrame } from '../src/world/alpine/RangeFrame.js';
 import { compileLandscapeScore } from '../src/world/alpine/LandscapeScore.js';
 import { compileStorm } from '../src/world/alpine/RangeStorm.js';
@@ -92,6 +96,36 @@ test('the weather frame is smooth, seek-safe and requires an admitted, enabled p
     manager({ print, curves, preview: true }),
     manager({ print, curves, admittedMs: 54000 }),
   ]) assert.equal(clearing(gestureAt(frameAt(disabled, 55000))), 0);
+});
+
+test('a Simulation scores Songprint before a delayed first draw', () => {
+  const returnMs = 55000;
+  const print = songprint(motif([20000, returnMs]));
+  print.passages = [{ timeMs: returnMs, strength: .94, landmark01: .42 }];
+  const curves = new EnergyCurves(durationMs);
+  for (const band of curves.bands) {
+    band.fill(.2);
+    band.fill(.7, 49 * curves.rateHz, 63 * curves.rateHz);
+  }
+  const openAtReturn = options => {
+    const conductor = new Conductor();
+    conductor.load({ durationMs, timeline: [] });
+    const sim = new Simulation(conductor, new ParamBus(), { energyCurves: curves, songSeed: 15,
+      songTerrain: { byBiome: new Map(), songprint: print }, songprintAtmosphere: true, songprintWeatherPrint: print, ...options });
+    // The browser loads measured terrain while the canvas has not painted.
+    // Keep its unrelated 2D strip prebake out of this Node fixture.
+    sim.biomes.pumpStripPrewarm = () => {};
+    sim.startAt(returnMs);
+    const frame = frameAt(sim.biomes, returnMs);
+    sim.dispose();
+    return frame;
+  };
+  const full = openAtReturn({});
+  assert.ok(gestureAt(full)?.windGust01 > 0);
+  assert.ok(full.performance.songprintCue?.targets.length);
+  const late = openAtReturn({ songprintAdmittedMs: returnMs, songprintWeatherAdmittedMs: returnMs });
+  assert.equal(gestureAt(late), undefined);
+  assert.equal(late.performance.songprintCue, null);
 });
 
 test('an enabled return adds a bounded gust on the existing forest wind', () => {
