@@ -103,6 +103,7 @@ export function adoptFullAnalysis(data, full) {
   if (!data || !full) return data;
   const analysis = { ...full };
   delete analysis.songIdentity;
+  delete data.songprint;
   Object.assign(data, analysis);
   delete data.opening;
   data.songIdentity = buildSongIdentity({ ...data, songIdentity: full.songIdentity });

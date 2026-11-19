@@ -14,6 +14,7 @@
 // the precision the analysis cache stores them at, so a song restored from
 // the cache derives the very seed a fresh analysis did.
 import { buildSongProfile, PROFILE_VERSION } from './SongProfile.js';
+import { copySongprint } from './SongprintData.js';
 import { hashSeed } from '../utils/math.js';
 
 /** Seed from the timeline's shape, stable across an analysis-cache round
@@ -52,10 +53,13 @@ export function isSongIdentity(identity) {
  * (see provisionalIdentity).
  */
 export function buildSongIdentity(data = {}) {
-  if (isSongIdentity(data.songIdentity)) {
-    return { seed: data.songIdentity.seed >>> 0, songProfile: data.songIdentity.songProfile };
-  }
-  return { seed: identitySeed(data), songProfile: profileOf(data) };
+  const cached = isSongIdentity(data.songIdentity) ? data.songIdentity : null;
+  const identity = cached ? { seed: cached.seed >>> 0, songProfile: cached.songProfile }
+    : { seed: identitySeed(data), songProfile: profileOf(data) };
+  const print = Object.hasOwn(data, 'songprint') ? data.songprint : cached?.songprint;
+  const songprint = !data.opening && copySongprint(print, data.durationMs);
+  if (songprint) identity.songprint = songprint;
+  return identity;
 }
 
 /** The look an opening plays on until the whole song is in. Never stored. */

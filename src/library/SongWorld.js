@@ -1,6 +1,8 @@
 // Compact musical identity for a library track's Landscape home. The source
 // profile stays with the recording; catalog/matcher revisions can refresh its
 // label through the same pure planner that playback uses.
+import { copySongprintSkyline } from '../audio/SongprintData.js';
+import { settingValue } from '../config/appSettings.js';
 import { PROFILE_VERSION } from '../audio/SongProfile.js';
 import { planSongScenes } from '../world/terrain/SongScenePlan.js';
 import { SCENE_MATCH_VERSION } from '../world/terrain/SceneCatalog.js';
@@ -21,33 +23,42 @@ export function isSongWorldRecord(record) {
 }
 
 /** A fresh, bounded, serializable copy; unknown or older records are absent. */
-export function copySongWorldRecord(record) {
+export function copySongWorldRecord(record, previous = null) {
   if (!isSongWorldRecord(record)) return null;
+  // A later play with the experiment off still knows the same recording's
+  // landscape. Callers supply previous only after verifying the file identity.
+  const songprint = copySongprintSkyline(record.songprint) ?? copySongprintSkyline(previous?.songprint);
   return { version: 1, seed: record.seed, profileVersion: PROFILE_VERSION,
+    ...(songprint ? { songprint } : {}),
     watch: Object.fromEntries(WATCH_KEYS.map(key => [key, record.watch[key]])) };
 }
 
-export function createSongWorldRecord(profile, seed) {
+export function createSongWorldRecord(profile, seed, songprint) {
   if (profile?.version !== PROFILE_VERSION) return null;
-  return copySongWorldRecord({ version: 1, seed, profileVersion: profile.version, watch: profile.watch });
+  return copySongWorldRecord({ version: 1, seed, profileVersion: profile.version, watch: profile.watch, songprint });
 }
 
 /** Cached per record/catalog; safe for pooled rows in a large library.
  *  With `songRange` (default: ?songRange=1) a song whose home family has a
  *  composed range is labelled by its principal massif; every other song,
  *  and every song with the flag off, keeps its catalog-view label. */
-export function describeSongWorld(record, { catalog = SCENE_CATALOG, massifs = MASSIF_CATALOG, songRange = songRangeEnabled() } = {}) {
+export function describeSongWorld(record, {
+  catalog = SCENE_CATALOG, massifs = MASSIF_CATALOG, songRange = songRangeEnabled(),
+  songprintLandscape = settingValue('songprintLandscape') === 'on',
+} = {}) {
   if (!isSongWorldRecord(record)) return pending;
-  const signature = `${record.seed}:${WATCH_KEYS.map(key => record.watch[key]).join(':')}`;
+  const songprint = songprintLandscape && copySongprintSkyline(record.songprint);
+  const signature = `${record.seed}:${WATCH_KEYS.map(key => record.watch[key]).join(':')}:${songprint ? songprint.skyline.join(',') : ''}`;
+  const profile = { version: record.profileVersion, watch: record.watch };
   const cached = descriptions.get(record);
   if (cached?.catalog === catalog && cached.catalogVersion === catalog.catalogVersion && cached.signature === signature
     && cached.songRange === songRange && cached.massifs === massifs) return cached.value;
-  const plan = planSongScenes({ version: record.profileVersion, watch: record.watch }, record.seed, { catalog });
+  const plan = planSongScenes(profile, record.seed, { catalog, songprint });
   const choice = plan.sceneByBiome.get(plan.home), view = choice?.view;
   const biomeName = plan.home ? plan.home.toLowerCase().replaceAll('_', ' ') : 'Landscape';
   const name = view?.title || biomeName;
   const experimental = !!view && view.status !== 'approved';
-  const range = songRange ? planSongRange({ version: record.profileVersion, watch: record.watch }, record.seed, { catalog: massifs }) : null;
+  const range = songRange ? planSongRange(profile, record.seed, { catalog: massifs, songprint, scenery: plan }) : null;
   if (range) {
     const names = range.slots.map((s) => massifs.pieces.find((p) => p.id === s.pieceId)?.name).filter(Boolean);
     const value = Object.freeze({ state: 'known', label: range.label,

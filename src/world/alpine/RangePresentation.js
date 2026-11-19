@@ -524,7 +524,7 @@ export class RangePresentation {
     this.deferred.delete(view.id);
     const gen = this.generation, preparation = {};
     this._preparing.set(view.id, preparation);
-    this.scene.prepare(view, { generation: gen, baseUrl: this.assetBase, scenicViewport: this.frameInputs?.scenicViewport,
+    this.scene.prepare(view, { generation: gen, withSongprint: !!this._riseMgr?.songTerrain?.songprint, baseUrl: this.assetBase, scenicViewport: this.frameInputs?.scenicViewport,
       pixelated: !!this.pixelated,
       pixelHeightPx: this.detailHeightPx ?? this.pixelPolicy?.grid?.height ?? null,
       tourData: this.tourData, tourCpuKey: this._tourCpuKey, isCurrent: (g) => g === this.generation })

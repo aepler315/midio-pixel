@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSongWorldRecord, copySongWorldRecord, isSongWorldRecord, describeSongWorld } from '../src/library/SongWorld.js';
+import { planSongRange } from '../src/world/terrain/SongRangePlan.js';
 import { planSongScenes } from '../src/world/terrain/SongScenePlan.js';
 import { prepareSongTerrain } from '../src/world/terrain/RangeLibrary.js';
 import { assignSongScenes, SCENE_MATCH_VERSION } from '../src/world/terrain/SceneCatalog.js';
@@ -77,4 +78,21 @@ test('normal song planning ignores transient viewing history and RangeLibrary us
     const reverse = assignSongScenes([...expected.biomes].reverse(), profile, seed, catalog);
     for (const biome of expected.biomes) assert.equal(reverse.get(biome).view.id, expected.sceneByBiome.get(biome).view.id);
   } finally { if (original === undefined) delete globalThis.localStorage; else globalThis.localStorage = original; }
+});
+
+test('library lookup follows the enabled planner and re-evaluates after toggling the setting', () => {
+  const print = { version: 1, skyline: Array.from({ length: 16 }, (_, i) => 1-i/15), passages: [] };
+  const record = createSongWorldRecord(profile, 419, print);
+  assert.deepEqual(record.songprint, { version: 1, skyline: print.skyline });
+  const off = describeSongWorld(record, { songRange: false, songprintLandscape: false });
+  const on = describeSongWorld(record, { songRange: false, songprintLandscape: true });
+  const plan = planSongScenes(profile, record.seed, { catalog, songprint: record.songprint });
+  assert.equal(on.viewId, plan.sceneByBiome.get(plan.home).view.id);
+  assert.notEqual(on.viewId, off.viewId, 'this measured outline selects a different home');
+  assert.deepEqual(describeSongWorld(record, { songRange: false, songprintLandscape: false }), off);
+  const range = planSongRange(profile, record.seed, { songprint: record.songprint, scenery: plan });
+  assert.ok(range?.principal);
+  const rangeDescription = describeSongWorld(record, { songRange: true, songprintLandscape: true });
+  assert.equal(rangeDescription.label, range.label);
+  assert.equal(rangeDescription.songRange.principal, range.principal.pieceId);
 });

@@ -1,4 +1,5 @@
 import { ANALYSIS_REVISION } from './AnalysisRevision.js';
+import { SONGPRINT_VERSION } from './SongprintData.js';
 import { fingerprintBuffer } from './SongFingerprint.js';
 
 // Where analysed songs are remembered.
@@ -200,15 +201,16 @@ export async function clearBundles(scope = globalThis) {
 /** Analysis depends on both the recording and the inputs that cast/classify it.
  * Keep the acoustic fingerprint in the bundle; namespace the storage lookup by
  * analysis inputs. Null means the audio lacks a trustworthy fingerprint. */
-export function analysisCacheKey(fingerprint, { stems = [], groove = null } = {}) {
+export function analysisCacheKey(fingerprint, { stems = [], groove = null, songprint = false } = {}) {
   if (!fingerprint?.key) return null;
   const stemKeys = stems.map(({ name, buffer }) => {
     const fp = fingerprintBuffer(buffer);
     return { name, key: fp.key, durationMs: fp.durationMs, signal: fp.signal };
   });
   if (stemKeys.some((stem) => !stem.key)) return null;
-  return JSON.stringify([ANALYSIS_REVISION, fingerprint.key, fingerprint.durationMs, fingerprint.signal,
-    stemKeys, groove?.toJSON() ?? null]);
+  const fields = [ANALYSIS_REVISION, fingerprint.key, fingerprint.durationMs, fingerprint.signal, stemKeys, groove?.toJSON() ?? null];
+  if (songprint) fields.push(`songprint:${SONGPRINT_VERSION}`);
+  return JSON.stringify(fields);
 }
 
 // A song played before is recognised before its fingerprint is taken.

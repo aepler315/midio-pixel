@@ -166,17 +166,82 @@ function climbSeen(data, summit, samples) {
   return hidden.filter((h) => !h).length / hidden.length;
 }
 
-/**
- * The opening camera's focus for a prepared rail view: the summit [x, y, z]
- * (source space) that holds the frame, with a mostly visible climb up to
- * it, or null (a tour, a view without a camera, or no such summit: the
- * opening then keeps the authored target).
- */
-export function buildFocusM(data, view, { waterLevelM = null } = {}) {
-  if (view?.tour || !view?.camera || !data?.tiles) return null;
+// The strongest visible terrain crest in each part of the rail's horizon.
+// Prefer the package's named DEM landmarks when available. A view with no
+// published summit names can still supply visible high points of its own.
+const LANDMARK_BINS = 5;
+
+function landmarksOf(data, pose, ground = null) {
+  const bins = Array.from({ length: LANDMARK_BINS }, () => []);
+  const add = (p, q, metadata = {}) => {
+    if (!q || Math.abs(q.x) > .9 || Math.abs(q.y) > .84 || q.depth < 500) return;
+    const index = Math.min(bins.length - 1, Math.floor((q.x + .9) / 1.8 * bins.length));
+    bins[index].push({ pointM: p, sx: q.x, sy: q.y, ...metadata });
+  };
+  // A composed stage records its pieces and peaks in the same order. Its
+  // landmark follows that slot's exact rise in the shader.
+  const placed = data.manifest?.source?.provenance?.composition?.pieces;
+  for (const [i, lm] of (data.manifest?.landmarks || []).entries()) {
+    if (!lm.localM) continue;
+    const [x, z] = lm.localM, y = terrainHeightAt(data, x, z);
+    if (!Number.isFinite(y)) continue;
+    const p = [x, y, z];
+    add(p, projectPoint(pose, ASPECT, p), { name: lm.name, slotId: placed?.[i]?.slotId });
+  }
+  // Composed stages have one measured summit per slot. An unowned sample
+  // on one of those pieces would follow the wrong stage rise.
+  if (!placed) {
+    const skyline = new Array(80).fill(null);
+    const floor = new Float64Array(skyline.length).fill(Infinity);
+    for (const s of ground) {
+      if (s.water || s.depth < 500 || Math.abs(s.sx) > .9) continue;
+      const i = Math.min(skyline.length - 1, Math.floor((s.sx + .9) / 1.8 * skyline.length));
+      if (!skyline[i] || s.sy > skyline[i].sy) skyline[i] = s;
+      floor[i] = Math.min(floor[i], s.y);
+    }
+    for (let i = 1; i < skyline.length - 1; i++) {
+      const s = skyline[i], left = skyline[i - 1], right = skyline[i + 1];
+      if (!s || !left || !right || s.sy < left.sy || s.sy <= right.sy) continue;
+      if (s.y - Math.min(floor[i - 1], floor[i], floor[i + 1]) < 45) continue;
+      add(s.p, s.q[1]);
+    }
+  }
+  const anchors = [];
+  for (const bin of bins) {
+    bin.sort((a, b) => Number(!!b.name) - Number(!!a.name) || b.sy - a.sy);
+    for (const candidate of bin) {
+      const [x, y, z] = candidate.pointM;
+      if (!seenFrom(data, pose.eyeM, [x, y + 2, z])) continue;
+      anchors.push(candidate);
+      break;
+    }
+  }
+  return anchors;
+}
+
+/** Compute the requested landmarks and the opening focus in one pass over
+ * the prepared rail tiles. The opening alone needs no landmark work. */
+export function buildRailFocus(data, view, { waterLevelM = null, withSongprint = false } = {}) {
+  if (view?.tour || !view?.camera || !data?.tiles) return { focusM: null, landmarks: [] };
   const samples = viewSamples(data, view, waterLevelM);
   const summit = summitOf(data, samples);
-  if (!summit) return null;
-  const seen = climbSeen(data, summit, samples);
-  return seen != null && seen >= FOCUS_VISIBLE ? summit.p : null;
+  const seen = summit && climbSeen(data, summit, samples);
+  return { focusM: seen != null && seen >= FOCUS_VISIBLE ? summit.p : null,
+    landmarks: withSongprint ? view.songprintLandmarks ?? landmarksOf(data, samples.poses[1], samples.all) : null };
+}
+
+export function buildFocusM(data, view, options) {
+  return buildRailFocus(data, view, options).focusM;
+}
+
+/** Read the same left-to-right source crests for an already prepared rail
+ * when a print becomes available after that rail was loaded. */
+export function songprintLandmarks(data, view, { waterLevelM = null } = {}) {
+  if (view?.tour || !view?.camera || !data?.tiles) return [];
+  if (view.songprintLandmarks) return view.songprintLandmarks;
+  if (data.manifest?.source?.provenance?.composition?.pieces) {
+    return landmarksOf(data, scenePoseAt(view, { progress01: .5 }));
+  }
+  const samples = viewSamples(data, view, waterLevelM);
+  return landmarksOf(data, samples.poses[1], samples.all);
 }

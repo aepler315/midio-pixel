@@ -1,6 +1,8 @@
 // A song's own mountain range: which massif stands in which slot of which
 // stage (song range composition, Phase 2). Pure: no downloads, no decoding,
-// no GPU. The layout comes from the song's identity (seed plus its five watch
+// no GPU. With Returning summits, the chosen surveyed view anchors the
+// principal and the harmonic outline ranks the supporting pieces. The
+// ordinary layout comes from the song's identity (seed plus its five watch
 // values, the same compact record SongWorld.js stores), so it is known before
 // any terrain loads and stays the same on every play.
 //
@@ -15,6 +17,10 @@
 //
 // SONG_RANGE_VERSION changes whenever these rules change; a song's layout
 // may then change too.
+import { measuredViewOutline, outlineDistance, songprintOutline, songprintReliefScale } from './SongprintTerrain.js';
+import { massifSkylines } from './songprintSkylines.js';
+import { planSongScenes } from './SongScenePlan.js';
+import { slotOrigin } from './StageFloor.js';
 import { chooseSongBiomes } from './BiomeSet.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { sceneOdds, SCENIC_FAIR_SHARE } from './SceneCatalog.js';
@@ -35,8 +41,8 @@ const SALT_PRINCIPAL = 0x5a2;
 const SALT_SLOT = 0x5b0;
 const SALT_MIRROR = 0x5c0;
 
-/** `?songRange=1` (or `on`) turns on composed ranges. Default off.
- *  `?songRange=force` also turns them on, and is diagnostic: see songRangeForced. */
+/** `?songRange=1` (or `on`) turns on composed ranges (the current default).
+ *  `?songRange=force` is diagnostic: see songRangeForced. */
 export function songRangeEnabled(search) {
   return settingValue('songRange', search) !== 'off';
 }
@@ -87,6 +93,64 @@ function indexOf(catalog) {
   return hit;
 }
 
+// The nearest surveyed view supplies a stable geographic anchor. Its full
+// outline directs the principal summit; the recording contributes a quarter
+// of the supporting contour so nearby performances can vary at the edges.
+function composeFromOutline(templates, pieces, homeView, song, songprint, family, forced) {
+  const anchor = measuredViewOutline(homeView).map(h => h / 255);
+  const support = anchor.map((height, i) => .75 * height + .25 * song[i]);
+  const measured = pieces.filter(p => massifSkylines[p.manifestSha256]);
+  let best = null;
+  for (const template of templates) {
+    const principalSlot = template.slots.find(s => s.id === template.principalSlot);
+    if (!principalSlot || !canFill(template.slots, measured)) continue;
+    const others = template.slots.filter(s => s !== principalSlot);
+    const order = [principalSlot, ...others];
+    const left = Math.min(...order.map(s => s.tiles[0]));
+    const width = Math.max(...order.map(s => s.tiles[0] + s.tiles[2])) - left;
+    const regionUse = new Map(), chosen = new Map();
+    let available = measured;
+    let total = 0;
+    for (const [i, slot] of order.entries()) {
+      const remaining = order.slice(i + 1);
+      const candidates = available.filter(p => fits(slot, p) && canFill(remaining, available.filter(q => p !== q)));
+      const ranked = candidates.map(piece => {
+        const outline = massifSkylines[piece.manifestSha256];
+        const x = slotOrigin(slot, piece.tiles)[0] - left;
+        const bounds = i === 0 ? {} : { left: x / width, right: (x + piece.tiles[0]) / width };
+        const target = i === 0 ? anchor : support;
+        const forward = outlineDistance(target, outline, bounds);
+        const reverse = outlineDistance(target, outline, { ...bounds, mirrored: true });
+        // Prefer a local principal, and spread secondary pieces across their
+        // source regions before reusing one, as in the ordinary range plan.
+        const priority = i === 0 ? Number(piece.sourceView !== homeView.id) : (regionUse.get(piece.sourceView) || 0);
+        return { piece, priority, error: Math.min(forward, reverse), mirrored: reverse < forward };
+      }).sort((a, b) => a.priority - b.priority || a.error - b.error || a.piece.id.localeCompare(b.piece.id));
+      const match = ranked[0];
+      chosen.set(slot.id, match);
+      regionUse.set(match.piece.sourceView, (regionUse.get(match.piece.sourceView) || 0) + 1);
+      available = available.filter(p => p !== match.piece);
+      total += (i === 0 ? 1 : 1 / others.length) * match.error;
+    }
+    const principal = chosen.get(principalSlot.id).piece;
+    const local = principal.sourceView === homeView.id;
+    if (best && (Number(local) < Number(best.local) || (local === best.local && total >= best.total))) continue;
+    const slots = template.slots.map(slot => {
+      const { piece, mirrored } = chosen.get(slot.id);
+      const x = slotOrigin(slot, piece.tiles)[0] - left;
+      const reliefScale = songprintReliefScale(songprint.skyline, x / width, (x + piece.tiles[0]) / width);
+      return Object.freeze({ slotId: slot.id, pieceId: piece.id, mirrored, reliefScale });
+    });
+    best = { local, total, plan: Object.freeze({
+      version: SONG_RANGE_VERSION, songprintVersion: songprint.version, biome: homeView.biome, family,
+      ...(forced ? { forced: true } : {}), templateId: template.id, baseM: template.lakeLevelM,
+      principal: Object.freeze({ slotId: principalSlot.id, pieceId: principal.id, name: principal.name }),
+      slots: Object.freeze(slots), label: `World: ${principal.name} range`,
+    }) };
+  }
+  return best?.plan ?? null;
+}
+
 /**
  * The layout for one song, or null when its family has no template or not
  * enough pieces to fill one (the song then keeps its catalog view).
@@ -96,8 +160,11 @@ function indexOf(catalog) {
  * Returns { version, family, biome, forced?, templateId, baseM, principal: { slotId,
  * pieceId, name }, slots: [{ slotId, pieceId, mirrored }], label }.
  */
-export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced = false } = {}) {
-  const biome = chooseSongBiomes(profile, seed)[0] ?? null;
+export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced = false, songprint, scenery } = {}) {
+  const song = songprintOutline(songprint);
+  const scenes = song ? scenery ?? planSongScenes(profile, seed, { songprint }) : null;
+  const homeView = scenes?.songprintVersion && scenes.sceneByBiome.get(scenes.home)?.view;
+  const biome = homeView?.biome ?? chooseSongBiomes(profile, seed)[0] ?? null;
   const { byFamily, templates } = indexOf(catalog);
   // The song's own family; the forced diagnostic falls back to the first
   // family with pieces when the song's has none.
@@ -107,6 +174,7 @@ export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced 
   const pieces = byFamily.get(family) || [];
   const usable = templates.filter((t) => t.families.includes(family));
   if (!usable.length || !pieces.length) return null;
+  if (homeView) return composeFromOutline(usable, pieces, homeView, song, songprint, family, forced);
   const template = pick(usable, seedTicket(seed, SALT_TEMPLATE));
   const principalSlot = template.slots.find((s) => s.id === template.principalSlot);
   // Principal: character odds over every piece that fits the principal slot
@@ -191,12 +259,15 @@ export function songReliefJitter(seed) {
 }
 
 /** A layout's identity: two songs with equal keys stand in the same range.
- *  A planned song carries its seed, so distinct songs never share a key even
- *  when their template, pieces and mirrors happen to coincide. Pilots and
- *  diagnostic layouts carry no seed and keep their published identity. */
+ *  Ordinary plans carry the recording seed. Returning summits uses its
+ *  quantized musical relief for each slot. Pilots keep their published identity. */
 export function songRangeKey(plan) {
   if (!plan) return null;
-  const layout = `${plan.templateId}|${plan.slots.map((s) => `${s.slotId}=${s.pieceId}${s.mirrored ? '~' : ''}`).join('|')}`;
+  const placements = plan.slots.map(s => {
+    const relief = s.reliefScale === undefined ? '' : '@' + s.reliefScale;
+    return `${s.slotId}=${s.pieceId}${s.mirrored ? '~' : ''}${relief}`;
+  });
+  const layout = `${plan.templateId}|${placements.join('|')}`;
   const seed = Number.isInteger(plan.songSeed) ? `|seed:${plan.songSeed}` : '';
   const stage = plan.camera || plan.slotOffsets ? `|stage:${JSON.stringify({ camera: plan.camera,
     offsets: Object.entries(plan.slotOffsets || {}).sort(([a], [b]) => a.localeCompare(b)) })}` : '';

@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import {
   analysisCacheKey, fileSignature, MAX_FILE_INDEX, recallFingerprint, rememberFingerprint,
 } from '../src/audio/AnalysisCache.js';
+import { ANALYSIS_REVISION } from '../src/audio/AnalysisRevision.js';
+import { SONGPRINT_VERSION } from '../src/audio/SongprintData.js';
 import { GrooveFingerprint } from '../src/sim/GrooveFingerprint.js';
 
 function memoryStorage() {
@@ -53,4 +55,15 @@ test('a recalled or uninformative fingerprint is never written back', () => {
   rememberFingerprint('a', { ...fingerprint, recalled: true }, storage);
   rememberFingerprint('b', { ...fingerprint, key: null }, storage);
   assert.equal(storage.map.size, 0);
+});
+
+test('enabling Songprint separates new analyses and old cache keys stay usable when off', () => {
+  const oldFields = [ANALYSIS_REVISION, fingerprint.key, fingerprint.durationMs, fingerprint.signal, [], null];
+  assert.equal(analysisCacheKey(fingerprint), JSON.stringify(oldFields));
+  assert.equal(analysisCacheKey(fingerprint, { songprint: false }), JSON.stringify(oldFields));
+  const enhanced = JSON.stringify([...oldFields, `songprint:${SONGPRINT_VERSION}`]);
+  assert.equal(analysisCacheKey(fingerprint, { songprint: true }), enhanced);
+  const storage = memoryStorage();
+  rememberFingerprint('known', fingerprint, storage);
+  assert.equal(analysisCacheKey(recallFingerprint('known', storage), { songprint: true }), enhanced);
 });

@@ -461,6 +461,16 @@ export const SETTINGS = Object.freeze([
     persist: 'saved', storage: unified('songRange'), lifecycle: 'next-song', requires: [V2_ONLY],
   },
   {
+    id: 'songprintLandscape', url: 'songprintLandscape', section: 'experiments', group: 'Terrain experiments', tier: 'experimental', maturity: 'experimental',
+    label: 'Returning summits', type: 'enum', default: 'off',
+    description: 'Choose terrain from the recording’s harmonic shape and revisit landmarks when a musical passage returns.',
+    urlNote: '`1` or `on` enables the experiment for the next song.',
+    options: [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }],
+    parseUrl: raw => raw === '1' || raw === 'on' ? ok('on') : raw === '0' || raw === 'off' ? ok('off') : bad('expected 1, on, 0 or off', 'off'),
+    formatUrl: v => v === 'on' ? '1' : '0',
+    persist: 'saved', storage: unified('songprintLandscape'), lifecycle: 'next-song', requires: [V2_ONLY],
+  },
+  {
     id: 'performance', url: 'performance', section: 'experiments', group: 'Terrain experiments', tier: 'experimental', maturity: 'experimental',
     urlNote: '`dual-summits` or `off`; anything else is automatic.',
     label: 'Dual Summits performance', type: 'enum', default: 'auto',

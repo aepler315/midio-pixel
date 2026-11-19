@@ -313,7 +313,7 @@ export class MusicLibrary {
     const current = currentRow();
     if (!current) return false;
     this._publishTrackPatch(matches(track) ? track : current,
-      { songWorld: committed?.songWorld || songWorld }, !!committed, current);
+      { songWorld: committed?.songWorld || copySongWorldRecord(songWorld, current.songWorld) }, !!committed, current);
     this._emit();
     return !!committed;
   }

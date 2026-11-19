@@ -26,6 +26,7 @@ import { throwIfAborted } from './loadLimits.js';
 import { createYielder } from '../utils/yieldToMain.js';
 import { EnergyCurves } from './EnergyCurves.js';
 import { summarizeRhythmOnsets } from './RhythmProfile.js';
+import { analyzeSongprintOffThread } from './SongprintWorkerClient.js';
 import { analyzeStructureOffThread } from './StructureWorkerClient.js';
 import { sectionPacing } from './sectionBudget.js';
 import { Role, makeNoteEvent, sortNoteEvents } from '../core/NoteEvent.js';
@@ -110,7 +111,7 @@ export function activityEnvelope(samples, sampleRate, rate = 86, signal = null) 
  *   per-moment loudness decides which stem owns each melodic/bass note.
  */
 export async function audioToTimeline(audioBuffer, {
-  onProgress = null, userStems = null, groove = null, signal = null, cooperative = false,
+  onProgress = null, userStems = null, groove = null, signal = null, cooperative = false, songprint = false,
 } = {}) {
   throwIfAborted(signal);
   // Cooperative: the analysis runs while a song is already playing (the
@@ -330,10 +331,13 @@ export async function audioToTimeline(audioBuffer, {
   }, { signal });
   throwIfAborted(signal);
 
+  const landscapePrint = songprint ? await analyzeSongprintOffThread(audioBuffer, { signal }) : undefined;
+  throwIfAborted(signal);
   onProgress?.({ phase: 'done', progress: 1 });
 
   return {
     timeline, barGrid, durationMs,
+    ...(landscapePrint === undefined ? {} : { songprint: landscapePrint }),
     firstBarMs: tempo.firstBarMs,
     localTempo: (tempo.curve || []).map(c => ({ tMs: c.startFrame / rate * 1000, beatPeriodMs: c.tau / rate * 1000, confidence: c.confidence, firstBeatMs: c.phaseFrame / rate * 1000, phaseConfidence: c.phaseConfidence })),
     phaseConfidence: tempo.phaseConfidence, downbeatConfidence: tempo.downbeatConfidence, meterConfidence: tempo.meterConfidence,

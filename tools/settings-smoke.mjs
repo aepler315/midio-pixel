@@ -77,7 +77,7 @@ async function exercise(browser, base, scenario) {
         hidden: SETTINGS.filter(d => !isMenuSetting(d)).map(d => ({ id: d.id, rows: rows(d.id) })),
       };
     });
-    assert.equal(placement.total, 60);
+    assert.equal(placement.total, 61);
     assert.ok(placement.menu.length >= 10);
     assert.deepEqual(placement.menu.filter(d => d.rows !== 1), [], JSON.stringify(placement.menu));
     assert.deepEqual(placement.hidden.filter(d => d.rows !== 0), [], JSON.stringify(placement.hidden));

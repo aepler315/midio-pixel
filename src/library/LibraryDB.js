@@ -525,7 +525,7 @@ export async function recordSongWorld(track, record, scope = globalThis) {
   const rows = await reduceTracks([{
     key,
     reduce: row => row && row.rootId === rootId && row.size === size && row.lastModified === lastModified
-      ? { ...row, songWorld } : null,
+      ? { ...row, songWorld: copySongWorldRecord(songWorld, row.songWorld) } : null,
   }], scope);
   return rows?.[0] || null;
 }

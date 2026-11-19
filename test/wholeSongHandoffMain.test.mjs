@@ -81,6 +81,19 @@ test('a playing song commits the identity in one rebuild at the heard moment', a
   assert.deepEqual(library, [{ track: { key: 'song' }, seed: 42 }]);
 });
 
+test('a late songprint takes effect at the heard position and only belongs to this recording', async () => {
+  const { context, data, terrains } = setup();
+  const print = { version: 1, skyline: Array(16).fill(.5), passages: [{ timeMs: 60000, landmark01: .8, strength: .7 }] };
+  data.songIdentity.songprint = print;
+  context.sim.heardTimeMs = 60750;
+  const done = context.adoptWholeSongIdentity(data);
+  assert.equal(terrains[0].options.songprint, print);
+  terrains[0].resolve({ songprint: print });
+  await done;
+  assert.equal(data.songprintAdmittedMs, 60750);
+  assert.equal(data.terrain.songprint, print);
+});
+
 test('a late terrain rebuilds the show on the whole analysis first, then commits', async () => {
   const { context, data, starts, timers, terrains } = setup();
   const done = context.adoptWholeSongIdentity(data);

@@ -20,6 +20,7 @@
 // This policy is deliberately separate from RangeMatcher.FAIR_SHARE (the
 // musical skyline pool) and BiomeSet's HOME_BIOME_FAIR_SHARE: tuning the
 // scenic draw never moves either of those distributions.
+import { measuredViewOutline, outlineDistance } from './SongprintTerrain.js';
 import { compositionErrors } from '../alpine/RangeComposition.js';
 import { AXES, axisDistance } from './RangeCharacter.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
@@ -189,6 +190,23 @@ export function createScenePlanner(catalog) {
   return Object.freeze({
     catalogVersion: catalog.catalogVersion,
     matchingVersion: SCENE_MATCH_VERSION,
+    nearestOutline(skyline) {
+      let bestView = null, lowestError = Infinity;
+      for (const pool of byBiome.values()) {
+        for (const view of pool) {
+          const measured = measuredViewOutline(view);
+          if (!measured) continue;
+          const error = outlineDistance(skyline, measured);
+          if (error < lowestError || (error === lowestError && view.id < bestView.id)) {
+            bestView = view;
+            lowestError = error;
+          }
+        }
+      }
+      if (!bestView) return new Map();
+      return new Map([[bestView.biome, { view: bestView, fallbackReason: null, odds: 1,
+        catalogVersion: catalog.catalogVersion, matchingVersion: SCENE_MATCH_VERSION, skylineDistance: lowestError }]]);
+    },
     assign(biomes, profile, seed, options = {}) {
       const { recentViewIds = [], recentRegionIds = [] } = options;
       const variety = Object.hasOwn(options, 'recentViewIds') || Object.hasOwn(options, 'recentRegionIds');
