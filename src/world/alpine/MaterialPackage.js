@@ -21,7 +21,7 @@ export const RULE_DEFAULTS = Object.freeze({ forestFloorM: -100000, treeScale: 1
 const WATER_RULE_BOUNDS = Object.freeze({ waterSkyMix: 1, waterGlintGain: 3 });
 const HEX = /^#[0-9a-f]{6}$/i;
 
-const INLAND_WOODED_FRACTION = .3, INLAND_MIN_FOREST_DENSITY = .42, INLAND_SNOW_FRACTION = .72;
+const INLAND_WOODED_FRACTION = .5, INLAND_MIN_FOREST_DENSITY = .42, INLAND_SNOW_FRACTION = .72;
 
 /** A family's surveyed elevation span: the lower quartile of its massif
  *  bases and the upper decile of their summits. Its pack's bands were set

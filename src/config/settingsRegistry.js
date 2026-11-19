@@ -463,7 +463,7 @@ export const SETTINGS = Object.freeze([
   {
     id: 'songprintLandscape', url: 'songprintLandscape', section: 'landscape', tier: 'basic', maturity: 'experimental', controlId: 'songprintLandscape',
     label: 'Returning summits', type: 'enum', default: 'off',
-    description: 'Build an inland landscape of rivers, wooded foothills and ridges from the recording’s harmonic shape. With Music-timed tours, the camera changes its aim at musical transitions.',
+    description: 'Build a connected region of ranges, river valleys, gorges and wooded foothills from the recording’s harmonic shape, with two measured summits that return through the song. With Music-timed tours, the camera flies low along the rivers, climbs over passes at musical transitions and lets the energy set its pace.',
     urlNote: '`1` or `on` enables the experiment for the next song.',
     options: [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }],
     parseUrl: raw => raw === '1' || raw === 'on' ? ok('on') : raw === '0' || raw === 'off' ? ok('off') : bad('expected 1, on, 0 or off', 'off'),

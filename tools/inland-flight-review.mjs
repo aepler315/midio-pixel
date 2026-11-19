@@ -29,6 +29,7 @@ for (let i = 2; i < process.argv.length; i++) {
   else if (k === '--grid') args.grid = v;
   else if (k === '--android') { args.android = v; }
   else if (k === '--url') args.url = v;
+  else if (k === '--source') args.source = v;
   else if (k === '--param') { const [key, value] = v.split('='); (args.params ||= {})[key] = value; }
   else throw new Error(`unknown option ${k}`);
 }
@@ -38,7 +39,7 @@ await fs.mkdir(args.out, { recursive: true });
 let server, browser;
 const log = { android: args.android ?? null, audio: path.basename(args.audio), fps: args.fps, size: [args.width, args.height], clips: [], stills: [] };
 try {
-  const url = args.url || (server = await serveSnapshot(await snapshotSource(root))).url;
+  const url = args.url || (server = await serveSnapshot(await snapshotSource(args.source || root))).url;
   browser = await chromium.launch({
     ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
     args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--mute-audio', '--no-sandbox'],
@@ -57,7 +58,7 @@ try {
     const smw = window.__SMW, range = smw.sim.biomes.rangePresentation;
     const prepared = range?.scene?.prepared?.get(range.viewId);
     const m = prepared?.data?.manifest;
-    return { viewId: range?.viewId, budget: range?.scene?.budget, residencyBytes: range?.residency?.budgetBytes ?? null, durationMs: smw.durationMs, inland: !!prepared?.view?.songRange?.plan?.inland,
+    return { viewId: range?.viewId, water: range?.scene?.hasWater?.(range.viewId) ?? null, mirrors: range?.scene ? !!(range.scene.mirrors?.A || range.scene.mirrors?.B) : null, budget: range?.scene?.budget, residencyBytes: range?.residency?.budgetBytes ?? null, durationMs: smw.durationMs, inland: !!prepared?.view?.songRange?.plan?.inland,
       plan: prepared?.view?.songRange?.plan && { biome: prepared.view.songRange.plan.biome, slots: prepared.view.songRange.plan.slots.map(s => s.pieceId) },
       rivers: m?.hydrology?.region?.rivers?.length ?? null, riverFlow: m?.hydrology?.riverFlow ?? null,
       tiles: m?.tiles?.length, estimated: m?.estimatedBytes, trees: prepared?.stats?.trees ?? null,

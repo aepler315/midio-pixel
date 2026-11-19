@@ -100,7 +100,7 @@ test('inland habitat carries each pack\'s bands onto the region\'s floor and cre
   assert.equal(wetIn.forestDensity, wet.forestDensity);
   // Treeless packs keep valley woods; their own colours and rules stay.
   const tundra = inlandMaterialRules(plan('tundra'), byId.tundra);
-  assert.ok(tundra.treelineM >= floorM + .3 * (topM - floorM) - 1 && tundra.forestDensity >= .42);
+  assert.ok(tundra.treelineM >= floorM + .5 * (topM - floorM) - 1 && tundra.forestDensity >= .42);
   assert.equal(tundra.moss, byId.tundra.moss);
   const steppe = inlandMaterialRules(plan('steppe'), byId.steppe);
   assert.ok(steppe.forestFloorM <= floorM + .12 * (topM - floorM));

@@ -282,13 +282,13 @@ function authoredRail(view) {
 // tributaries, so instances fill the stands within a corridor of those
 // rivers; beyond it, the shader's mean canopy carries the same stands.
 export const INLAND_LATTICE_M = 17;
-export const INLAND_CORRIDOR_M = 1000;
-const INLAND_FULL_M = 650;
+export const INLAND_CORRIDOR_M = 820;
+const INLAND_FULL_M = 600;
 // The mobile mesh draws a sparser lattice of the same stands.
 const inlandLattice = budget => budget === 'mobile' ? 21 : INLAND_LATTICE_M;
-const INLAND_TREE_CAP = Object.freeze({ desktop: 240000, mobile: 150000 });
+const INLAND_TREE_CAP = Object.freeze({ desktop: 340000, mobile: 170000 });
 const clamp01 = n => Math.min(1, Math.max(0, n));
-export const hasInlandWoodland = data => data.manifest?.hydrology?.riverFlow === INLAND_RIVER_FLOW && !!data.manifest.hydrology.region;
+export const hasInlandWoodland = data => data?.manifest?.hydrology?.riverFlow === INLAND_RIVER_FLOW && !!data.manifest.hydrology.region;
 
 /** Distance (m, capped) from (x, z) to the flown rivers' courses. */
 export function inlandCorridor(data) {
@@ -355,43 +355,63 @@ function* placeInlandForestSteps(data, view, rules, seed, budget) {
   const corridorAt = inlandCorridor(data);
   const renderedHeightAt = makeTerrainMeshHeightSampler(data, budget);
   const cs = data.grid.cellSizeM, L = inlandLattice(budget);
-  for (const [, x0, z0, size] of inlandForestTiles(data, treeline, corridorAt)) {
+  const cap = INLAND_TREE_CAP[budget] ?? INLAND_TREE_CAP.desktop;
+  const tiles = [...inlandForestTiles(data, treeline, corridorAt)];
+  // One lattice cell: its root and traits when a tree stands there.
+  const candidate = (ix, iz, keep) => {
+    const x = (ix + .15 + .7 * u01(hash2(ix, iz, seed + 62))) * L;
+    const z = (iz + .15 + .7 * u01(hash2(ix, iz, seed + 63))) * L;
+    const cx = Math.floor(x / LATTICE_M), cz = Math.floor(z / LATTICE_M);
+    const id = u01(hash2(cx, cz, seed + 4));
+    if (!(id < keep)) return null;
+    const d = corridorAt(x, z);
+    const reach = 1 - clamp01((d - INLAND_FULL_M) / (INLAND_CORRIDOR_M - INLAND_FULL_M));
+    if (u01(hash2(ix, iz, seed + 61)) >= .92 * reach) return null;
+    const y = terrainHeightAt(data, x, z);
+    if (!Number.isFinite(y) || y > treeEdge(x, z, seed, treeline)) return null;
+    const breakup = u01(hash2(Math.floor(x / 90), Math.floor(z / 90), seed + 10)) - .5;
+    if (y < floor + breakup * 200) return null;
+    const slope = slopeDegAt(data, x, z, cs * 2);
+    if (!(slope <= rules.forestMaxSlopeDeg)) return null;
+    const habitat = inlandHabitatAt(data, x, z);
+    if (!habitat || habitat.wet > 0) return null;
+    const moisture = clamp01((habitat.flow - 48) / 112);
+    if (inlandStand(seed, x, z, density, moisture, slope) < .5 || touchesRiverCell(data, x, z)) return null;
+    return { x, z, y, slope, band: habitat.band };
+  };
+  // A sparse pre-pass estimates how many trees the corridor holds, so a
+  // stable subset (each tree's own id) can stay within budget without ever
+  // holding the full candidate set.
+  let sampled = 0;
+  for (const [, x0, z0, size] of tiles) {
+    for (let iz = Math.ceil(z0 / L / 4) * 4; iz * L < z0 + size; iz += 4)
+      for (let ix = Math.ceil(x0 / L / 4) * 4; ix * L < x0 + size; ix += 4) if (candidate(ix, iz, 1)) sampled++;
+    yield;
+  }
+  const keep = Math.min(1, cap * 1.04 / Math.max(1, sampled * 16));
+  for (const [, x0, z0, size] of tiles) {
     for (let iz = Math.ceil(z0 / L); iz * L < z0 + size; iz++) {
       for (let ix = Math.ceil(x0 / L); ix * L < x0 + size; ix++) {
-        const h0 = hash2(ix, iz, seed + 61);
-        const x = (ix + .15 + .7 * u01(hash2(ix, iz, seed + 62))) * L;
-        const z = (iz + .15 + .7 * u01(hash2(ix, iz, seed + 63))) * L;
-        const d = corridorAt(x, z);
-        const keep = 1 - clamp01((d - INLAND_FULL_M) / (INLAND_CORRIDOR_M - INLAND_FULL_M));
-        if (u01(h0) >= .92 * keep) continue;
-        const y = terrainHeightAt(data, x, z);
-        if (!Number.isFinite(y) || y > treeEdge(x, z, seed, treeline)) continue;
-        const breakup = u01(hash2(Math.floor(x / 90), Math.floor(z / 90), seed + 10)) - .5;
-        if (y < floor + breakup * 200) continue;
-        const slope = slopeDegAt(data, x, z, cs * 2);
-        if (!(slope <= rules.forestMaxSlopeDeg)) continue;
-        const habitat = inlandHabitatAt(data, x, z);
-        if (!habitat || habitat.wet > 0) continue;
-        const moisture = clamp01((habitat.flow - 48) / 112);
-        if (inlandStand(seed, x, z, density, moisture, slope) < .5 || touchesRiverCell(data, x, z)) continue;
-        const meshY = renderedHeightAt(x, z);
+        const tree = candidate(ix, iz, keep);
+        if (!tree) continue;
+        const meshY = renderedHeightAt(tree.x, tree.z);
         if (!Number.isFinite(meshY)) continue;
-        const traits = treeTraits(Math.floor(x / LATTICE_M), Math.floor(z / LATTICE_M), seed, y, slope, rules, view);
-        board.push(x, meshY, z, traits.height, traits.width, traits.species, traits.id, habitat.band);
+        const traits = treeTraits(Math.floor(tree.x / LATTICE_M), Math.floor(tree.z / LATTICE_M), seed, tree.y, tree.slope, rules, view);
+        // Quality thinning still sees ids across 0..1.
+        board.push(tree.x, meshY, tree.z, traits.height, traits.width, traits.species, traits.id / keep, tree.band);
       }
       yield;
     }
   }
-  // A stable subset (each tree's own id) keeps dense packs within budget.
   let trees = board.toArray();
-  const cap = INLAND_TREE_CAP[budget] ?? INLAND_TREE_CAP.desktop, count = trees.length / stride;
+  const count = trees.length / stride;
   if (count > cap) {
-    const keep = cap / count, kept = new Float32Array(trees.length);
+    const trim = cap / count, kept = new Float32Array(cap * stride);
     let n = 0;
-    for (let i = 0; i < count; i++) {
-      if (!(trees[i * stride + 6] < keep)) continue;
+    for (let i = 0; i < count && n < kept.length; i++) {
+      if (!(trees[i * stride + 6] < trim)) continue;
       kept.set(trees.subarray(i * stride, (i + 1) * stride), n);
-      kept[n + 6] = trees[i * stride + 6] / keep; // quality thinning still sees 0..1
+      kept[n + 6] = trees[i * stride + 6] / trim;
       n += stride;
     }
     trees = kept.slice(0, n);
@@ -407,10 +427,10 @@ export function forestPlacementBound(data, view, rules, rings = FOREST_RINGS, op
     const corridorAt = inlandCorridor(data);
     let count = 0;
     for (const [, , , size] of inlandForestTiles(data, rules.treelineM, corridorAt)) count += Math.ceil(size / inlandLattice(options.budget) + 1) ** 2;
-    // Placement holds every candidate before the stable cap thins them.
+    // The pre-pass keeps placement near the cap; allow for its estimate.
     const candidates = count;
     count = Math.min(count, INLAND_TREE_CAP[options.budget] ?? INLAND_TREE_CAP.desktop);
-    return { count, lattice: candidates, placementBytes: candidates * 32 + count * 32 + (1 << 16) * 4 };
+    return { count, lattice: candidates, placementBytes: Math.ceil(count * 1.25) * 32 * 2 + (1 << 16) * 4 };
   }
   const distanceToRail = forestRail(view);
   // A static footprint also places the rail's own forest (placeForest

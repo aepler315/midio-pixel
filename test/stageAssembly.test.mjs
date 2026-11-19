@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHash, STAGE_KIND, stageReliefScale, reliefScaleFrom, STAGE_RELIEF,
   INLAND_SURFACE_STRIDE, stageRiseSlots, stageTemplate } from '../src/world/alpine/StageAssembly.js';
-import { decodeTerrain, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
+import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { INLAND_RIVER_FLOW, WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { planSongRange, songRangeKey, songReliefJitter } from '../src/world/terrain/SongRangePlan.js';
 import { planDualSummitsScene } from '../src/world/terrain/DualSummitsScene.js';

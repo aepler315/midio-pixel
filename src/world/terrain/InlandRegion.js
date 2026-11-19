@@ -315,7 +315,7 @@ export function* coarseLandformSteps(field, design, massifs, { halfM, n = COARSE
       else if ((pick -= w3) <= 0 && w3 > 0) q = 3;
       else if ((pick -= w4) <= 0 && w4 > 0) q = 4;
       else if ((pick -= w5) <= 0 && w5 > 0) q = 5;
-      else if ((pick -= w6) <= 0 && w6 > 0) q = 6;
+      else if (pick - w6 <= 0 && w6 > 0) q = 6;
       else if (!(w7 > 0)) q = w6 > 0 ? 6 : w5 > 0 ? 5 : w4 > 0 ? 4 : w3 > 0 ? 3 : w2 > 0 ? 2 : w1 > 0 ? 1 : 0;
       rcv[i] = i + offsets[q]; diag[i] = q > 3 ? 1 : 0;
     }
