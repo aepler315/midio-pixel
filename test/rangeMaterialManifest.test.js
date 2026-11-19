@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateMaterialManifest, materialGpuBytes, hexToLinear, loadMaterialPack, MATERIAL_ROLES } from '../src/world/alpine/MaterialPackage.js';
+import { validateMaterialManifest, materialGpuBytes, hexToLinear, loadMaterialPack, MATERIAL_ROLES, inlandMaterialRules } from '../src/world/alpine/MaterialPackage.js';
 import { REAL_BIOME_NAMES } from '../src/world/RealBiomes.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -85,6 +85,20 @@ test('habitat rules follow each biome\'s real vegetation and snow', () => {
   // tundra and taiga are not an icefield.
   assert.ok(byId.taiga.rules.treelineM > 1200);
   for (const id of ['taiga', 'tundra']) assert.ok(byId[id].rules.snowlineM > byId.icefield.rules.snowlineM + 1000, id);
+});
+
+test('inland habitat follows the stage datum while preserving the material’s character', () => {
+  const byId = Object.fromEntries(packs.map(({ m }) => [m.id, m.rules]));
+  const baseM = 2050, wet = Object.freeze(byId['wet-conifer']);
+  const inland = { songRange: { plan: { baseM, inland: { seed: 17 } } } };
+  const adjusted = inlandMaterialRules(inland, wet);
+  assert.ok(wet.treelineM < baseM && adjusted.treelineM > baseM + 600);
+  assert.ok(wet.snowlineM < baseM && adjusted.snowlineM > adjusted.treelineM);
+  assert.equal(adjusted.snowFullM - adjusted.snowlineM, wet.snowFullM - wet.snowlineM);
+  assert.deepEqual({ ...adjusted, treelineM: wet.treelineM, snowlineM: wet.snowlineM, snowFullM: wet.snowFullM }, wet);
+  assert.equal(inlandMaterialRules(inland, adjusted), adjusted);
+  assert.equal(inlandMaterialRules(inland, byId.steppe), byId.steppe);
+  assert.equal(inlandMaterialRules({ songRange: { plan: { baseM } } }, wet), wet);
 });
 
 test('GPU ownership counts each shared texture once, with mips', () => {

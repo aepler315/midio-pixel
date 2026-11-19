@@ -6,6 +6,10 @@ export const TERRAIN_SCHEMA = 'midio.terrain';
 export const TERRAIN_VERSION = 1;
 export const STRIDES = Object.freeze([1, 2, 4, 8, 16, 32, 64]);
 export const WATER_FLOW = 255;
+// Procedural inland terrain opts into a second, non-planar surface class.
+export const INLAND_RIVER_FLOW = 254;
+export const INLAND_MAX_DRY_FLOW = 240;
+export const INLAND_SURFACE_STRIDE = 4;
 
 /** Inverse of the baker's planar-predictor residual encoding (mod 2^16). */
 export function decodeResiduals(r, n) {

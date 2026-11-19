@@ -83,6 +83,7 @@ async function captureComposedSequence(page, file) {
       return { viewId: range.viewId, key: prepared?.view?.songRange?.key, tiles: prepared?.data?.tiles?.size,
         principal: plan?.principal?.slotId, companion: plan?.companionSlot, composition, slotRise: range.frame.slotRise01,
         inland: !!plan?.inland, regionWidthM: grid ? (grid.width - 1) * grid.cellSizeM : null,
+        riverFlow: prepared?.data?.manifest?.hydrology?.riverFlow, inlandRiverMaterial: prepared?.material?.defines?.INLAND_RIVER != null,
         water: range.scene.hasWater(range.viewId), eyeM, targetM, fovYDeg, viewOffset, songprintOrbit };
     });
     assert.ok(evidence.key && evidence.tiles > 0, 'the draw used the prepared, composed terrain');
@@ -90,7 +91,8 @@ async function captureComposedSequence(page, file) {
       'the rendered composition establishes an identifiable pair');
     assert.equal(evidence.composition?.principal.slotId, evidence.principal);
     assert.equal(evidence.composition?.companion.slotId, evidence.companion);
-    assert.ok(evidence.inland && evidence.regionWidthM === 89600 && !evidence.water, 'the complete inland stage has no water passes');
+    assert.ok(evidence.inland && evidence.regionWidthM === 89600 && evidence.riverFlow === 254 && evidence.inlandRiverMaterial && !evidence.water,
+      'the inland watershed renders its rivers in the terrain pass');
     return { evidence, png };
   };
   const frames = [];

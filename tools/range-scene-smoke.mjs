@@ -118,8 +118,9 @@ async function launch() {
 }
 
 /** Open the app in export mode with a song and the requested Range mode. */
-export async function openSong(browser, { url, wav, width, height, params = {}, dpr = 1, configure = null }) {
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, serviceWorkers: 'block' });
+export async function openSong(browser, { url, wav, width, height, params = {}, dpr = 1, configure = null, contextOptions = {}, initScript = null }) {
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, serviceWorkers: 'block', ...contextOptions });
+  if (initScript) await context.addInitScript(initScript);
   if (params.seed != null) await context.addInitScript(installSeedReceiver);
   const page = await context.newPage();
   watchLoaded(page);

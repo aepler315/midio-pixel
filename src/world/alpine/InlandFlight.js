@@ -1,18 +1,29 @@
-import { aimTurn, pathPoseAt, progressOf, samplePath, splineAt } from '../terrain/ShotPath.js';
-import { projectPoint, scenePoseAt } from '../terrain/SceneTravel.js';
+// Music-timed flight through an inland region (InlandRegion.js). The route
+// follows the region's own drainage: low runs along the trunk valley and
+// its largest tributaries, where valley walls, stands and the river give
+// close parallax; climbs over a pass or spur, where the camera rises far
+// enough to show how the valleys connect; and a closing reveal facing the
+// returning summits. The song's transitions fix the arrival at each stage
+// boundary and its smoothed energy paces the travel between them. The lens
+// stays fixed: the camera moves, it does not zoom.
+import { pathPoseAt, samplePath } from '../terrain/ShotPath.js';
+import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { clamp, clamp01, lerp } from '../../utils/math.js';
 import { DEFORM_PAD_M } from './RangeCamera.js';
-import { seenFrom } from './LineOfSight.js';
 import { terrainHeightAt } from './TerrainMesh.js';
 
-const ASPECT = 16 / 9;
-const CLEARANCE_M = DEFORM_PAD_M + 220;
-const BOUNDS_MARGIN_M = 1200;
-const BEARINGS = 12;
-const RADII_M = [6500, 10500, 15400];
-const KEEP_ROUTES = 8;
-const PATH_SPACING_M = 90;
-const GRADE = .16;
+// Low runs: eye height above the river bed, and the least clearance over
+// any ground the eye passes (tree crowns included).
+const LOW_AGL_M = 95;
+const LOW_CLEAR_M = 62;
+const REVEAL_CLEAR_M = 330;
+// Ground speeds (m/s at the song's average pace). Low runs stay slow enough
+// for the near slopes to read; reveals cover more ground at altitude.
+const LOW_SPEED = 82, CLIMB_SPEED = 140, REVEAL_SPEED = 170;
+const LOOK_AHEAD_M = 900;
+const BOUNDS_MARGIN_M = 2500;
+const PATH_SPACING_M = 40;
+const GRADE = .34;
 const distanceXZ = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 const blend = (a, b, t) => a.map((value, i) => lerp(value, b[i], t));
 
@@ -21,190 +32,341 @@ function inside(bounds, x, z) {
     && z >= bounds.min[2] + BOUNDS_MARGIN_M && z <= bounds.max[2] - BOUNDS_MARGIN_M;
 }
 
-function crestsOf(data, pair) {
-  const parts = data.manifest.source?.provenance?.composition?.pieces ?? [];
-  const crests = [pair.principal, pair.companion].map(crest => ({ ...crest, id: crest.slotId, label: crest.name || crest.slotId }));
-  for (const [i, { name, localM }] of (data.manifest.landmarks ?? []).entries()) {
-    const slotId = parts[i]?.slotId;
-    if (!slotId || !localM) continue;
-    const known = crests.find(crest => crest.slotId === slotId);
-    if (known) { known.label = name || slotId; continue; }
-    const [x, z] = localM;
-    const heightM = terrainHeightAt(data, x, z);
-    if (Number.isFinite(heightM)) crests.push({ id: slotId, label: name || slotId, slotId, pointM: [x, heightM, z] });
-  }
-  return crests;
-}
-
-function passesOf(data, crests) {
-  const passes = [];
-  for (const [i, a] of crests.entries()) for (const b of crests.slice(i + 1)) {
-    const d = distanceXZ(a.pointM, b.pointM);
-    if (d < 4800 || d > 20000) continue;
-    const [x, , z] = blend(a.pointM, b.pointM, .5);
-    const groundM = terrainHeightAt(data, x, z);
-    const reliefM = Math.min(a.pointM[1], b.pointM[1]) - groundM;
-    if (!(reliefM >= 160)) continue;
-    passes.push({ id: 'pass-' + a.id + '-' + b.id, label: 'Pass between ' + a.label + ' and ' + b.label,
-      pointM: [x, groundM + 75, z], subjects: [a, b], value: Math.min(reliefM, 1500) / 1500 });
-  }
-  return passes.sort((a, b) => b.value - a.value).slice(0, 8);
-}
-
-function basinsOf(data, bounds, center) {
-  const basins = [];
-  for (let i = 0; i < BEARINGS; i++) {
-    const theta = i * Math.PI * 2 / BEARINGS, dx = Math.cos(theta), dz = Math.sin(theta);
-    const x = center[0] + dx * 19000, z = center[2] + dz * 19000;
-    if (!inside(bounds, x, z)) continue;
-    const heightM = terrainHeightAt(data, x, z);
-    const a = terrainHeightAt(data, x - dz * 5200, z + dx * 5200);
-    const b = terrainHeightAt(data, x + dz * 5200, z - dx * 5200);
-    const reliefM = Math.max(a, b) - heightM;
-    if (!(reliefM > 85)) continue;
-    basins.push({ id: 'basin-' + i, label: 'Inland basin', pointM: [x, heightM + 75, z], value: Math.min(reliefM, 1200) / 1200 });
-  }
-  return basins.sort((a, b) => b.value - a.value).slice(0, 5);
-}
-
-function eyeStations(anchor, context) {
-  const { data, bounds, home, crests, opening, finale } = context;
-  const result = [];
-  const targetM = anchor.pointM;
-  const bearing = Math.atan2(home.eyeM[2] - targetM[2], home.eyeM[0] - targetM[0]);
-  for (const radius of RADII_M) for (let i = 0; i < BEARINGS; i++) {
-    const angle = bearing + i * Math.PI * 2 / BEARINGS;
-    const x = targetM[0] + radius * Math.cos(angle), z = targetM[2] + radius * Math.sin(angle);
-    if (!inside(bounds, x, z)) continue;
-    const groundM = terrainHeightAt(data, x, z);
-    if (!Number.isFinite(groundM)) continue;
-    const eyeM = [x, groundM + (finale ? 1450 : opening ? 610 : 940), z];
-    const pose = { eyeM, targetM, fovYDeg: home.fovYDeg };
-    let picked = seenFrom(data, eyeM, [targetM[0], targetM[1] + 30, targetM[2]]) ? 1 : 0;
-    // A pass has two distinct shoulders. Reward the wider view of both.
-    for (const crest of anchor.subjects ?? crests) {
-      if (crest === anchor) continue;
-      const p = projectPoint(pose, ASPECT, crest.pointM);
-      if (p && Math.abs(p.x) < .9 && Math.abs(p.y) < .85 && seenFrom(data, eyeM, crest.pointM))
-        picked += .18 + .22 * Math.min(1, Math.abs(p.x) / .36);
-    }
-    // Opening favors a legible close shot from the measured region's side.
-    if (opening) picked += .55 * Math.cos(angle - bearing) - radius / 36000;
-    if (finale) picked += radius / 22000;
-    result.push({ anchor, eyeM, targetM, score: picked + .28 * (anchor.value ?? 0) });
-  }
-  return result;
-}
-
-function routeStations(groups, times, travelMs, context) {
-  const totalM = clamp(travelMs * .255, 5300, 43000);
-  let routes = [{ stations: [], score: 0 }];
-  for (const [i, group] of groups.entries()) {
-    const stations = group.flatMap(anchor => eyeStations(anchor,
-      { ...context, opening: i === 0, finale: i === groups.length - 1 }));
-    const wantedM = Math.max(1800, totalM * (times[i] - (times[i - 1] ?? 0)));
-    const next = [];
-    for (const route of routes) for (const station of stations) {
-      const prev = route.stations.at(-1), before = route.stations.at(-2);
-      if (prev?.anchor.id === station.anchor.id) continue;
-      let score = route.score + station.score;
-      if (prev) {
-        const d = distanceXZ(prev.eyeM, station.eyeM);
-        if (d < wantedM * .24 || d > wantedM * 2.25) continue;
-        const turn = aimTurn(prev.eyeM, prev.targetM, station.eyeM, station.targetM);
-        // Large direction changes can play over a full leg, but tight
-        // musical intervals need a gentler handoff and avoid backtracking.
-        const legSec = Math.max(1, travelMs * (times[i] - times[i - 1]) / 1000);
-        if (turn > Math.min(2.1, .13 * legSec + .13)) continue;
-        score -= Math.abs(d - wantedM) / wantedM + .55 * turn;
-        if (before) {
-          const a = distanceXZ(before.eyeM, prev.eyeM), b = distanceXZ(before.eyeM, station.eyeM);
-          const cosine = (b * b - a * a - d * d) / (2 * a * d);
-          if (cosine < -.60) continue;
-          score += .38 * cosine;
-        }
-      }
-      next.push({ score, stations: [...route.stations, station] });
-    }
-    routes = next.sort((a, b) => b.score - a.score).slice(0, KEEP_ROUTES);
-  }
-  return routes;
-}
-
-function sampleClearedPath(stations, data, bounds, fovYDeg) {
-  const eyes = stations.map(station => station.eyeM), aims = stations.map(station => station.targetM);
-  const path = samplePath({ eyes, aims, fovs: fovYDeg, spacingM: PATH_SPACING_M, minSamples: 64 });
-  // Raise the whole approach to a peak. Two passes give a conservative
-  // altitude envelope before smoothing, so the flight avoids single-sample
-  // collision lifts without climbing all the way to the region's highest peak.
-  const minimum = new Float64Array(path.s.length), envelope = new Float64Array(path.s.length);
-  for (let i = 0; i < minimum.length; i++) {
-    const x = path.eye[i * 3], z = path.eye[i * 3 + 2];
-    if (!inside(bounds, x, z)) return null;
-    const h = terrainHeightAt(data, x, z);
-    if (!Number.isFinite(h)) return null;
-    minimum[i] = h + CLEARANCE_M;
-    envelope[i] = Math.max(minimum[i], path.eye[i * 3 + 1],
-      i ? envelope[i - 1] - GRADE * (path.s[i] - path.s[i - 1]) : -Infinity);
-  }
-  for (let i = minimum.length - 2; i >= 0; i--)
-    envelope[i] = Math.max(envelope[i], envelope[i + 1] - GRADE * (path.s[i + 1] - path.s[i]));
-  for (let i = 0; i < minimum.length; i++) {
-    const a = envelope[Math.max(0, i - 3)], b = envelope[Math.min(minimum.length - 1, i + 3)];
-    path.eye[i * 3 + 1] = Math.max(minimum[i], .25 * a + .5 * envelope[i] + .25 * b) + 90;
-  }
-  // Exact cumulative path distance at each chosen transition station.
-  // This uses the same underlying spline and sampling rate as samplePath.
-  const intervals = eyes.length - 1, steps = Math.max(64, intervals * 48);
-  const fineEyes = [], fineAims = [];
-  for (let i = 0; i <= steps; i++) {
-    fineEyes.push(splineAt(eyes, i / steps * intervals));
-    fineAims.push(splineAt(aims, i / steps * intervals));
-  }
-  const progress = progressOf(fineEyes, fineAims);
-  const marks = stations.map((_, i) => progress[Math.round(i / intervals * steps)]);
-  return { path, marks };
-}
-
+/** Travel time and stage boundaries (progress01) from the score. Up to
+ *  three transitions give four stages; short songs get fewer. */
 function scoreStations(movement) {
   const travelMs = movement.travelMs ?? 140000;
   const separated = [];
-  for (const { progress01 } of movement.guides ?? []) {
-    if (progress01 >= .14 && progress01 <= .86 && progress01 - (separated.at(-1) ?? 0) >= .14)
-      separated.push(progress01);
+  for (const guide of movement.guides ?? []) {
+    if (guide.progress01 >= .12 && guide.progress01 <= .88 && guide.progress01 - (separated.at(-1)?.progress01 ?? 0) >= .12)
+      separated.push(guide);
   }
   const limit = travelMs < 22000 ? 0 : travelMs < 54000 ? 1 : travelMs < 115000 ? 2 : 3;
-  const defaults = limit === 0 ? [] : limit === 1 ? [.53] : [.34, .68];
-  return { travelMs, times: [0, ...(separated.length ? separated.slice(0, limit) : defaults), 1] };
+  const chosen = separated.slice(0, limit);
+  const defaults = limit === 0 ? [] : limit === 1 ? [{ progress01: .5 }] : limit === 2 ? [{ progress01: .38 }, { progress01: .7 }]
+    : [{ progress01: .26 }, { progress01: .52 }, { progress01: .77 }];
+  const guides = chosen.length ? chosen : defaults;
+  const times = [0, ...guides.map(g => g.progress01), 1];
+  // Share of the song's time in each stage: from the guides' heard times
+  // where known, otherwise in proportion to progress.
+  const known = guides.every(g => Number.isFinite(g.timeMs)) && guides.length >= 2;
+  const span = known ? (guides.at(-1).timeMs - guides[0].timeMs) / Math.max(.05, guides.at(-1).progress01 - guides[0].progress01) : 0;
+  const shares = times.slice(1).map((t, i) => {
+    if (known && i > 0 && i < guides.length) return (guides[i].timeMs - guides[i - 1].timeMs) / travelMs;
+    if (known && span > 0) return (t - times[i]) * span / travelMs;
+    return t - times[i];
+  });
+  const total = shares.reduce((a, b) => a + b, 0) || 1;
+  // Energy of a stage: progress made per unit of heard time.
+  const energy = times.slice(1).map((t, i) => (t - times[i]) / (shares[i] / total));
+  return { travelMs, times, shares: shares.map(s => s / total), energy };
 }
 
-/** Build a small deterministic search over connected eye positions around
- * several terrain features before starting any movement. */
+function courseOf(river) {
+  return river.course.map(([x, z, bed, area, gorge, broad]) => ({ x, z, bed, area, gorge, broad }));
+}
+
+/** Walk a course from index `i` in direction `dir` for `lengthM`. */
+function walk(course, i, dir, lengthM) {
+  const out = [course[i]];
+  let k = i, done = 0;
+  while (done < lengthM && k + dir >= 0 && k + dir < course.length) {
+    done += Math.hypot(course[k + dir].x - course[k].x, course[k + dir].z - course[k].z);
+    k += dir;
+    out.push(course[k]);
+  }
+  return { points: out, end: k, lengthM: done };
+}
+
+function groundMax(data, x, z, radius) {
+  let top = -Infinity;
+  for (const [dx, dz] of [[0, 0], [radius, 0], [-radius, 0], [0, radius], [0, -radius]]) {
+    const y = terrainHeightAt(data, x + dx, z + dz);
+    if (Number.isFinite(y)) top = Math.max(top, y);
+  }
+  return top;
+}
+
+/** The direction along a course that runs longest over new ground. */
+function bestDirection(points, index, want, keys) {
+  const visited = keys.map(k => k.eyeM);
+  const score = dir => {
+    const run = walk(points, index, dir, want);
+    return Math.min(1, run.lengthM / want) - 1.5 * overlap(run.points, visited);
+  };
+  return score(1) >= score(-1) ? 1 : -1;
+}
+
+/** Eye and aim keyframes for a low run along a course: a little to one side
+ *  of the river, looking ahead down the valley to the water. */
+function lowKeys(data, points, side) {
+  const keys = [];
+  for (let k = 0; k < points.length; k++) {
+    const p = points[k], q = points[Math.min(points.length - 1, k + 1)], r = points[Math.max(0, k - 1)];
+    let dx = q.x - r.x, dz = q.z - r.z;
+    const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
+    const offset = side * 45;
+    const x = p.x - dz * offset, z = p.z + dx * offset;
+    // Find the aim LOOK_AHEAD_M further along the course.
+    let ahead = k, run = 0;
+    while (ahead < points.length - 1 && run < LOOK_AHEAD_M) {
+      run += Math.hypot(points[ahead + 1].x - points[ahead].x, points[ahead + 1].z - points[ahead].z);
+      ahead++;
+    }
+    const a = points[ahead];
+    const extra = run < LOOK_AHEAD_M ? LOOK_AHEAD_M - run : 0;
+    const tx = a.x + dx * extra, tz = a.z + dz * extra;
+    const ty = (terrainHeightAt(data, tx, tz) || a.bed) + 30;
+    keys.push({ eyeM: [x, p.bed + LOW_AGL_M, z], targetM: [tx, ty, tz], low: true });
+  }
+  return keys;
+}
+
+/** Share of a run's points within `radius` of where the flight has been. */
+function overlap(points, visited, radius = 1400) {
+  if (!visited.length) return 0;
+  let near = 0;
+  for (const p of points) if (visited.some(v => Math.hypot(v[0] - p.x, v[2] - p.z) < radius)) near++;
+  return near / points.length;
+}
+
+function nearestIndex(course, x, z) {
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < course.length; i++) {
+    const d = Math.hypot(course[i].x - x, course[i].z - z);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return { index: best, distanceM: bestD };
+}
+
+/**
+ * Plan the stages: the opening runs low up the trunk; a pass or spur climb
+ * reveals the network; a second low run follows another flown river (a
+ * gorge where the region has one); the finale rises to face the returning
+ * summits. Quiet stages take the reveals, energetic ones the low runs.
+ */
+function planStages(data, region, pair, stations, bounds) {
+  const { times, travelMs, shares, energy } = stations;
+  const legs = times.length - 1;
+  const rivers = region.rivers.map(r => ({ ...r, points: courseOf(r) }))
+    .filter(r => r.points.length >= 3);
+  const trunk = rivers.find(r => r.trunk);
+  if (!trunk) return null;
+  const flown = rivers.filter(r => r.flown && r !== trunk).sort((a, b) => b.areaKm2 - a.areaKm2);
+  const legSec = shares.map(s => s * travelMs / 1000);
+  const mean = energy.reduce((a, b) => a + b, 0) / legs;
+  const pace = energy.map(e => clamp(e / mean, .6, 1.6));
+  const summit = pair.principal.pointM, companion = pair.companion.pointM;
+  const summitsMid = blend(summit, companion, .5);
+  // Stage kinds: first low, last reveal; middle by energy.
+  const kinds = Array.from({ length: legs }, (_, i) => {
+    if (legs === 1) return 'low';
+    if (i === 0) return 'low';
+    if (i === legs - 1) return 'finale';
+    return pace[i] >= 1 ? 'low' : 'climb';
+  });
+  // Middle stages alternate when energy alone would repeat a kind.
+  for (let i = 1; i < legs - 1; i++) if (kinds[i] === kinds[i - 1] && kinds[i] === 'low') kinds[i] = 'climb';
+  const keys = [], boundaries = [0];
+  // Opening: a stretch of the trunk inside the travelled area, flown
+  // upstream so the valley and the ranges open ahead.
+  const want0 = LOW_SPEED * legSec[0] * pace[0];
+  const tPts = trunk.points;
+  let start = -1, best = -Infinity;
+  for (let i = 0; i < tPts.length; i++) {
+    const p = tPts[i];
+    if (!inside(bounds, p.x, p.z)) continue;
+    const run = walk(tPts, i, -1, want0);
+    const endP = run.points.at(-1);
+    if (!inside(bounds, endP.x, endP.z)) continue;
+    const toSummit = Math.hypot(summitsMid[0] - endP.x, summitsMid[2] - endP.z);
+    const broad = run.points.reduce((s, q) => s + q.broad, 0) / run.points.length;
+    const score = Math.min(run.lengthM, want0) / want0 * 3 + broad - toSummit / 30000;
+    if (score > best) { best = score; start = i; }
+  }
+  if (start < 0) return null;
+  let at = { river: trunk, index: start, dir: -1, next: null };
+  const used = new Set([trunk.id]);
+  for (let leg = 0; leg < legs; leg++) {
+    const kind = kinds[leg];
+    const speed = kind === 'low' ? LOW_SPEED : kind === 'climb' ? CLIMB_SPEED : REVEAL_SPEED;
+    const want = Math.max(1500, speed * legSec[leg] * pace[leg]);
+    const last = keys.at(-1);
+    if (kind === 'low') {
+      let { river, index, dir } = at;
+      if (leg > 0 && at.next) {
+        // Descend from the pass into the valley it looks over.
+        river = at.next.river; index = at.next.index; used.add(river.id);
+        dir = bestDirection(river.points, index, want, keys);
+      } else if (leg > 0) {
+        // Join a nearby flown river, favouring a gorge.
+        const from = last ? last.eyeM : [tPts[start].x, 0, tPts[start].z];
+        const options = [];
+        for (const g of region.gorges ?? []) {
+          const r = rivers.find(x => x.id === g.river);
+          if (r && (!used.has(r.id) || r === trunk)) options.push({ r, index: nearestIndex(r.points, g.from[0], g.from[1]).index, bonus: 5000, dir: 1 });
+        }
+        for (const r of [...flown, trunk]) {
+          if (used.has(r.id) && r !== trunk) continue;
+          options.push({ r, index: nearestIndex(r.points, from[0], from[2]).index, bonus: r === trunk ? -2000 : 0, dir: 0 });
+        }
+        let pick = null, pickScore = Infinity;
+        for (const o of options) {
+          const q = o.r.points[o.index];
+          const score = Math.hypot(q.x - from[0], q.z - from[2]) - o.bonus;
+          if (inside(bounds, q.x, q.z) && score < pickScore) { pickScore = score; pick = o; }
+        }
+        if (!pick) pick = { r: trunk, index: at.index, dir: at.dir };
+        river = pick.r; used.add(river.id); index = pick.index;
+        dir = pick.dir || bestDirection(river.points, index, want, keys);
+      }
+      const run = walk(river.points, index, dir, want);
+      const side = leg % 2 ? -1 : 1;
+      const runKeys = lowKeys(data, run.points, side);
+      // Skip keys behind the previous end when joining from a climb.
+      keys.push(...runKeys);
+      at = { river, index: run.end, dir, next: null };
+    } else if (kind === 'climb') {
+      // Rise over a pass ahead and look over the next valley: a pass with a
+      // flown river close beneath its far side, so the descent stays short.
+      const from = last.eyeM;
+      const passes = (region.passes ?? []).filter(p => inside(bounds, p.x, p.z));
+      let pass = null, next = null, score = Infinity;
+      for (const p of passes) {
+        const d = Math.hypot(p.x - from[0], p.z - from[2]);
+        if (d > want * 1.4 || d < want * .3) continue;
+        let below = null;
+        for (const r of rivers) {
+          if (!r.flown) continue;
+          const near = nearestIndex(r.points, p.x, p.z);
+          const q = r.points[near.index];
+          if (near.distanceM > 4200 || !inside(bounds, q.x, q.z)) continue;
+          // A new valley, not the stretch just flown.
+          const fresh = 1 - Math.min(overlap(walk(r.points, near.index, 1, want * .7).points, keys.map(k => k.eyeM)),
+            overlap(walk(r.points, near.index, -1, want * .7).points, keys.map(k => k.eyeM)));
+          if (fresh < .5) continue;
+          if (!below || near.distanceM < below.distanceM) below = { river: r, index: near.index, distanceM: near.distanceM };
+        }
+        const s = Math.abs(d - want * .8) + (below ? below.distanceM * .6 : 6000)
+          + .1 * Math.hypot(p.x - summitsMid[0], p.z - summitsMid[2]);
+        if (s < score) { score = s; pass = p; next = below; }
+      }
+      // Without a pass in reach, climb the nearest spur towards the summits.
+      const toward = Math.min(1, want * .8 / Math.max(1, distanceXZ(from, summitsMid)));
+      const target = pass ? [pass.x, pass.heightM, pass.z]
+        : [lerp(from[0], summitsMid[0], toward), 0, lerp(from[2], summitsMid[2], toward)];
+      const crest = groundMax(data, target[0], target[2], 400);
+      const climb = [target[0], (Number.isFinite(crest) ? crest : target[1]) + REVEAL_CLEAR_M, target[2]];
+      const midway = blend(from, climb, .45);
+      midway[1] = Math.max(from[1] + 120, groundMax(data, midway[0], midway[2], 300) + REVEAL_CLEAR_M * .6);
+      // Look past the crest: to the summits, or down the far valley.
+      const lookTo = blend(climb, summitsMid, .55);
+      lookTo[1] = lerp(climb[1] - 250, summitsMid[1], .5);
+      keys.push({ eyeM: midway, targetM: blend(last.targetM, lookTo, .5) });
+      keys.push({ eyeM: climb, targetM: lookTo });
+      at = { ...at, next };
+    } else {
+      // Finale: rise to face the returning summits across the region.
+      const from = last.eyeM;
+      let bestEye = null, bestScore = -Infinity;
+      for (let k = 0; k < 16; k++) {
+        const angle = k * Math.PI / 8;
+        for (const radius of [9000, 12500, 16000]) {
+          const x = summitsMid[0] + radius * Math.cos(angle), z = summitsMid[2] + radius * Math.sin(angle);
+          if (!inside(bounds, x, z)) continue;
+          const d = Math.hypot(x - from[0], z - from[2]);
+          const s = -Math.abs(d - want) / want - .4 * Math.abs(radius - 12500) / 12500;
+          if (s > bestScore) { bestScore = s; bestEye = [x, z]; }
+        }
+      }
+      if (!bestEye) bestEye = [lerp(from[0], summitsMid[0], .3), lerp(from[2], summitsMid[2], .3)];
+      const ground = groundMax(data, bestEye[0], bestEye[1], 600);
+      const eyeM = [bestEye[0], Math.max(ground + REVEAL_CLEAR_M + 250, lerp(ground, summitsMid[1], .55)), bestEye[1]];
+      const midway = blend(from, eyeM, .5);
+      midway[1] = Math.max(lerp(from[1], eyeM[1], .6), groundMax(data, midway[0], midway[2], 400) + REVEAL_CLEAR_M);
+      keys.push({ eyeM: midway, targetM: blend(last.targetM, summitsMid, .6) });
+      keys.push({ eyeM, targetM: summitsMid, summits: true });
+    }
+    boundaries.push(keys.length - 1);
+  }
+  return { keys, boundaries, kinds };
+}
+
+/** Per-sample clearance and a smooth altitude envelope. Low stretches keep
+ *  close to their planned height; anything under the clearance lifts. */
+function clearPath(path, data, bounds, heightRange) {
+  const n = path.s.length;
+  const minimum = new Float64Array(n), envelope = new Float64Array(n);
+  const [h0, h1] = heightRange;
+  const pad = g => DEFORM_PAD_M * (h1 > h0 ? clamp01((g - h0) / (h1 - h0)) ** 2 : 1);
+  for (let i = 0; i < n; i++) {
+    const x = path.eye[i * 3], z = path.eye[i * 3 + 2];
+    if (!inside({ min: [bounds.min[0] - BOUNDS_MARGIN_M * .6, 0, bounds.min[2] - BOUNDS_MARGIN_M * .6],
+      max: [bounds.max[0] + BOUNDS_MARGIN_M * .6, 0, bounds.max[2] + BOUNDS_MARGIN_M * .6] }, x, z)) return false;
+    const g = groundMax(data, x, z, 55);
+    if (!Number.isFinite(g)) return false;
+    minimum[i] = g + LOW_CLEAR_M + pad(g);
+    envelope[i] = Math.max(minimum[i], path.eye[i * 3 + 1]);
+  }
+  // Limit climb and descent rates in both directions, then smooth.
+  for (let i = 1; i < n; i++) envelope[i] = Math.max(envelope[i], envelope[i - 1] - GRADE * (path.s[i] - path.s[i - 1]));
+  for (let i = n - 2; i >= 0; i--) envelope[i] = Math.max(envelope[i], envelope[i + 1] - GRADE * (path.s[i + 1] - path.s[i]));
+  const smoothed = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let sum = 0, weight = 0;
+    for (let k = -6; k <= 6; k++) {
+      const j = clamp(i + k, 0, n - 1), w = 7 - Math.abs(k);
+      sum += envelope[j] * w; weight += w;
+    }
+    smoothed[i] = Math.max(minimum[i], sum / weight);
+  }
+  for (let i = 0; i < n; i++) path.eye[i * 3 + 1] = smoothed[i];
+  return true;
+}
+
+/** Build the flight before any movement. Returns null when the region or
+ *  the score cannot carry one (the bounded orbit then takes over). */
 export function compileInlandFlight(data, view, movement) {
   const bounds = data?.manifest?.boundsM, pair = view.songprintComposition;
-  if (!view.songRange?.plan?.inland || !bounds || !pair || !movement) return null;
-  const { times, travelMs } = scoreStations(movement);
+  const region = data?.manifest?.hydrology?.region;
+  if (!view.songRange?.plan?.inland || !bounds || !pair || !movement || !region?.rivers?.length) return null;
+  const stations = scoreStations(movement);
   const home = scenePoseAt(view, { progress01: .5 });
-  const crests = crestsOf(data, pair);
-  const pivotM = blend(pair.principal.pointM, pair.companion.pointM, .5);
-  const passes = passesOf(data, crests), basins = basinsOf(data, bounds, pivotM);
-  const subjectGroups = [passes.length ? passes : crests.slice(1), crests.slice(1), basins.length ? basins : crests.slice(1)];
-  const middle = times.slice(1, -1).map((_, i) => subjectGroups[i]);
-  const groups = [[crests[0]], ...middle, [...crests.slice(1), ...basins]];
-  for (const route of routeStations(groups, times, travelMs, { data, bounds, home, crests })) {
-    const sampled = sampleClearedPath(route.stations, data, bounds, home.fovYDeg);
-    if (!sampled) continue;
-    const anchors = route.stations.map(station => station.anchor);
-    // Harmonic mean slopes keep progress monotone and share velocity at
-    // the adjacent legs. Music owns the clock between these exact arrivals.
-    const slopes = sampled.marks.slice(1).map((mark, i) => (mark - sampled.marks[i]) / (times[i + 1] - times[i]));
-    const speeds = times.map((_, i) => i === 0 ? slopes[0] : i === times.length - 1 ? slopes.at(-1)
-      : 2 / (1 / slopes[i - 1] + 1 / slopes[i]));
-    const landmarks = anchors.map(({ id, label }, i) => ({ id, label, progress01: times[i] }));
-    return { ...sampled, kind: 'inland', times, speeds, anchors, landmarks, pivotM,
-      principalSlot: pair.principal.slotId, companionSlot: pair.companion.slotId };
+  const plan = planStages(data, region, pair, stations, bounds);
+  if (!plan || plan.keys.length < 2) return null;
+  // Drop keyframes that fall on top of each other.
+  const eyes = [], aims = [], keyAt = [];
+  for (const [i, key] of plan.keys.entries()) {
+    if (eyes.length && distanceXZ(eyes.at(-1), key.eyeM) < 60 && !plan.boundaries.includes(i)) { keyAt[i] = eyes.length - 1; continue; }
+    eyes.push(key.eyeM); aims.push(key.targetM); keyAt[i] = eyes.length - 1;
   }
-  return null;
+  if (eyes.length < 2) return null;
+  const path = samplePath({ eyes, aims, fovs: home.fovYDeg, spacingM: PATH_SPACING_M, minSamples: 64 });
+  const heightRange = [bounds.min[1], bounds.max[1]];
+  if (!clearPath(path, data, bounds, heightRange)) return null;
+  // Path distance at each stage boundary: the nearest sample to its eye.
+  const marks = plan.boundaries.map(b => {
+    const target = eyes[keyAt[b]];
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < path.s.length; i++) {
+      const d = Math.hypot(path.eye[i * 3] - target[0], path.eye[i * 3 + 2] - target[2]);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return path.s[best];
+  });
+  marks[0] = 0; marks[marks.length - 1] = path.s[path.s.length - 1];
+  for (let i = 1; i < marks.length; i++) marks[i] = Math.max(marks[i], marks[i - 1] + 1);
+  const { times } = stations;
+  const slopes = marks.slice(1).map((mark, i) => (mark - marks[i]) / (times[i + 1] - times[i]));
+  const speeds = times.map((_, i) => i === 0 ? slopes[0] : i === times.length - 1 ? slopes.at(-1)
+    : 2 / (1 / slopes[i - 1] + 1 / slopes[i]));
+  const labels = { low: 'Valley run', climb: 'Pass reveal', finale: 'Returning summits' };
+  const landmarks = times.map((progress01, i) => ({ id: i === 0 ? 'start' : `${plan.kinds[i - 1]}-${i}`,
+    label: i === 0 ? 'Valley' : labels[plan.kinds[i - 1]], progress01 }));
+  return { path, marks, kind: 'inland', times, speeds, kinds: plan.kinds, landmarks, heightRange,
+    anchors: landmarks.map(l => ({ ...l, kind: 'route' })),
+    pivotM: blend(pair.principal.pointM, pair.companion.pointM, .5),
+    principalSlot: pair.principal.slotId, companionSlot: pair.companion.slotId };
 }
 
 function distanceAt(route, i, u) {
@@ -213,9 +375,9 @@ function distanceAt(route, i, u) {
     + (3 * t - 2 * v) * route.marks[i + 1] + (v - t) * span * route.speeds[i + 1];
 }
 
-/** Apply the planned route and keep the normal late-admission and zoom
- * contract, including a sampled clearance check for the handoff. */
-export function inlandFlightPose(pose, route, movement, { baseM, rise01, slotRise01, heightAt }) {
+/** Apply the planned route with the normal late-admission contract and a
+ *  sampled clearance check for the handoff from the rail. */
+export function inlandFlightPose(pose, route, movement, { heightAt }) {
   const gain = clamp01(movement.gain);
   if (!gain) return pose;
   const p = clamp01(movement.progress01);
@@ -227,14 +389,13 @@ export function inlandFlightPose(pose, route, movement, { baseM, rise01, slotRis
   const eyeM = blend(pose.eyeM, flight.eyeM, gain);
   const groundM = heightAt(eyeM[0], eyeM[2]);
   if (!Number.isFinite(groundM)) return pose;
-  const oldGroundM = gain < 1 ? heightAt(pose.eyeM[0], pose.eyeM[2]) : groundM;
-  const oldClearance = Number.isFinite(oldGroundM) ? clamp(pose.eyeM[1] - oldGroundM, 0, CLEARANCE_M) : 0;
-  eyeM[1] = Math.max(eyeM[1], groundM + lerp(oldClearance, CLEARANCE_M, gain));
-  const drop = anchor => (anchor.pointM[1] - baseM) * (1 - (slotRise01?.[anchor.slotId] ?? rise01 ?? 1));
-  const gaze = u * u * (3 - 2 * u);
-  flight.targetM[1] -= lerp(drop(route.anchors[i]), drop(route.anchors[i + 1]), gaze);
+  const [h0, h1] = route.heightRange;
+  const pad = DEFORM_PAD_M * (h1 > h0 ? clamp01((groundM - h0) / (h1 - h0)) ** 2 : 1);
+  eyeM[1] = Math.max(eyeM[1], groundM + LOW_CLEAR_M * .8 + pad);
+  const kind = route.kinds[i];
   return { ...pose, eyeM, targetM: blend(pose.targetM, flight.targetM, gain), songprintOrbit: {
-    progress01: p, gain, routeStyle: route.kind, pivotM: route.pivotM, travelM,
+    progress01: p, gain, routeStyle: route.kind, pivotM: route.pivotM, travelM, mode: kind,
+    aglM: Math.round(eyeM[1] - groundM),
     principalSlot: route.principalSlot, companionSlot: route.companionSlot,
     landmarks: route.landmarks, from: route.landmarks[i].id, to: route.landmarks[i + 1].id,
   } };

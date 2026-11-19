@@ -1,7 +1,7 @@
 import { copySongprintSkyline } from '../../audio/SongprintData.js';
 import { clamp01 } from '../../utils/math.js';
 
-export const INLAND_TERRAIN_VERSION = 1;
+export const INLAND_TERRAIN_VERSION = 3;
 const FLOOR_OFFSET_M = 96;
 const REGION_WIDTH_M = 89600;
 const smooth = t => t * t * (3 - 2 * t);
@@ -22,7 +22,10 @@ export function makeInlandTerrain(seed, songprint) {
     if (i) variation += Math.abs(height - skyline[i - 1]) / last;
   }
   const spread = Math.max(...skyline) - Math.min(...skyline);
-  const direction = .33 * Math.PI + 2.8 * balance + .72 * (skyline[last] - skyline[0]);
+  // The outline's balance turns the region; the seed spreads songs around
+  // the compass so different recordings do not share one orientation.
+  const turn = ((seed >>> 0) % 3600) / 3600 * 2 * Math.PI;
+  const direction = turn + 2.8 * balance + .72 * (skyline[last] - skyline[0]);
 
   return Object.freeze({
     version: INLAND_TERRAIN_VERSION,

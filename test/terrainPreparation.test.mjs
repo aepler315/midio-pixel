@@ -6,6 +6,8 @@ import * as Mesh from '../src/world/alpine/TerrainMesh.js';
 import * as Features from '../src/world/alpine/TerrainFeatures.js';
 import * as GL from '../src/world/alpine/TerrainGL.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
+import { INLAND_MAX_DRY_FLOW, INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
+import { wetTexelMask } from '../src/world/alpine/WaterSubset.js';
 
 function terrain() {
   const cells = 32, samples = cells + 1;
@@ -25,6 +27,31 @@ test('live surface preparation yields and keeps every shoreline, normal and rece
     turns=0;assert.deepEqual(await Mesh.buildReceiverMaskAsync(actual,options),Mesh.buildReceiverMask(expected));
     assert.ok(turns>1,'both receiver sweeps must allow frames');
   }
+});
+
+test('the coarse inland atlas preserves river membership and pins only the channel and its banks', () => {
+  const data = terrain();
+  const stride = 8, samples = data.cells / stride + 1;
+  const flowBytes = Uint8Array.from({ length: samples ** 2 }, (_, i) => i % samples === 1 ? INLAND_RIVER_FLOW : 253);
+  data.tiles.set('0,0', { ix: 0, iz: 0, stride, samples, heightsM: new Float32Array(flowBytes.length), flowBytes });
+  const options = { stride: 4 };
+  const legacy = Mesh.buildSurfaceTexture(data, options);
+  assert.ok(Mesh.buildReceiverMask(legacy).data.every(value => value === 255));
+
+  data.manifest = { hydrology: { riverFlow: INLAND_RIVER_FLOW } };
+  const surface = Mesh.buildSurfaceTexture(data, options);
+  const flowAt = (x, z) => surface.data[(z * surface.width + x) * 4 + 3];
+  for (let z = 0; z < surface.height; z++) {
+    assert.equal(flowAt(1, z), INLAND_RIVER_FLOW, 'retain exact half-coverage at coarse junctions');
+    assert.equal(flowAt(2, z), INLAND_RIVER_FLOW);
+    assert.equal(flowAt(3, z), INLAND_RIVER_FLOW);
+    assert.equal(flowAt(4, z), INLAND_MAX_DRY_FLOW);
+  }
+  assert.equal(wetTexelMask(surface.data, surface.width, surface.height).count, 0);
+  const receiver = Mesh.buildReceiverMask(surface).data;
+  assert.equal(receiver[2], 0);
+  assert.equal(receiver[5], 0);
+  assert.equal(receiver[8], 255);
 });
 
 test('live feature extraction yields while preserving reservoir order and no-data rejection', async () => {

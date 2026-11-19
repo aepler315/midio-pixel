@@ -2,7 +2,7 @@
 // signed distance to rail/tour source edges; BA is the corresponding forest
 // instance footprint. It never classifies water or replaces source elevation.
 import { terrainHeightAt } from './TerrainMesh.js';
-import { forestDistances } from './ForestCover.js';
+import { forestDistances, hasInlandWoodland, inlandCorridor, INLAND_CORRIDOR_M } from './ForestCover.js';
 import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 
 export const OPENING_COVERAGE_SIDE = 129;
@@ -42,7 +42,10 @@ function* coverageSteps(data, view) {
   const cell = Math.max(...extentM) / (OPENING_COVERAGE_SIDE - 1);
   const width = Math.max(2, Math.round(extentM[0] / cell) + 1), height = Math.max(2, Math.round(extentM[1] / cell) + 1);
   const packed = new Uint8Array(width * height * 4);
-  const edges = [boundaries(data, true), boundaries(data, false)], paths = forestDistances(view);
+  const edges = [boundaries(data, true), boundaries(data, false)];
+  const inlandWoodland = hasInlandWoodland(data);
+  const corridorAt = inlandWoodland ? inlandCorridor(data) : null;
+  const paths = inlandWoodland ? null : forestDistances(view);
   const fadeM = Math.max(250, cell * 2), tileM = data.cells * g.cellSizeM;
   // A composed stage ships every tile: its grid edge is open lake, not a
   // missing source, so the build overview fades none of it.
@@ -57,7 +60,13 @@ function* coverageSteps(data, view) {
         const inside = Number.isFinite(y) && edges[mode].drawn(tile);
         packed[o + mode] = complete ? 255 : Math.round(255 * unit(.5 + .5 * signedDistance(edges[mode], x, z, inside, fadeM) / fadeM));
       }
-      if (Number.isFinite(y)) {
+      // Inland instances fill the stands along the flown valleys; elsewhere
+      // the mean canopy owns the same stands.
+      if (corridorAt && Number.isFinite(y)) {
+        const own = Math.round(255 * (1 - smooth(INLAND_CORRIDOR_M - 450, INLAND_CORRIDOR_M - 50, corridorAt(x, z))));
+        packed[o + 2] = own; packed[o + 3] = own;
+      }
+      if (paths && Number.isFinite(y)) {
         const p = [x, y, z], rail = paths.rail(p), tour = paths.footprint ? paths.footprint(p, rail) : rail;
         packed[o + 2] = Math.round(255 * (1 - smooth(6500, 8000, rail)));
         packed[o + 3] = Math.round(255 * (1 - smooth(6500, 8000, tour)));
