@@ -915,8 +915,13 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
         const u = (x * c + z * sn) / 1100, v = (z * c - x * sn) / 380;
         const high = clamp01((base - floorM) / 700) * (1 - floorMask) * clamp01(g * 2 + .3);
         const amp = lerp(110, PEAK_DETAIL_M, songTension(x, z));
+        const steep = clamp01(g * 1.6);
+        const u2 = (x * c + z * sn) / 340, v2 = (z * c - x * sn) / 105;
         detail = high * (amp * (ridged(seed ^ 0x3d, u, v, 3) - .42) + 40 * (fbm(seed ^ 0x5e, x / 900, z / 900, 3) - .5)
-          + 18 * (valueNoise(seed ^ 0x9a, x / 220, z / 220) - .5));
+          // Couloirs and rock ribs down the steep faces, and broken
+          // blocks on the crests, at the scale the near mesh can carry.
+          + steep * 75 * (ridged(seed ^ 0x4f1, u2, v2, 3) - .45)
+          + 26 * (valueNoise(seed ^ 0x9a, x / 160, z / 160) - .5) + 12 * (valueNoise(seed ^ 0x9b, x / 70, z / 70) - .5));
         detail = Math.max(-PEAK_DETAIL_M, Math.min(PEAK_DETAIL_M, detail));
       } else if (!wet) {
         const c = g > 1e-4 ? gx / Math.hypot(gx, gz) : 1, sn = g > 1e-4 ? gz / Math.hypot(gx, gz) : 0;
@@ -936,6 +941,17 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
     /** 2 where a flown river corridor crosses the rectangle, 1 for any
      *  other river, 0 for open hillside. Conservative in both cases. */
     corridor(x0, z0, x1, z1) {
+      if (design.peaks) {
+        // The walls the flight passes keep the finest mesh: 3 within
+        // reach of the slot, 2 for the faces behind it.
+        let best = Infinity;
+        const pts = rivers[0].points;
+        for (const p of pts) {
+          const dx = Math.max(x0 - p.x, 0, p.x - x1), dz = Math.max(z0 - p.z, 0, p.z - z1);
+          best = Math.min(best, Math.hypot(dx, dz));
+        }
+        return best < 1400 ? 3 : best < 3600 ? 2 : best < 7000 ? 1 : 0;
+      }
       let level = 0;
       const margin = 1300;
       for (let z = z0 - margin; z <= z1 + margin + SEG_BUCKET_M; z += SEG_BUCKET_M) {

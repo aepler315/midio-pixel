@@ -67,7 +67,8 @@ function inlandTileLod(ix, iz, tilesX, tilesZ, own, corridor, forceStride) {
   const outside = Math.max(INLAND_PAD_LOW - ix, INLAND_PAD_LOW - iz,
     ix - tilesX + INLAND_PAD_HIGH + 1, iz - tilesZ + INLAND_PAD_HIGH + 1, 0);
   if (own) return { desktop: 2, mobile: 4 };
-  if (corridor === 2 && outside <= 1) return { desktop: 2, mobile: 4 };
+  if (corridor === 3 && outside <= 1) return { desktop: 1, mobile: 2 };
+  if (corridor >= 2 && outside <= 1) return { desktop: 2, mobile: 4 };
   if (corridor && outside <= 3) return { desktop: 4, mobile: 8 };
   const desktop = outside <= 1 ? 4 : outside <= 6 ? 16 : 32;
   return { desktop, mobile: Math.min(32, desktop * 2), ...(outside <= 6 ? { store: INLAND_SURFACE_STRIDE } : {}) };
