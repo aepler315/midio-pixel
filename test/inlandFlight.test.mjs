@@ -6,83 +6,114 @@ import { compileInlandFlight, inlandFlightPose } from '../src/world/alpine/Inlan
 import { DEFORM_PAD_M } from '../src/world/alpine/RangeCamera.js';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
 
-const BASE_M = 1800;
-const positions = [[-6300, -3300, 1670], [200, -8100, 1430], [-13500, -13700, 1500],
-  [9300, -6500, 1250], [9800, 5700, 940], [-14400, 6400, 900]];
-const slotIds = ['B1', 'H2', 'H1', 'B2', 'F2', 'F3'];
-const groundAt = (x, z) => Math.max(Math.abs(x), Math.abs(z)) > 44800 ? NaN
-  : BASE_M + 370 * Math.sin(x / 4900 + z / 11000) + 340 * Math.cos(z / 4200) + positions
-    .reduce((sum, [px, pz, h]) => sum + h * Math.exp(-((x - px) ** 2 + (z - pz) ** 2) / 9600000), 0);
-const [principal, companion] = positions.slice(0, 2).map(([x, z], i) => ({ slotId: slotIds[i], pointM: [x, groundAt(x, z), z] }));
+// A synthetic drained region: a meandering trunk flowing towards +z, one
+// tributary joining it from the east, valley walls rising away from both.
+const trunkX = z => 1500 * Math.sin(z / 6000);
+const trunkBed = z => 2000 + (30000 - z) * .004;
+const tribStart = [14000, -9000], tribEnd = [trunkX(0), 0];
+const tribAt = t => [tribStart[0] + (tribEnd[0] - tribStart[0]) * t, tribStart[1] + (tribEnd[1] - tribStart[1]) * t];
+const tribBed = t => trunkBed(0) + 180 * (1 - t);
+const segmentDistance = (x, z, [ax, az], [bx, bz]) => {
+  const dx = bx - ax, dz = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+  return { d: Math.hypot(x - ax - t * dx, z - az - t * dz), t };
+};
+const groundAt = (x, z) => {
+  if (Math.max(Math.abs(x), Math.abs(z)) > 44800) return NaN;
+  const trunk = trunkBed(z) + .42 * Math.abs(x - trunkX(z));
+  const { d, t } = segmentDistance(x, z, tribStart, tribEnd);
+  const trib = tribBed(t) + .42 * d;
+  return Math.min(trunk, trib) + 120 * Math.sin(x / 2100) * Math.cos(z / 2700) ** 2 + 120;
+};
+const course = (points) => points.map(([x, z, bed, area]) => [Math.round(x), Math.round(z), Math.round(bed), area, 0, area > 300 ? .5 : 0]);
+const trunkCourse = course(Array.from({ length: 151 }, (_, i) => { const z = -30000 + i * 400; return [trunkX(z), z, trunkBed(z), 200 + i * 10]; }));
+const tribCourse = course(Array.from({ length: 41 }, (_, i) => { const [x, z] = tribAt(i / 40); return [x, z, tribBed(i / 40), 60 + i * 4]; }));
+const region = {
+  version: 1,
+  rivers: [{ id: 0, joins: null, trunk: true, flown: true, areaKm2: 1700, course: trunkCourse },
+    { id: 1, joins: 0, trunk: false, flown: true, areaKm2: 220, course: tribCourse }],
+  confluences: [{ id: 'confluence-1', x: Math.round(tribEnd[0]), z: 0, bedM: Math.round(trunkBed(0)), areaKm2: 220 }],
+  gorges: [], broadReaches: [],
+  passes: [{ id: 'pass-0-1', x: 7000, z: -16000, heightM: Math.round(groundAt(7000, -16000)) }],
+};
+const summitAt = (x, z) => [x, groundAt(x, z) + 1600, z];
+const principal = { slotId: 'B2', pointM: summitAt(-11000, -6000) }, companion = { slotId: 'H3', pointM: summitAt(-4000, -18000) };
 const data = { groundAt, manifest: {
-  kind: 'song-range-stage', boundsM: { min: [-44800, 1000, -44800], max: [44800, 4500, 44800] },
-  source: { provenance: { composition: { pieces: slotIds.map(slotId => ({ slotId })) } } },
-  landmarks: positions.map(([x, z], i) => ({ name: 'Crest ' + slotIds[i], localM: [x, z] })),
+  kind: 'song-range-stage', boundsM: { min: [-44800, 1900, -44800], max: [44800, 5600, 44800] },
+  hydrology: { riverFlow: 254, region },
 } };
 const view = {
-  id: 'test-inland', songRange: { plan: { inland: { version: 1, seed: 37 } } },
+  id: 'test-inland', songRange: { plan: { inland: { version: 3, seed: 37 } } },
   songprintComposition: { principal, companion },
-  camera: { eyeStartM: [-6100, 2710, 16800], eyeEndM: [-5100, 2710, 15000],
-    targetStartM: [-3200, 2700, -4300], targetEndM: [-3100, 2740, -3900], fovYDeg: 36 },
+  camera: { eyeStartM: [trunkX(12000), trunkBed(12000) + 320, 12000], eyeEndM: [trunkX(10000), trunkBed(10000) + 320, 10000],
+    targetStartM: principal.pointM, targetEndM: principal.pointM, fovYDeg: 34 },
 };
-const timing = { guides: [{ progress01: .24 }, { progress01: .51 }, { progress01: .76 }], travelMs: 170000 };
-const options = { baseM: BASE_M, rise01: 1, heightAt: groundAt };
+const timing = { guides: [{ progress01: .24, timeMs: 50000 }, { progress01: .51, timeMs: 95000 }, { progress01: .76, timeMs: 140000 }], travelMs: 175000 };
+const options = { heightAt: groundAt };
 
-test('inland flight schedules three geographic views at the song’s transition progress', () => {
+test('the flight arrives at each stage boundary on the song’s transitions and ends facing the returning summits', () => {
   const route = compileInlandFlight(data, view, timing);
   assert.ok(route);
   assert.deepEqual(route.landmarks.map(landmark => landmark.progress01), [0, .24, .51, .76, 1]);
-  assert.equal(route.landmarks[0].id, principal.slotId);
-  assert.match(route.landmarks[1].id, /^pass-/);
-  assert.match(route.landmarks[3].id, /^basin-/);
-  assert.ok(new Set(route.landmarks.map(landmark => landmark.id)).size >= 4);
+  assert.equal(route.kinds[0], 'low');
+  assert.equal(route.kinds.at(-1), 'finale');
+  assert.ok(route.kinds.includes('climb'), 'a reveal shows how the valleys connect');
   const rail = scenePoseAt(view);
-  const at = p => inlandFlightPose(rail, route, { gain: 1, progress01: p }, options);
   for (const [i, mark] of route.landmarks.entries()) {
-    const sample = at(mark.progress01), planned = pathPoseAt(route.path, route.marks[i]);
-    assert.ok(Math.hypot(...sample.eyeM.map((coord, k) => coord - planned.eyeM[k])) < 1e-6);
+    const sample = inlandFlightPose(rail, route, { gain: 1, progress01: mark.progress01 }, options);
+    const planned = pathPoseAt(route.path, route.marks[i]);
+    assert.ok(Math.hypot(...sample.eyeM.map((coord, k) => coord - planned.eyeM[k])) < 1e-6 || i === route.landmarks.length - 1);
   }
+  const end = inlandFlightPose(rail, route, { gain: 1, progress01: 1 }, options);
+  const toSummit = principal.pointM.map((v, k) => v - end.eyeM[k]), look = end.targetM.map((v, k) => v - end.eyeM[k]);
+  const cos = toSummit.reduce((s, v, k) => s + v * look[k], 0) / Math.hypot(...toSummit) / Math.hypot(...look);
+  assert.ok(cos > .9, 'the finale looks at the returning pair');
 });
 
-test('inland flight keeps advancing, smooths clearance and preserves the fixed lens on arbitrary seeks', () => {
+test('low stretches follow the river close to the ground; reveals climb clear; the lens never zooms', () => {
   const route = compileInlandFlight(data, view, timing);
-  const crop = { fx: .15, rx: .011, uy: 0 };
-  const rail = { ...scenePoseAt(view), viewOffset: crop };
-  const at = (p, gain = 1) => inlandFlightPose(rail, route, { gain, progress01: p }, options);
-  const frames = Array.from({ length: 201 }, (_, i) => at(i / 200));
-  assert.strictEqual(at(.4, 0), rail);
-  assert.deepEqual(at(.81), frames[162]);
-  assert.deepEqual(at(.12), frames[24]);
-  assert.ok(route.path.lengthM >= 20000);
-  assert.ok(frames.every(pose => pose.fovYDeg === 36 && pose.viewOffset === crop));
+  const rail = scenePoseAt(view);
+  const frames = Array.from({ length: 401 }, (_, i) => inlandFlightPose(rail, route, { gain: 1, progress01: i / 400 }, options));
+  const low = frames.filter(pose => pose.songprintOrbit.mode === 'low').map(pose => pose.songprintOrbit.aglM).sort((a, b) => a - b);
+  const median = low[low.length >> 1];
+  assert.ok(median >= 60 && median <= 200, `low runs fly near the valley floor (${median} m)`);
+  assert.ok(frames.some(pose => pose.songprintOrbit.aglM > 280), 'a reveal climbs well above the hills');
+  // The opening run stays in the trunk valley.
+  for (const pose of frames.slice(0, 80)) {
+    const [x, , z] = pose.eyeM;
+    assert.ok(Math.abs(x - trunkX(z)) < 450, `opening eye ${Math.round(x)},${Math.round(z)} is in the trunk valley`);
+  }
   for (const [i, pose] of frames.entries()) {
-    const [x, y, z] = pose.eyeM;
-    assert.ok(groundAt(x, z) + DEFORM_PAD_M + 210 <= y);
-    assert.ok(Math.max(Math.abs(x), Math.abs(z)) < 43599);
+    const [x, y, z] = pose.eyeM, ground = groundAt(x, z);
+    assert.equal(pose.fovYDeg, 34);
+    assert.ok(y >= ground + 49, 'the eye stays clear of the ground');
     if (i === 0) continue;
     const previous = frames[i - 1];
-    assert.ok(pose.songprintOrbit.travelM > previous.songprintOrbit.travelM);
-    assert.ok(aimTurn(previous.eyeM, previous.targetM, pose.eyeM, pose.targetM) < .12);
+    assert.ok(pose.songprintOrbit.travelM >= previous.songprintOrbit.travelM);
+    assert.ok(aimTurn(previous.eyeM, previous.targetM, pose.eyeM, pose.targetM) < .2);
   }
-  assert.ok(frames.some(pose => aimTurn(frames[0].eyeM, frames[0].targetM, pose.eyeM, pose.targetM) > .40));
+  // Seeking: an arbitrary progress samples the same pose as playing to it.
+  assert.deepEqual(inlandFlightPose(rail, route, { gain: 1, progress01: .81 }, options), frames[324]);
+  assert.strictEqual(inlandFlightPose(rail, route, { gain: 0, progress01: .4 }, options), rail);
+  assert.ok(DEFORM_PAD_M > 0);
 });
 
 test('ordinary music-timed drawing uses the inland route and authored rails opt out', () => {
   const scene = Object.assign(Object.create(RangeScene.prototype), { _movedPoses: new WeakMap() });
   const prepared = { data, view, waterLevelM: null };
   const read = (progress01, songprintOrbitEnabled, choreography = timing) => scene.movedPose(view, {
-    progress01, timeMs: 170000 * progress01, rise01: .8, songprintOrbitEnabled,
+    progress01, timeMs: 175000 * progress01, rise01: .8, songprintOrbitEnabled,
     scenicViewport: { logicalWidth: 1280, logicalHeight: 720, nominalHeight: 720 },
     cameraEffects: { halfAngleScale: .82 },
     performance: { songprintOrbit: { gain: 1, progress01, ...choreography } },
   }, prepared);
   const flight = read(.54, true);
   assert.equal(flight.pose.songprintOrbit.routeStyle, 'inland');
-  assert.equal(flight.pose.fovYDeg, 36);
+  assert.equal(flight.pose.fovYDeg, 34);
   assert.equal(read(.54, false).pose.songprintOrbit, undefined);
   const revised = { ...timing, guides: [{ progress01: .2 }, { progress01: .47 }, { progress01: .74 }] };
   const later = read(.54, true, revised).pose.songprintOrbit;
   assert.deepEqual(later.landmarks.map(landmark => landmark.progress01), [0, .2, .47, .74, 1]);
   assert.deepEqual(read(.54, true), flight);
   assert.equal(compileInlandFlight(data, { ...view, songRange: null }, timing), null);
+  assert.equal(compileInlandFlight({ ...data, manifest: { ...data.manifest, hydrology: null } }, view, timing), null);
 });

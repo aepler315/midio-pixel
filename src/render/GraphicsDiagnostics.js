@@ -20,7 +20,7 @@ function performanceBlock(p) {
   const g = p.governor;
   return { ...pick(p, ['capFps', 'presentedFps', 'callbackFps', 'mirror', 'backdrop']),
     lastFrameSyncWaitMs: pick(p.lastFrameSyncWaitMs, ['total', 'calls', 'crestRead', 'crestEdges', 'probeCollect', 'presenter']),
-    view: pick(p.view, ['viewId', 'songRange', 'tiles', 'triangles', 'trees']),
+    view: pick(p.view, ['viewId', 'songRange', 'tiles', 'triangles', 'trees', 'inlandRivers']),
     governor: g == null ? null : { ...pick(g, ['level', 'minLevel', 'fixtureLevel', 'holdQuality', 'retro', 'sinceSec', 'eventsDropped',
       'levelSec', 'samples', 'recoverWindowSec', 'periodMs', 'workMs', 'syncWaitMs']),
     events: (g.events || []).slice(-32).map((e) => pick(e, ['atSec', 'from', 'to', 'cause', 'periodMs', 'workMs', 'overCount', 'workOverCount'])) } };

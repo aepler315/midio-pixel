@@ -87,7 +87,7 @@ Lifecycle: when a change reaches a running page.
 
 - `landDance` — How strongly the music moves ridges and drainages. 0 keeps the land still between growth steps. URL rule: `on` or empty is 1, `off` is 0, numbers clamp to 0–1, other text is 1. Inactive unless: Needs the 3D landscape renderer.
 - `rangeView` — Play every landscape against one catalog view instead of the song's own matches. Diagnostic: songs no longer choose their scenery. Inactive unless: Needs the 3D landscape renderer. The Teton highway tour forces its own view.
-- `songprintLandscape` — Build an inland landscape from the recording’s harmonic shape. With Music-timed tours, the camera follows ridges and valleys and changes its aim at musical transitions. URL rule: `1` or `on` enables the experiment for the next song. Inactive unless: Needs the 3D landscape renderer.
+- `songprintLandscape` — Build a connected region of ranges, river valleys, gorges and wooded foothills from the recording’s harmonic shape, with two measured summits that return through the song. With Music-timed tours, the camera flies low along the rivers, climbs over passes at musical transitions and lets the energy set its pace. URL rule: `1` or `on` enables the experiment for the next song. Inactive unless: Needs the 3D landscape renderer.
 - `songprintAtmosphere` — Let recurring musical phrases thin valley mist and lift the wind. Strong returns can help an existing shower clear. Inactive unless: Needs the 3D landscape renderer.
 
 ## Performance

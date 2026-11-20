@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateMaterialManifest, materialGpuBytes, hexToLinear, loadMaterialPack, MATERIAL_ROLES } from '../src/world/alpine/MaterialPackage.js';
+import { validateMaterialManifest, materialGpuBytes, hexToLinear, loadMaterialPack, MATERIAL_ROLES, inlandMaterialRules } from '../src/world/alpine/MaterialPackage.js';
+import { regionElevationSpan } from '../src/world/terrain/InlandRegion.js';
 import { REAL_BIOME_NAMES } from '../src/world/RealBiomes.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -85,6 +86,26 @@ test('habitat rules follow each biome\'s real vegetation and snow', () => {
   // tundra and taiga are not an icefield.
   assert.ok(byId.taiga.rules.treelineM > 1200);
   for (const id of ['taiga', 'tundra']) assert.ok(byId[id].rules.snowlineM > byId.icefield.rules.snowlineM + 1000, id);
+});
+
+test('inland habitat carries each pack\'s bands onto the region\'s floor and crests', () => {
+  const byId = Object.fromEntries(packs.map(({ m }) => [m.id, m.rules]));
+  const baseM = 2050, field = { seed: 17, skyline: Array.from({ length: 16 }, (_, i) => (i % 5) / 4), east: 1, north: 0 };
+  const plan = family => ({ songRange: { plan: { baseM, family, inland: field } } });
+  const { floorM, topM } = regionElevationSpan(field, baseM);
+  const wet = Object.freeze(byId['wet-conifer']), wetIn = inlandMaterialRules(plan('wet-conifer'), wet);
+  // Wet conifer: forested foothills, snow only on the upper crests.
+  assert.ok(wetIn.treelineM > floorM + .45 * (topM - floorM) && wetIn.treelineM < topM);
+  assert.ok(wetIn.snowlineM >= floorM + .72 * (topM - floorM) && wetIn.snowFullM > wetIn.snowlineM);
+  assert.equal(wetIn.forestDensity, wet.forestDensity);
+  // Treeless packs keep valley woods; their own colours and rules stay.
+  const tundra = inlandMaterialRules(plan('tundra'), byId.tundra);
+  assert.ok(tundra.treelineM >= floorM + .5 * (topM - floorM) - 1 && tundra.forestDensity >= .42);
+  assert.equal(tundra.moss, byId.tundra.moss);
+  const steppe = inlandMaterialRules(plan('steppe'), byId.steppe);
+  assert.ok(steppe.forestFloorM <= floorM + .12 * (topM - floorM));
+  // Only inland plans change.
+  assert.equal(inlandMaterialRules({ songRange: { plan: { baseM } } }, wet), wet);
 });
 
 test('GPU ownership counts each shared texture once, with mips', () => {

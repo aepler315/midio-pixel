@@ -57,7 +57,10 @@ test('a composition chooses distinct, fitting real pieces and preserves their id
     assert.ok(!Object.hasOwn(range, 'songSeed'));
     assert.equal(songRangeKey(planSongRange(null, 27, { songprint })), songRangeKey(range));
     const template = massifs.templates.find(t => t.id === range.templateId);
-    assert.equal(new Set(range.slots.map(s => s.pieceId)).size, template.slots.length);
+    // Inland, the returning pair stands on the region's ranges.
+    assert.ok(range.inland);
+    assert.deepEqual(range.slots.map(s => s.slotId).sort(), [range.principal.slotId, range.companionSlot].sort());
+    assert.equal(new Set(range.slots.map(s => s.pieceId)).size, range.slots.length);
     for (const placement of range.slots) {
       const piece = byId.get(placement.pieceId);
       const slot = template.slots.find(s => s.id === placement.slotId);
@@ -81,9 +84,8 @@ test('different musical contours change the landscape and near island within the
   assert.notEqual(first.companionSlot, first.principal.slotId);
   assert.notEqual(second.companionSlot, second.principal.slotId);
   assert.equal(first.family, second.family);
-  assert.notDeepEqual(first.slots.map(slot => [slot.pieceId, slot.mirrored]), second.slots.map(slot => [slot.pieceId, slot.mirrored]));
-  assert.notEqual(first.slots.find(slot => slot.slotId === 'F2').pieceId,
-    second.slots.find(slot => slot.slotId === 'F2').pieceId);
+  assert.notDeepEqual(first.slots.map(slot => [slot.slotId, slot.pieceId, slot.mirrored]), second.slots.map(slot => [slot.slotId, slot.pieceId, slot.mirrored]));
+  assert.notDeepEqual(first.inland, second.inland, 'the region itself changes with the outline');
 });
 
 test('musical height across each footprint continuously varies the relief even with identical discrete pieces', () => {

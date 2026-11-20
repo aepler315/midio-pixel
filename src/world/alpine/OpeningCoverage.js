@@ -2,7 +2,7 @@
 // signed distance to rail/tour source edges; BA is the corresponding forest
 // instance footprint. It never classifies water or replaces source elevation.
 import { terrainHeightAt } from './TerrainMesh.js';
-import { forestDistances } from './ForestCover.js';
+import { forestDistances, hasInlandWoodland, inlandCorridor, INLAND_CORRIDOR_M } from './ForestCover.js';
 import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 
 export const OPENING_COVERAGE_SIDE = 129;
@@ -10,7 +10,11 @@ const unit = x => Math.max(0, Math.min(1, x));
 const ease = x => { const u = unit(x); return u * u * (3 - 2 * u); };
 const smooth = (a, b, x) => ease((x - a) / (b - a));
 // Includes CPU/GPU bytes and bounded temporary exposed-edge lists.
-export const openingCoverageBytes = data => OPENING_COVERAGE_SIDE ** 2 * 8 + (data?.tiles?.size || 0) * 256;
+// Inland stands are owned by instances only within a valley corridor about
+// 1.6 km wide: a finer field (200 m texels over 89.6 km) resolves it.
+export const INLAND_COVERAGE_SIDE = 449;
+const coverageSide = data => hasInlandWoodland(data) ? INLAND_COVERAGE_SIDE : OPENING_COVERAGE_SIDE;
+export const openingCoverageBytes = data => coverageSide(data) ** 2 * 8 + (data?.tiles?.size || 0) * 256;
 
 function boundaries(data, rail) {
   const drawn = t => !!t?.visible && (!rail || t.rail !== false);
@@ -39,10 +43,13 @@ function signedDistance(edge, x, z, inside, limit) {
 }
 function* coverageSteps(data, view) {
   const g = data.grid, extentM = [(g.width - 1) * g.cellSizeM, (g.height - 1) * g.cellSizeM];
-  const cell = Math.max(...extentM) / (OPENING_COVERAGE_SIDE - 1);
+  const cell = Math.max(...extentM) / (coverageSide(data) - 1);
   const width = Math.max(2, Math.round(extentM[0] / cell) + 1), height = Math.max(2, Math.round(extentM[1] / cell) + 1);
   const packed = new Uint8Array(width * height * 4);
-  const edges = [boundaries(data, true), boundaries(data, false)], paths = forestDistances(view);
+  const edges = [boundaries(data, true), boundaries(data, false)];
+  const inlandWoodland = hasInlandWoodland(data);
+  const corridorAt = inlandWoodland ? inlandCorridor(data) : null;
+  const paths = inlandWoodland ? null : forestDistances(view);
   const fadeM = Math.max(250, cell * 2), tileM = data.cells * g.cellSizeM;
   // A composed stage ships every tile: its grid edge is open lake, not a
   // missing source, so the build overview fades none of it.
@@ -57,7 +64,15 @@ function* coverageSteps(data, view) {
         const inside = Number.isFinite(y) && edges[mode].drawn(tile);
         packed[o + mode] = complete ? 255 : Math.round(255 * unit(.5 + .5 * signedDistance(edges[mode], x, z, inside, fadeM) / fadeM));
       }
-      if (Number.isFinite(y)) {
+      // Inland instances fill the stands along the flown valleys; elsewhere
+      // the mean canopy owns the same stands.
+      if (corridorAt && Number.isFinite(y)) {
+        // Full weight wherever an instance may stand (one texel beyond the
+        // corridor), so filtering never thins the placed trees.
+        const own = Math.round(255 * (1 - smooth(INLAND_CORRIDOR_M + 200, INLAND_CORRIDOR_M + 420, corridorAt(x, z, INLAND_CORRIDOR_M + 500))));
+        packed[o + 2] = own; packed[o + 3] = own;
+      }
+      if (paths && Number.isFinite(y)) {
         const p = [x, y, z], rail = paths.rail(p), tour = paths.footprint ? paths.footprint(p, rail) : rail;
         packed[o + 2] = Math.round(255 * (1 - smooth(6500, 8000, rail)));
         packed[o + 3] = Math.round(255 * (1 - smooth(6500, 8000, tour)));

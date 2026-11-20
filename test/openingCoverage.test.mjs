@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../src/vendor/range/three-range.module.js';
 import { SCENE_FRAG } from '../src/world/alpine/TerrainMaterial.js';
+import { INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
 import * as coverage from '../src/world/alpine/OpeningCoverage.js';
 
@@ -52,6 +53,16 @@ test('near-camera ground beyond the placed forest footprint keeps continuous can
   const distant = { camera: { ...view.camera, eyeStartM: [-8000, 200, 0], eyeEndM: [-8000, 200, 3000] } };
   const field = coverage.buildOpeningCoverage(terrain(), distant);
   assert.equal(coverage.sampleOpeningCoverage(field, 1000, 1500).forest, 0);
+});
+
+test('inland instances own the stands along the flown valleys; the mean canopy owns the rest', () => {
+  const data = terrain();
+  data.manifest = { boundsM: { min: [-20000, 0, -20000], max: [20000, 1000, 20000] },
+    hydrology: { riverFlow: INLAND_RIVER_FLOW, region: { rivers: [{ flown: true, course: [[1500, 0], [1500, 3000]] }] } } };
+  const field = coverage.buildOpeningCoverage(data, view);
+  assert.equal(coverage.sampleOpeningCoverage(field, 1500, 1500).forest, 1);
+  assert.equal(coverage.sampleOpeningCoverage(field, 1500, 1500, true).forest, 1);
+  assert.equal(coverage.sampleOpeningCoverage(field, 3800, 1500).forest, 0);
 });
 
 test('sliced construction preserves bytes and cancellation stops before another row', async () => {

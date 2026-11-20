@@ -3,6 +3,8 @@
 // height, coverage -- never colour), a palette of sRGB albedo values and
 // placement rules. Validation runs before any byte is decoded or uploaded.
 import { RangeAssetError, sha256Hex } from './RangeAssets.js';
+import { regionElevationSpan } from '../terrain/InlandRegion.js';
+import MASSIF_CATALOG from '../terrain/massifCatalogData.js';
 
 export const MATERIAL_SCHEMA = 'midio.material';
 export const MATERIAL_VERSION = 1;
@@ -18,6 +20,51 @@ export const OPTIONAL_RULE_KEYS = Object.freeze(['forestFloorM', 'treeScale', 'a
 export const RULE_DEFAULTS = Object.freeze({ forestFloorM: -100000, treeScale: 1, airScale: 1, waterSkyMix: 0.9, waterGlintGain: 3 });
 const WATER_RULE_BOUNDS = Object.freeze({ waterSkyMix: 1, waterGlintGain: 3 });
 const HEX = /^#[0-9a-f]{6}$/i;
+
+const INLAND_WOODED_FRACTION = .5, INLAND_MIN_FOREST_DENSITY = .42, INLAND_SNOW_FRACTION = .72;
+
+/** A family's surveyed elevation span: the lower quartile of its massif
+ *  bases and the upper decile of their summits. Its pack's bands were set
+ *  for terrain in that span. */
+function familySpan(catalog, family) {
+  const pieces = catalog?.pieces?.filter(p => p.family === family) ?? [];
+  if (pieces.length < 3) return null;
+  const bases = pieces.map(p => p.peakM - p.peakReliefM).sort((a, b) => a - b);
+  const tops = pieces.map(p => p.peakM).sort((a, b) => a - b);
+  const at = (list, q) => list[Math.floor(q * (list.length - 1))];
+  const span = [at(bases, .25), at(tops, .9)];
+  return span[1] - span[0] > 200 ? span : null;
+}
+
+/** A generated inland region has its own datum and relief. Carry each of the
+ *  pack's elevation bands across proportionally, from the family's surveyed
+ *  span to the region's valley floor and crests, so a wet conifer region
+ *  keeps forested foothills under snowy crests and a tundra region stays
+ *  bare, whatever the absolute heights. */
+export function inlandMaterialRules(view, rules, catalog = MASSIF_CATALOG) {
+  const plan = view?.songRange?.plan;
+  if (!plan?.inland || !Number.isFinite(plan.baseM)) return rules;
+  const span = familySpan(catalog, plan.family);
+  if (!span) return rules;
+  const { floorM, topM } = regionElevationSpan(plan.inland, plan.baseM);
+  const map = v => Number.isFinite(v) ? Math.round(floorM + (v - span[0]) / (span[1] - span[0]) * (topM - floorM)) : v;
+  const out = { ...rules, treelineM: map(rules.treelineM), snowlineM: map(rules.snowlineM), snowFullM: map(rules.snowFullM) };
+  if (Number.isFinite(rules.forestFloorM) && rules.forestFloorM > -1e4) out.forestFloorM = map(rules.forestFloorM);
+  // Valleys this far below the crests keep woods even in open country:
+  // spruce in tundra valley bottoms, galleries along desert rivers.
+  out.treelineM = Math.max(out.treelineM, Math.round(floorM + INLAND_WOODED_FRACTION * (topM - floorM)));
+  // Snow keeps to the upper crests: the region's foothills stay green.
+  if (plan.family !== 'icefield') out.snowlineM = Math.max(out.snowlineM, Math.round(floorM + INLAND_SNOW_FRACTION * (topM - floorM)));
+  out.snowlineM = Math.max(out.snowlineM, out.treelineM + 120);
+  out.snowFullM = Math.max(out.snowFullM, out.snowlineM + 300);
+  out.forestDensity = Math.max(rules.forestDensity ?? 0, INLAND_MIN_FOREST_DENSITY);
+  out.forestMaxSlopeDeg = Math.max(rules.forestMaxSlopeDeg ?? 0, 34);
+  // Valley woods are full-size trees, a little larger than life so stands
+  // keep their mass on the native pixel grid, even where a pack keeps scrub.
+  out.treeScale = Math.round(100 * Math.max(.8, rules.treeScale ?? RULE_DEFAULTS.treeScale) * 1.25) / 100;
+  if (Number.isFinite(out.forestFloorM)) out.forestFloorM = Math.min(out.forestFloorM, Math.round(floorM + .12 * (topM - floorM)));
+  return out;
+}
 
 /** Water receivers accept the same bounded controls in packs and view overrides. */
 export function validateWaterRules(rules = {}) {

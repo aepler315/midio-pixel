@@ -39,6 +39,38 @@ function visiblePoint(data, pose, point) {
   return seenFrom(data, pose.eyeM, [point[0], point[1] + 2, point[2]]) ? result : null;
 }
 
+/** The opening rail of an inland region: down in the trunk valley, a
+ *  little above the river, looking up at the returning pair. The template
+ *  rail only had a provisional height before the region existed. */
+export function inlandRailCamera(data, view, composition) {
+  if (!view.songRange?.plan?.inland || !composition) return view.camera;
+  const trunk = data.manifest?.hydrology?.region?.rivers?.find(river => river.trunk);
+  const peaks = [composition.principal.pointM, composition.companion.pointM];
+  const mid = [(peaks[0][0] + peaks[1][0]) / 2, Math.max(peaks[0][1], peaks[1][1]), (peaks[0][2] + peaks[1][2]) / 2];
+  const lift = (x, z, clearance) => {
+    let top = -Infinity;
+    for (const [dx, dz] of [[0, 0], [250, 0], [-250, 0], [0, 250], [0, -250]]) {
+      const y = terrainHeightAt(data, x + dx, z + dz);
+      if (Number.isFinite(y)) top = Math.max(top, y);
+    }
+    return Number.isFinite(top) ? top + clearance : NaN;
+  };
+  let best = null;
+  for (const [i, point] of (trunk?.course ?? []).entries()) {
+    const [x, z] = point, next = trunk.course[Math.min(trunk.course.length - 1, i + 4)];
+    const d = Math.hypot(mid[0] - x, mid[2] - z);
+    if (d < 8000 || d > 26000 || next === point) continue;
+    const eyeStartM = [x, lift(x, z, 320), z], eyeEndM = [next[0], lift(next[0], next[1], 320), next[1]];
+    if (!eyeStartM.every(Number.isFinite) || !eyeEndM.every(Number.isFinite)) continue;
+    const pose = { eyeM: eyeStartM, targetM: mid, fovYDeg: view.camera.fovYDeg };
+    const seen = peaks.filter(peak => visiblePoint(data, pose, peak)).length;
+    const score = seen * 2 - Math.abs(d - 15000) / 15000;
+    if (!best || score > best.score) best = { score, eyeStartM, eyeEndM };
+  }
+  if (!best) return view.camera;
+  return { ...view.camera, eyeStartM: best.eyeStartM, eyeEndM: best.eyeEndM, targetStartM: mid, targetEndM: mid };
+}
+
 function viewpointScore(data, pose, landmarks, index, composition = null) {
   const summit = visiblePoint(data, pose, landmarks[index].pointM);
   if (!summit) return 0;

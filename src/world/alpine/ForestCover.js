@@ -13,7 +13,8 @@
 // hydro-flattened water or above the treeline), evaluated from the
 // package's own heights. These are derived habitat masks, not measured
 // land cover.
-import { terrainHeightAt, BANDS } from './TerrainMesh.js';
+import { terrainHeightAt, makeTerrainMeshHeightSampler, BANDS } from './TerrainMesh.js';
+import { INLAND_RIVER_FLOW, INLAND_SURFACE_STRIDE } from './TerrainPackage.js';
 import { RULE_DEFAULTS } from './MaterialPackage.js';
 import { scenePoseAt, pathStations } from '../terrain/SceneTravel.js';
 
@@ -59,6 +60,45 @@ export const FOREST_TRAITS_GLSL = /* glsl */`
 `;
 
 const u01 = (h) => h / 4294967296;
+
+// Inland woods grow in stands: a two-scale value noise, the same in the
+// terrain shader (mean canopy and far dots) and in placement (instances),
+// opened up on steep ground and thickened along wet valley sides.
+const STAND_SALT_A = 0x51a7, STAND_SALT_B = 0x2b3f;
+function standNoise(seed, x, z, cell, salt) {
+  const gx = x / cell, gz = z / cell, ix = Math.floor(gx), iz = Math.floor(gz);
+  const u = gx - ix, v = gz - iz, su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
+  const k = (seed + salt) >>> 0;
+  const a = u01(hash2(ix, iz, k)), b = u01(hash2(ix + 1, iz, k)), c = u01(hash2(ix, iz + 1, k)), d = u01(hash2(ix + 1, iz + 1, k));
+  return a + (b - a) * su + (c - a) * sv + (a - b - c + d) * su * sv;
+}
+/** 0..1 stand membership at (x, z) for a pack density, moisture (0..1, from
+ *  the flow byte) and slope. Mirrored by INLAND_STAND_GLSL. */
+export function inlandStand(seed, x, z, density, moisture01, slopeDeg) {
+  const n = .62 * standNoise(seed, x, z, 760, STAND_SALT_A) + .38 * standNoise(seed, x, z, 230, STAND_SALT_B);
+  const lo = .7 - .22 * Math.min(1, Math.max(0, density));
+  // Sparse packs keep their woods by the water.
+  const wet = .2 + .35 * (1 - Math.min(1, Math.max(0, density)));
+  const t = (n + wet * moisture01 - .12 * Math.max(0, (slopeDeg - 30) / 15) - lo) / .08;
+  const c = Math.min(1, Math.max(0, t));
+  return c * c * (3 - 2 * c);
+}
+export const INLAND_STAND_GLSL = /* glsl */`
+  float standNoise(uint seed, vec2 p, float cell, uint salt) {
+    vec2 g = p / cell, i = floor(g), f = g - i, s = f * f * (3.0 - 2.0 * f);
+    ivec2 c = ivec2(i);
+    uint k = seed + salt;
+    float a = forestU01(hash2u(c.x, c.y, k)), b = forestU01(hash2u(c.x + 1, c.y, k));
+    float d = forestU01(hash2u(c.x, c.y + 1, k)), e = forestU01(hash2u(c.x + 1, c.y + 1, k));
+    return a + (b - a) * s.x + (d - a) * s.y + (a - b - d + e) * s.x * s.y;
+  }
+  float inlandStand(uint seed, vec2 p, float density, float moisture, float slopeDeg) {
+    float n = .62 * standNoise(seed, p, 760.0, ${STAND_SALT_A}u) + .38 * standNoise(seed, p, 230.0, ${STAND_SALT_B}u);
+    float lo = .7 - .22 * clamp(density, 0.0, 1.0);
+    float wet = .2 + .35 * (1.0 - clamp(density, 0.0, 1.0));
+    return smoothstep(0.0, 1.0, (n + wet * moisture - .12 * max(0.0, (slopeDeg - 30.0) / 15.0) - lo) / .08);
+  }
+`;
 
 /** A cell's ring scale: each tree's own detail and mesh ring radii are the
  *  rings times this (.82 to 1.18), so representations mix across a stand
@@ -238,10 +278,160 @@ function authoredRail(view) {
   };
 }
 
+// Inland woods: the camera flies low along the trunk valley and its largest
+// tributaries, so instances fill the stands within a corridor of those
+// rivers; beyond it, the shader's mean canopy carries the same stands.
+export const INLAND_LATTICE_M = 17;
+export const INLAND_CORRIDOR_M = 820;
+const INLAND_FULL_M = 600;
+// The mobile mesh draws a sparser lattice of the same stands.
+const inlandLattice = budget => budget === 'mobile' ? 21 : INLAND_LATTICE_M;
+const INLAND_TREE_CAP = Object.freeze({ desktop: 340000, mobile: 170000 });
+const clamp01 = n => Math.min(1, Math.max(0, n));
+export const hasInlandWoodland = data => data?.manifest?.hydrology?.riverFlow === INLAND_RIVER_FLOW && !!data.manifest.hydrology.region;
+
+/** Distance (m, capped) from (x, z) to the flown rivers' courses. */
+export function inlandCorridor(data) {
+  // Only the travelled core: the outer ground is seen from afar.
+  const { min, max } = data.manifest.boundsM;
+  const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2, reach = .34 * (max[0] - min[0]);
+  const lines = (data.manifest.hydrology.region.rivers ?? []).filter(r => r.flown)
+    .map(r => r.course.filter(([x, z]) => Math.abs(x - cx) < reach && Math.abs(z - cz) < reach).map(([x, z]) => [x, 0, z]))
+    .filter(line => line.length);
+  if (!lines.length) return () => Infinity;
+  const distance = polylineDistance(lines);
+  return (x, z, bound = INLAND_CORRIDOR_M) => distance([x, 0, z], bound);
+}
+
+/** Flow byte and wet fraction under (x, z), bilinear over the stored samples
+ *  (the same samples the surface atlas reads). */
+function inlandHabitatAt(data, x, z) {
+  const { grid, cells, manifest: { tilesX, tilesZ } } = data;
+  const gx = (x - grid.originM[0]) / grid.cellSizeM, gz = (z - grid.originM[1]) / grid.cellSizeM;
+  const ix = Math.floor(gx / cells) - (gx === tilesX * cells ? 1 : 0);
+  const iz = Math.floor(gz / cells) - (gz === tilesZ * cells ? 1 : 0);
+  const tile = data.byIndex.get(`${ix},${iz}`);
+  if (!tile?.visible) return null;
+  const fu = (gx - ix * cells) / tile.stride, fv = (gz - iz * cells) / tile.stride;
+  const n = tile.samples;
+  const u = Math.min(n - 2, Math.floor(fu)), v = Math.min(n - 2, Math.floor(fv));
+  const tx = fu - u, tz = fv - v, i = v * n + u;
+  const fa = tile.flowBytes[i], fb = tile.flowBytes[i + 1], fc = tile.flowBytes[i + n], fd = tile.flowBytes[i + n + 1];
+  const a = (1 - tx) * (1 - tz), b = tx * (1 - tz), c = (1 - tx) * tz, d = tx * tz;
+  const wet = (fa >= INLAND_RIVER_FLOW ? a : 0) + (fb >= INLAND_RIVER_FLOW ? b : 0)
+    + (fc >= INLAND_RIVER_FLOW ? c : 0) + (fd >= INLAND_RIVER_FLOW ? d : 0);
+  const dry = (fa >= INLAND_RIVER_FLOW ? 0 : a * fa) + (fb >= INLAND_RIVER_FLOW ? 0 : b * fb)
+    + (fc >= INLAND_RIVER_FLOW ? 0 : c * fc) + (fd >= INLAND_RIVER_FLOW ? 0 : d * fd);
+  return { wet, flow: wet < 1 ? dry / (1 - wet) : INLAND_RIVER_FLOW, band: Math.max(0, BANDS.indexOf(tile.band)) };
+}
+
+/** Keep roots out of any atlas cell a river touches: filtering can widen a
+ *  channel beyond its stored samples. */
+function touchesRiverCell(data, x, z) {
+  const step = data.grid.cellSizeM * INLAND_SURFACE_STRIDE;
+  const [ox, oz] = data.grid.originM;
+  const left = ox + Math.floor((x - ox) / step) * step, top = oz + Math.floor((z - oz) / step) * step;
+  for (let dz = 0; dz <= step; dz += step) for (let dx = 0; dx <= step; dx += step) {
+    if (inlandHabitatAt(data, left + dx, top + dz)?.wet > .2) return true;
+  }
+  return false;
+}
+
+/** Tiles worth visiting: within the corridor and below the treeline. */
+function* inlandForestTiles(data, treeline, corridorAt) {
+  const size = data.cells * data.grid.cellSizeM;
+  for (const tile of data.tiles.values()) {
+    if (!tile.visible || tile.minY > treeline + 150) continue;
+    const x0 = data.grid.originM[0] + tile.ix * size, z0 = data.grid.originM[1] + tile.iz * size;
+    if (corridorAt(x0 + size / 2, z0 + size / 2, INLAND_CORRIDOR_M + size) > INLAND_CORRIDOR_M + size * .7072) continue;
+    yield [tile, x0, z0, size];
+  }
+}
+
+function* placeInlandForestSteps(data, view, rules, seed, budget) {
+  const stride = 8, board = new FloatChunks();
+  const treeline = rules.treelineM, density = clamp01(rules.forestDensity ?? 1);
+  const floor = rules.forestFloorM ?? RULE_DEFAULTS.forestFloorM;
+  const corridorAt = inlandCorridor(data);
+  const renderedHeightAt = makeTerrainMeshHeightSampler(data, budget);
+  const cs = data.grid.cellSizeM, L = inlandLattice(budget);
+  const cap = INLAND_TREE_CAP[budget] ?? INLAND_TREE_CAP.desktop;
+  const tiles = [...inlandForestTiles(data, treeline, corridorAt)];
+  // One lattice cell: its root and traits when a tree stands there.
+  const candidate = (ix, iz, keep) => {
+    const x = (ix + .15 + .7 * u01(hash2(ix, iz, seed + 62))) * L;
+    const z = (iz + .15 + .7 * u01(hash2(ix, iz, seed + 63))) * L;
+    const cx = Math.floor(x / LATTICE_M), cz = Math.floor(z / LATTICE_M);
+    const id = u01(hash2(cx, cz, seed + 4));
+    if (!(id < keep)) return null;
+    const d = corridorAt(x, z);
+    const reach = 1 - clamp01((d - INLAND_FULL_M) / (INLAND_CORRIDOR_M - INLAND_FULL_M));
+    if (u01(hash2(ix, iz, seed + 61)) >= .92 * reach) return null;
+    const y = terrainHeightAt(data, x, z);
+    if (!Number.isFinite(y) || y > treeEdge(x, z, seed, treeline)) return null;
+    const breakup = u01(hash2(Math.floor(x / 90), Math.floor(z / 90), seed + 10)) - .5;
+    if (y < floor + breakup * 200) return null;
+    const slope = slopeDegAt(data, x, z, cs * 2);
+    if (!(slope <= rules.forestMaxSlopeDeg)) return null;
+    const habitat = inlandHabitatAt(data, x, z);
+    if (!habitat || habitat.wet > 0) return null;
+    const moisture = clamp01((habitat.flow - 48) / 112);
+    if (inlandStand(seed, x, z, density, moisture, slope) < .5 || touchesRiverCell(data, x, z)) return null;
+    return { x, z, y, slope, band: habitat.band };
+  };
+  // A sparse pre-pass estimates how many trees the corridor holds, so a
+  // stable subset (each tree's own id) can stay within budget without ever
+  // holding the full candidate set.
+  let sampled = 0;
+  for (const [, x0, z0, size] of tiles) {
+    for (let iz = Math.ceil(z0 / L / 4) * 4; iz * L < z0 + size; iz += 4)
+      for (let ix = Math.ceil(x0 / L / 4) * 4; ix * L < x0 + size; ix += 4) if (candidate(ix, iz, 1)) sampled++;
+    yield;
+  }
+  const keep = Math.min(1, cap * 1.04 / Math.max(1, sampled * 16));
+  for (const [, x0, z0, size] of tiles) {
+    for (let iz = Math.ceil(z0 / L); iz * L < z0 + size; iz++) {
+      for (let ix = Math.ceil(x0 / L); ix * L < x0 + size; ix++) {
+        const tree = candidate(ix, iz, keep);
+        if (!tree) continue;
+        const meshY = renderedHeightAt(tree.x, tree.z);
+        if (!Number.isFinite(meshY)) continue;
+        const traits = treeTraits(Math.floor(tree.x / LATTICE_M), Math.floor(tree.z / LATTICE_M), seed, tree.y, tree.slope, rules, view);
+        // Quality thinning still sees ids across 0..1.
+        board.push(tree.x, meshY, tree.z, traits.height, traits.width, traits.species, traits.id / keep, tree.band);
+      }
+      yield;
+    }
+  }
+  let trees = board.toArray();
+  const count = trees.length / stride;
+  if (count > cap) {
+    const trim = cap / count, kept = new Float32Array(cap * stride);
+    let n = 0;
+    for (let i = 0; i < count && n < kept.length; i++) {
+      if (!(trees[i * stride + 6] < trim)) continue;
+      kept.set(trees.subarray(i * stride, (i + 1) * stride), n);
+      kept[n + 6] = trees[i * stride + 6] / trim;
+      n += stride;
+    }
+    trees = kept.slice(0, n);
+  }
+  return { meshDetail: new Float32Array(0), mesh: new Float32Array(0), billboard: trees, stride, count: trees.length / stride };
+}
+
 /** Upper bound from the same tile/ring cull and lattice limits as placement.
  * No typed chunks are allocated here. Density and per-tree habitat tests can
  * only reduce this count. Three partly filled 64K-float chunks are included. */
-export function forestPlacementBound(data, view, rules, rings = FOREST_RINGS) {
+export function forestPlacementBound(data, view, rules, rings = FOREST_RINGS, options = {}) {
+  if (hasInlandWoodland(data)) {
+    const corridorAt = inlandCorridor(data);
+    let count = 0;
+    for (const [, , , size] of inlandForestTiles(data, rules.treelineM, corridorAt)) count += Math.ceil(size / inlandLattice(options.budget) + 1) ** 2;
+    // The pre-pass keeps placement near the cap; allow for its estimate.
+    const candidates = count;
+    count = Math.min(count, INLAND_TREE_CAP[options.budget] ?? INLAND_TREE_CAP.desktop);
+    return { count, lattice: candidates, placementBytes: Math.ceil(count * 1.25) * 32 * 2 + (1 << 16) * 4 };
+  }
   const distanceToRail = forestRail(view);
   // A static footprint also places the rail's own forest (placeForest
   // railOnly): at most one more record per cell within the rail's reach.
@@ -309,7 +499,8 @@ function defaultYield() {
 }
 
 /** The placement, one tile per step (a generator returning the result). */
-function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, bands = null } = {}) {
+function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, bands = null, budget = 'desktop' } = {}) {
+  if (hasInlandWoodland(data)) return yield* placeInlandForestSteps(data, view, rules, seed, budget);
   const STRIDE = 8;
   const { rail: railDistanceAt, footprint } = forestDistances(view);
   const distanceToRail = footprint ? (p) => footprint(p, railDistanceAt(p)) : railDistanceAt;

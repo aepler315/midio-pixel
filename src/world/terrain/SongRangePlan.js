@@ -31,7 +31,7 @@ import MASSIF_CATALOG from './massifCatalogData.js';
 import { settingValue } from '../../config/appSettings.js';
 
 export const SONG_RANGE_VERSION = 3;
-const SONGPRINT_RANGE_VERSION = 6;
+const SONGPRINT_RANGE_VERSION = 8;
 
 /** Biome to material family; mirrors DEFAULT_PACKS in tools/build-range-scene.mjs. */
 export const BIOME_FAMILY = Object.freeze({
@@ -183,7 +183,10 @@ function composeFromOutline(templates, pieces, homeView, song, songprint, family
       principal: Object.freeze({ slotId: principalSlot.id, pieceId: principal.id, name: principal.name }),
       ...(pair.companion ? { companionSlot: pair.companion.slot.id } : {}),
       ...(inland ? { inland } : {}),
-      slots: Object.freeze(placements), label: `World: ${principal.name} range`,
+      // Inland, the returning pair stands on the region's own ranges; the
+      // rest of the land comes from its drainage and uplift.
+      slots: Object.freeze(inland ? placements.filter(p => p.slotId === principalSlot.id || p.slotId === pair.companion?.slot.id) : placements),
+      label: `World: ${principal.name} range`,
     }) };
   }
   return best?.plan ?? null;
