@@ -105,7 +105,7 @@ test('an assembled stage is a complete, deterministic terrain package with the l
 
 test('an inland song stage doubles the existing axes and carries the region and its rivers', () => {
   const base = planOf(pilot.layouts[0]);
-  const inland = makeInlandTerrain(315, { version: 1, skyline: Array.from({ length: 16 }, (_, i) => i / 15) });
+  const inland = makeInlandTerrain({ version: 1, skyline: Array.from({ length: 16 }, (_, i) => i / 15) });
   // Inland plans keep the returning pair only; the region supplies the rest.
   const plan = { ...base, inland, companionSlot: 'H2', slots: base.slots.filter(s => s.slotId === 'B2' || s.slotId === 'H2') };
   const original = stageTemplate(MASSIF_CATALOG, base);
