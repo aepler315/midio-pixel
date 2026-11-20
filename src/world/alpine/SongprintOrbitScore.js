@@ -71,7 +71,7 @@ export function compileSongprintOrbitScore({ songprint, admittedMs, cadenceMs, f
   return Object.freeze({
     at(timeMs) {
       const gain = admittedMs > 0 ? smoothstep(startMs, startMs + fadeMs, timeMs) : 1;
-      return { progress01: progressAt(timeMs), gain, timeMs, ...(guides ? { guides, travelMs: span } : {}) };
+      return { progress01: progressAt(timeMs), gain, ...(guides ? { guides, travelMs: span, timeMs } : {}) };
     },
   });
 }
