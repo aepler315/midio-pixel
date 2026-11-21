@@ -4,6 +4,7 @@ export const SONGPRINT_VERSION = 1;
 export const SONGPRINT_PHRASE_VERSION = 1;
 export const MAX_PHRASE_FAMILIES = 4;
 export const MAX_PHRASE_OCCURRENCES = 8;
+import { copySongprintTimeline } from './SongprintTimeline.js';
 const unit = value => Number.isFinite(value) && value >= 0 && value <= 1;
 
 export function copySongprintSkyline(print) {
@@ -46,5 +47,6 @@ export function copySongprint(print, durationMs = Infinity) {
     previous = timeMs;
   }
   const phraseFamilies = copyPhraseFamilies(print.phraseFamilies, durationMs);
-  return { ...compact, passages, ...(phraseFamilies ? { phraseFamilies } : {}) };
+  const timeline = copySongprintTimeline(print.timeline, durationMs);
+  return { ...compact, passages, ...(phraseFamilies ? { phraseFamilies } : {}), ...(timeline ? { timeline } : {}) };
 }
