@@ -79,18 +79,22 @@ portable inspected-image corpus is available, and adapts to the installed browse
 It does not automatically approve the candidate. Workflow dispatch compares the
 dispatched source with itself as a repeatability check, not a historical change.
 
-The initial eight-image technical reference is committed under
-`test/fixtures/verification/baseline/`. It came from successful hosted Chromium
-captures on [run 43462294756](https://github.com/aepler315/midio-pixel/actions/runs/43462294756),
-matched clean main pixel-for-pixel, and was explicitly approved after inspection.
+The original eight-image Chromium 156 reference came from
+[run 43462294756](https://github.com/aepler315/midio-pixel/actions/runs/43462294756).
+Replaying its original source reproduced every reference PNG byte-for-byte.
+Subsequent changes on main enabled direct terrain rendering by default and
+revised the camera and mountain rise. The current reference in
+`test/fixtures/verification/baseline/` comes from clean main `e8f49b7` on
+Chromium 158. Its technical review covers both detail levels, opening titles,
+skyline, lake reflections, half-rise and the weather checkpoint. The report
+records the full source commit, browser, renderer, reviewer and reason.
 Its owner artistic verdict remains unreviewed. CI prefers these inspected images;
 the clean-source comparison is a bootstrap fallback when no committed reference
 exists. To update deliberately, capture and inspect into a new directory, run the
 explicit approval command, review old/new/difference artifacts, then replace the
 committed reference in the feature PR with its new reviewer/reason. Never make
 capture or CI replace it automatically. Browser/harness changes need the same
-explicit migration. The implementation workspace could not launch Chromium, so
-hosted artifacts supplied the actual application-image evidence.
+explicit migration.
 
 ### Comparisons and failures
 

@@ -1,4 +1,4 @@
-import { copySongprintSkyline } from '../../audio/SongprintData.js';
+import { copySongprint, copySongprintSkyline } from '../../audio/SongprintData.js';
 import { clamp01 } from '../../utils/math.js';
 
 export const INLAND_TERRAIN_VERSION = 4;
@@ -62,7 +62,11 @@ export function makeInlandTerrain(songprint) {
   // turn is one fixed offset for every song: measured over 47 outlines, it
   // keeps both returning summits in view from the opening rail about as
   // often as random turns did (19 of 47 against 20; 15 without it).
-  const direction = Math.atan2(coefficients[2], coefficients[0]) - DIRECTION_CENTRE - Math.PI / 2;
+  const song = songTimeline(songprint);
+  const balance = skyline.reduce((sum, height, i) => sum + height * (2 * i / last - 1), 0) / skyline.length;
+  const direction = song?.key
+    ? (song.key.tonic + (song.key.major ? 0 : .5)) / 12 * 2 * Math.PI + .6 * balance
+    : Math.atan2(coefficients[2], coefficients[0]) - DIRECTION_CENTRE - Math.PI / 2;
 
   return Object.freeze({
     version: INLAND_TERRAIN_VERSION,
@@ -73,5 +77,24 @@ export function makeInlandTerrain(songprint) {
     north: Math.sin(direction),
     spacingM: 11200 - 5800 * clamp01(variation * 3.1),
     reliefM: 880 + 450 * spread + 500 * mean,
+    ...(song ? { song } : {}),
+  });
+}
+
+/** The song in heard time, as terrain lays it out: the measured timeline,
+ *  passages and phrase families. Older prints keep the outline-only field. */
+function songTimeline(songprint) {
+  const print = copySongprint(songprint);
+  const t = print?.timeline;
+  const freeze = o => Object.freeze(o);
+  if (!t) return null;
+  const n = t.loudness.length, durationMs = n * t.stepMs;
+  return freeze({
+    measured: true, stepMs: t.stepMs, durationMs, key: freeze({ ...t.key }), dynamics: t.dynamics,
+    loudness: freeze(t.loudness), tension: freeze(t.tension), novelty: freeze(t.novelty),
+    brightness: freeze(t.brightness), major: freeze(t.major),
+    passages: freeze(print.passages.map(p => freeze([p.timeMs, p.landmark01, p.strength]))),
+    families: freeze((print.phraseFamilies?.families ?? []).map(f => freeze({
+      landmark01: f.landmark01, times: freeze(f.occurrences.map(o => o.timeMs)) }))),
   });
 }

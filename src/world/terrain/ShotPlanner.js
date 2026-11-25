@@ -358,8 +358,9 @@ function laneStats(path, a, b, withTurn = false, withBend = true) {
  *  start, drawn as ShotTimeline joins them: each runs its Catmull-Rom
  *  through a support sample on the other's end chord, scaled to its own
  *  sample spacing (so the spline is uniform there: slope 1 at the join). */
-function joinCurve(A, B) {
+function joinCurve(A, B, withTurn = false) {
   const na = A.s.length, nb = B.s.length, out = [0, 0, 0];
+  const quantities = withTurn ? 2 : 1;
   if (na < 2 || nb < 2) return out;
   const dsA = A.s[na - 1] - A.s[na - 2], dsB = B.s[1] - B.s[0];
   if (!(dsA > 0 && dsB > 0)) return out;
@@ -369,7 +370,7 @@ function joinCurve(A, B) {
     points[k] = na >= 3 ? A.eye[(na - 3) * 3 + k] : 2 * p1 - p2; points[3 + k] = p1; points[6 + k] = p2; points[9 + k] = p2 + (B.eye[3 + k] - p2) * dsA / dsB;
   }
   loadSegment(points, na >= 3 ? A.s[na - 2] - A.s[na - 3] : dsA, dsA, dsA, true);
-  for (let q = 0; q < 2; q++) { scanSegment(scanBuf, q); out[q] = segmentMax(scanBuf, q); }
+  for (let q = 0; q < quantities; q++) { scanSegment(scanBuf, q); out[q] = segmentMax(scanBuf, q); }
   out[2] = verticalSlopeBound(curve[1], curve[4], curve[7], curve[9], curve[10], curve[11]);
   // B's first segment: p0 is the support before B's start toward A's second-last sample.
   for (let k = 0; k < 3; k++) {
@@ -377,7 +378,7 @@ function joinCurve(A, B) {
     points[k] = p1 + (A.eye[(na - 2) * 3 + k] - p1) * dsB / dsA; points[3 + k] = p1; points[6 + k] = p2; points[9 + k] = nb >= 3 ? B.eye[6 + k] : 2 * p2 - p1;
   }
   loadSegment(points, dsB, dsB, nb >= 3 ? B.s[2] - B.s[1] : dsB, true);
-  for (let q = 0; q < 2; q++) { scanSegment(scanBuf, q); out[q] = Math.max(out[q], segmentMax(scanBuf, q)); }
+  for (let q = 0; q < quantities; q++) { scanSegment(scanBuf, q); out[q] = Math.max(out[q], segmentMax(scanBuf, q)); }
   out[2] = Math.max(out[2], verticalSlopeBound(curve[1], curve[4], curve[7], curve[9], curve[10], curve[11]));
   return out;
 }
@@ -417,7 +418,7 @@ function libraryIndex(library) {
   // A link's flow now; its bend (with both joins) when first needed (linkBend):
   // the planner never needs it for a link no leg can fly in time, and dense
   // long links are most of a library's samples.
-  const joinTurn = new Float64Array(links.length), pre = planningTablesOf(library);
+  const joinTurn = new Float64Array(links.length).fill(-1), pre = planningTablesOf(library);
   const joinedLinks = new Array(links.length);
   const linkPath = (j) => joinedLinks[j] ??= shotSupportedPath(links[j].path,
     library.shotById.get(links[j].from)?.path, library.shotById.get(links[j].to)?.path);
@@ -448,13 +449,16 @@ function libraryIndex(library) {
   // A longer or lower-scored alternative can be the only legal ending:
   // feasibility also depends on flow, bends and both joins.
   ix.outEnd = ix.out;
-  ix.linkBend = (j) => {
+  ix.linkBend = (j, withTurn = false) => {
     if (ix.lBend[j] < 0 && pre) { ix.lBend[j] = pre.linkBend[j]; joinTurn[j] = pre.joinTurn[j]; }
-    if (ix.lBend[j] < 0) {
+    if (ix.lBend[j] < 0 || (withTurn && joinTurn[j] < 0)) {
       const l = links[j], A = library.shotById.get(l.from)?.path, B = library.shotById.get(l.to)?.path;
-      const a = A ? joinCurve(A, l.path) : [0, 0, 0], b = B ? joinCurve(l.path, B) : [0, 0, 0];
-      ix.lBend[j] = rangeMax(l.path, 0, ix.lL[j], 0, Math.max(a[0], b[0])); joinTurn[j] = Math.max(a[1], b[1]);
-      ix.lClimb[j] = rangeMax(l.path.s.length === 2 ? linkPath(j) : l.path, 0, ix.lL[j], 2, Math.max(a[2], b[2]));
+      const a = A ? joinCurve(A, l.path, withTurn) : [0, 0, 0], b = B ? joinCurve(l.path, B, withTurn) : [0, 0, 0];
+      if (withTurn) joinTurn[j] = Math.max(a[1], b[1]);
+      if (ix.lBend[j] < 0) {
+        ix.lBend[j] = rangeMax(l.path, 0, ix.lL[j], 0, Math.max(a[0], b[0]));
+        ix.lClimb[j] = rangeMax(l.path.s.length === 2 ? linkPath(j) : l.path, 0, ix.lL[j], 2, Math.max(a[2], b[2]));
+      }
     }
     return ix.lBend[j];
   };
@@ -488,7 +492,7 @@ function libraryIndex(library) {
     if (turns) return ix;
     turns = true;
     shots.forEach((s, i) => { head[i].turn = rangeMax(s.path, 0, pay[i], 1); tail[i].turn = rangeMax(s.path, pay[i], L[i], 1); });
-    links.forEach((l, j) => { ix.linkBend(j); ix.lTurn[j] = Math.max(rangeMax(l.path, 0, ix.lL[j], 1), joinTurn[j]); });
+    links.forEach((l, j) => { ix.linkBend(j, true); ix.lTurn[j] = Math.max(rangeMax(l.path, 0, ix.lL[j], 1), joinTurn[j]); });
     return ix;
   };
   indexes.set(library, ix);
@@ -515,7 +519,7 @@ const curveCap = (T, bend, turn) => Math.min(bend > 0 ? Math.sqrt(T.maxAccelMps2
 export function shotPlanningTables(library) {
   library = restoreShotLibrary(library);
   const ix = libraryIndex(library);
-  library.links.forEach((_, j) => { ix.linkBend(j); ix.linkClimb(j); });
+  library.links.forEach((_, j) => { ix.linkBend(j, true); ix.linkClimb(j); });
   return { linkIds: library.links.map((l) => l.id), samples: Int32Array.from(library.links, (l) => l.path.s.length),
     linkBend: Float64Array.from(ix.lBend), linkClimb: Float64Array.from(ix.lClimb), joinTurn: Float64Array.from(ix.joinTurn) };
 }
@@ -789,6 +793,10 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     return { repeat, moveRun, elevRun, lensRun, fgRun };
   };
 
+  // Cache measurements across songs, but make the search's choice of when
+  // to tighten a link's slot window independent of earlier requests.
+  const seenBend = new Uint8Array(links.length).fill(turnsOn ? 1 : 0);
+  const linkBend = (j) => { seenBend[j] = 1; return ix.linkBend(j); };
   // Root state: the song start, or the committed element of a replan.
   const root = { root: true, t: t0, shot: -1, cost: 0, serial: 0, parent: null, s1: -1, s2: -1, s3: -1, move: null, moveRun: 0, heading: NaN,
     elev: -1, elevRun: 0, lens: -1, lensRun: 0, fg: -1, fgRun: 0, climax: 0, vbar: 0, rem: 0, endBase: 0, pending: null, pinV: null,
@@ -797,7 +805,7 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     if (start.itemKind === 'link') {
       const j = startIndex, B = ix.lTo[j], part = laneStats(links[j].path, start.s, ix.lL[j], turnsOn);
       root.pending = { kind: 'link', link: j, shot: B, D: ix.lL[j] - start.s + pay[B], max: Math.max(part.max, ix.head[B].max), int: part.int + ix.head[B].int,
-        bend: Math.max(ix.linkBend(j), ix.head[B].bend), climb: ix.remainingLinkClimb(j, start.s, startBefore), turn: Math.max(ix.lTurn[j], ix.head[B].turn), linkRest: ix.lL[j] - start.s, linkPart: ix.lL[j] - start.s, parts: [ix.lL[j] - start.s, part.max, pay[B], ix.head[B].max] };
+        bend: Math.max(linkBend(j), ix.head[B].bend), climb: ix.remainingLinkClimb(j, start.s, startBefore), turn: Math.max(ix.lTurn[j], ix.head[B].turn), linkRest: ix.lL[j] - start.s, linkPart: ix.lL[j] - start.s, parts: [ix.lL[j] - start.s, part.max, pay[B], ix.head[B].max] };
       root.s1 = ix.subj[ix.lFrom[j]];
     } else if (start.s < pay[startIndex] - 1e-6) {
       const X = startIndex, part = laneStats(shotSupportedPath(shots[X].path, startBefore), start.s, pay[X], turnsOn);
@@ -869,7 +877,7 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     if (!okLimits(limits, cap, leg.bend, leg.turn)) return false;
     if (leg.lazyLink >= 0) {
       // Legal without its link's own bend: measure that now and check again.
-      leg.bend = Math.max(leg.bend, ix.linkBend(leg.lazyLink)); leg.climb = Math.max(leg.climb, ix.linkClimb(leg.lazyLink)); leg.lazyLink = -1;
+      leg.bend = Math.max(leg.bend, linkBend(leg.lazyLink)); leg.climb = Math.max(leg.climb, ix.linkClimb(leg.lazyLink)); leg.lazyLink = -1;
       cap = legCap(P.t, slot.t, leg);
       if (!committed && v > T.capMargin * cap) return false;
       if (!okLimits(limits, cap, leg.bend, leg.turn)) return false;
@@ -954,7 +962,7 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
       // A link's bend is measured the first time a leg through it could reach
       // a slot at all (as far as the leg can go at the minimum speed).
       if (!committed && P.t + 1000 * leg.D / (T.capMargin * capBound(leg)) > Math.min(durationMs, P.t + 1000 * leg.D / vmin)) return;
-      if (committed || ix.lBend[leg.lazyLink] >= 0) { leg.bend = Math.max(leg.bend, ix.linkBend(leg.lazyLink)); leg.climb = Math.max(leg.climb, ix.linkClimb(leg.lazyLink)); leg.lazyLink = -1; }
+      if (committed || seenBend[leg.lazyLink]) { leg.bend = Math.max(leg.bend, linkBend(leg.lazyLink)); leg.climb = Math.max(leg.climb, ix.linkClimb(leg.lazyLink)); leg.lazyLink = -1; }
     }
     const capHi = capBound(leg);
     let lo = P.t + 1000 * leg.D / ((committed ? 1 : T.capMargin) * capHi);
@@ -1063,7 +1071,11 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     // The last knot's committed speed (a replan's pin) is a candidate too: a
     // continuation that keeps the committed sequence must find its ending.
     const pinV = P.pinV != null ? clamp(P.pinV, lo, hi) : comfort;
-    let v = (quick ? [comfort, keep, pinV] : [comfort, keep, pinV, (comfort + keep) / 2, hi, lo]).find(ok);
+    let v;
+    if (ok(comfort)) v = comfort;
+    else if (keep !== comfort && ok(keep)) v = keep;
+    else if (pinV !== comfort && pinV !== keep && ok(pinV)) v = pinV;
+    else if (!quick) v = [(comfort + keep) / 2, hi, lo].find(ok);
     // Clamping can collapse all quick choices to one infeasible speed even
     // when a slower legal ending exists. Try three distinct interior speeds
     // after those original choices, with the same physical checks.
@@ -1078,6 +1090,12 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     if (before > 0) cost += seen * w.change * Math.abs(Math.log(v / before));
     return { cost, seen };
   };
+  // Only the link and outro can earn a reward on a terminal leg. With
+  // nonnegative weights this bounds all endings before measuring their paths.
+  const maxEndReward = Object.values(w).every((value) => value >= 0)
+    ? ix.lScore.reduce((max, score, j) => Math.max(max, w.link * score * (1 + linkJitter[j])), 0) + w.outroMove + w.outro
+    : Infinity;
+  const maxFlow = Math.max(flowAt(0), flowAt(1));
   // The song end from state P: ride on inside its current element, or (from
   // a shot, when that is impossible or would crawl) through one more link
   // into a last shot that the song ends in before its payoff -- or, at a
@@ -1086,9 +1104,10 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
   const terminal = (P) => {
     if (P.root && !start) return;
     const tau = (durationMs - P.t) / 1000, avail = P.pending ? P.pending.D - .5 : P.rem;
+    const gap = gapCost(Math.max(P.shownAt, shownFrom(durationMs)), durationMs) + closedGaps(P.shownAt, P.t, durationMs) + missedStrong(P.t, durationMs + 1);
+    if (best && P.cost + gap - maxEndReward > best.cost + 1e-9) return;
     const end = P.pending ? { ...P.pending } : { D: Math.max(1e-9, P.rem), max: P.remMax, int: P.remInt, bend: P.remBend, climb: P.remClimb, turn: P.remTurn, parts: [Math.max(1e-9, P.rem), P.remMax] };
     if (climbCap(T, end.climb) < T.maxSpeedMps && climbCap(T, end.climb) < legCap(P.t, durationMs, { ...end, climb: 0 })) end.climbRanges = endingClimb(P);
-    const gap = gapCost(Math.max(P.shownAt, shownFrom(durationMs)), durationMs) + closedGaps(P.shownAt, P.t, durationMs) + missedStrong(P.t, durationMs + 1);
     let inside = null;
     if (tau <= 1e-9) {
       if (P.root || okLimits(intervalLimits(P.V, P.A, P.vbar, 0, P.vbar, P.dt), P.cap, P.bend, P.turn)) inside = { cost: P.cost + gap, v: 0, seen: 1, crawl: false };
@@ -1114,9 +1133,12 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     let reached = !!inside, transit = null;
     for (const j of ix.outEnd[P.shot]) {
       const B = ix.lTo[j], through = P.rem + ix.lL[j], room = .98 * pay[B];
-      if (!(room > 1)) continue;
+      if (!(room > 1) || (through + room) / tau < vmin) continue;
+      // Once a shot ending is reachable, an ending in transit cannot win.
+      // Eliminate links that cannot reach the shot even at peak flow.
+      if (reached && (through + 1) / tau > T.capMargin * Math.min(T.maxSpeedMps, maxFlow / Math.max(P.remMax, ix.lMax[j], ix.head[B].max)) + 1e-9) continue;
       const leg = withDeparture(P, { D: through + room, max: Math.max(P.remMax, ix.lMax[j], ix.head[B].max), int: P.remInt + ix.lInt[j] + ix.head[B].int * .98,
-        bend: Math.max(P.remBend, ix.linkBend(j), ix.head[B].bend), climb: Math.max(P.remClimb, ix.linkClimb(j), ix.head[B].climb), turn: Math.max(P.remTurn, ix.lTurn[j], ix.head[B].turn), parts: [P.rem, P.remMax, ix.lL[j], ix.lMax[j], room, ix.head[B].max] }, j);
+        bend: Math.max(P.remBend, linkBend(j), ix.head[B].bend), climb: Math.max(P.remClimb, ix.linkClimb(j), ix.head[B].climb), turn: Math.max(P.remTurn, ix.lTurn[j], ix.head[B].turn), parts: [P.rem, P.remMax, ix.lL[j], ix.lMax[j], room, ix.head[B].max] }, j);
       if (climbCap(T, leg.climb) < T.maxSpeedMps && climbCap(T, leg.climb) < legCap(P.t, durationMs, { ...leg, climb: 0 })) leg.climbRanges = endingClimb(P, j);
       const sp = endSpeed(P, tau, through + 1, through + room, leg, true);
       // (null: the last shot is out of reach at any legal speed.)
@@ -1124,7 +1146,7 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
         if (reached) continue;
         // Too far to reach the last shot: end in the link itself, if it is
         // not too fast for that either (`endInLink` for an ending in transit).
-        const part = withDeparture(P, { D: through, max: Math.max(P.remMax, ix.lMax[j]), int: P.remInt + ix.lInt[j], bend: Math.max(P.remBend, ix.linkBend(j)), climb: Math.max(P.remClimb, ix.linkClimb(j)), turn: Math.max(P.remTurn, ix.lTurn[j]), parts: [P.rem, P.remMax, ix.lL[j], ix.lMax[j]] }, j);
+        const part = withDeparture(P, { D: through, max: Math.max(P.remMax, ix.lMax[j]), int: P.remInt + ix.lInt[j], bend: Math.max(P.remBend, linkBend(j)), climb: Math.max(P.remClimb, ix.linkClimb(j)), turn: Math.max(P.remTurn, ix.lTurn[j]), parts: [P.rem, P.remMax, ix.lL[j], ix.lMax[j]] }, j);
         part.climbRanges = leg.climbRanges;
         const mid = endSpeed(P, tau, P.rem + 1, through - 1, part, true);
         if (!mid) continue;

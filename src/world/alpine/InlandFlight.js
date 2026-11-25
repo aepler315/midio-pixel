@@ -310,7 +310,7 @@ function planStages(data, region, pair, stations, bounds) {
 
 /** Per-sample clearance and a smooth altitude envelope. Low stretches keep
  *  close to their planned height; anything under the clearance lifts. */
-function clearPath(path, data, bounds, heightRange) {
+function clearPath(path, data, bounds, heightRange, radiusM = 55) {
   const n = path.s.length;
   const minimum = new Float64Array(n), envelope = new Float64Array(n);
   const [h0, h1] = heightRange;
@@ -319,7 +319,7 @@ function clearPath(path, data, bounds, heightRange) {
     const x = path.eye[i * 3], z = path.eye[i * 3 + 2];
     if (!inside({ min: [bounds.min[0] - BOUNDS_MARGIN_M * .6, 0, bounds.min[2] - BOUNDS_MARGIN_M * .6],
       max: [bounds.max[0] + BOUNDS_MARGIN_M * .6, 0, bounds.max[2] + BOUNDS_MARGIN_M * .6] }, x, z)) return false;
-    const g = groundMax(data, x, z, 55);
+    const g = groundMax(data, x, z, radiusM);
     if (!Number.isFinite(g)) return false;
     minimum[i] = g + LOW_CLEAR_M + pad(g);
     envelope[i] = Math.max(minimum[i], path.eye[i * 3 + 1]);
@@ -345,6 +345,7 @@ function clearPath(path, data, bounds, heightRange) {
 export function compileInlandFlight(data, view, movement) {
   const bounds = data?.manifest?.boundsM, pair = view.songprintComposition;
   const region = data?.manifest?.hydrology?.region;
+  if (region?.spine && view.songRange?.plan?.inland && bounds && pair) return compileSpineFlight(data, region.spine, bounds, pair, view);
   if (!view.songRange?.plan?.inland || !bounds || !pair || !movement || !region?.rivers?.length) return null;
   const stations = scoreStations(movement);
   const home = scenePoseAt(view, { progress01: .5 });
@@ -385,6 +386,141 @@ export function compileInlandFlight(data, view, movement) {
     principalSlot: pair.principal.slotId, companionSlot: pair.companion.slotId };
 }
 
+// Song spine flight. The region laid the song's heard time out along one
+// spine; the camera is where the song is. Low through the slots between
+// the song's peaks, over each col at a change, looking down the line.
+const SPINE_AGL_M = 120, SPINE_AIM_AHEAD = 4, SPINE_KEY_EVERY = 1, SPINE_LOOK_M = 1000;
+
+function compileSpineFlight(data, spine, bounds, pair, view) {
+  const course = spine.course;
+  if (course.length < 8) return null;
+  const home = scenePoseAt(view, { progress01: .5 });
+  const eyes = [], aims = [], keyTimes = [];
+  for (let i = 0; i < course.length; i += SPINE_KEY_EVERY) {
+    const [x, z, bed, timeMs] = course[i];
+    const ahead = course[Math.min(course.length - 1, i + SPINE_AIM_AHEAD)];
+    const far = course[Math.min(course.length - 1, i + 3 * SPINE_AIM_AHEAD)];
+    const ax = i + SPINE_AIM_AHEAD < course.length ? ahead[0] : x + (x - course[i - 1][0]) * 4;
+    const az = i + SPINE_AIM_AHEAD < course.length ? ahead[1] : z + (z - course[i - 1][1]) * 4;
+    eyes.push([x, bed + SPINE_AGL_M, z]);
+    aims.push([ax, Math.max(bed, lerp(ahead[2], far[2], .5)) + .7 * SPINE_AGL_M, az]);
+    keyTimes.push(timeMs);
+  }
+  const path = samplePath({ eyes, aims, fovs: home.fovYDeg, spacingM: PATH_SPACING_M, minSamples: 64 });
+  const heightRange = [bounds.min[1], bounds.max[1]];
+  if (!clearPath(path, data, bounds, heightRange, 120)) return null;
+  // Path distance at each key: the nearest sample, searched forward.
+  const keyMarks = [];
+  let j = 0;
+  for (const target of eyes) {
+    let best = j, bestD = Infinity;
+    for (let k = j; k < Math.min(path.s.length, j + 400); k++) {
+      const d = Math.hypot(path.eye[k * 3] - target[0], path.eye[k * 3 + 2] - target[2]);
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    keyMarks.push(path.s[best]); j = best;
+  }
+  const landmarks = [{ id: 'start', label: 'Song range', progress01: 0 }, { id: 'end', label: 'Song range', progress01: 1 }];
+  const summits = (view.songRange.plan.slots ?? []).flatMap((slot, i) => {
+    const mark = data.manifest.landmarks?.[i];
+    return Number.isFinite(slot.timeMs) && mark?.localM ? [{ timeMs: slot.timeMs,
+      point: [mark.localM[0], mark.demGroundM, mark.localM[1]] }] : [];
+  });
+  clearSummitViews(path, { keyTimes, keyMarks }, summits, data);
+  // Look along the flight's own cleared line, a little below it, so the
+  // camera crests each col with the next slot in view.
+  const n = path.s.length, lead = Math.round(SPINE_LOOK_M / PATH_SPACING_M);
+  for (let i = 0; i < n; i++) {
+    const k = Math.min(n - 1, i + lead), over = i + lead - k;
+    const dx = path.eye[(n - 1) * 3] - path.eye[(n - 2) * 3], dz = path.eye[(n - 1) * 3 + 2] - path.eye[(n - 2) * 3 + 2];
+    path.aim[i * 3] = path.eye[k * 3] + over * dx;
+    path.aim[i * 3 + 1] = path.eye[k * 3 + 1] - 45;
+    path.aim[i * 3 + 2] = path.eye[k * 3 + 2] + over * dz;
+  }
+  const riverPoints = (data.manifest.hydrology.region.rivers ?? []).flatMap(r => r.course);
+  const riverLooks = course.map(([x,z]) => {
+    let nearest = 4000, point = null;
+    for (const [rx,rz,bed] of riverPoints) {
+      const distance = Math.hypot(rx - x, rz - z);
+      if (distance >= 300 && distance < nearest) { nearest = distance; point = [rx, bed, rz]; }
+    }
+    return point;
+  });
+  const passMarks = spine.passes.map(p => ({ id: `pass-${p.timeMs}`, label: 'Change', timeMs: p.timeMs }));
+  return { path, kind: 'inland', spine: true, summits, riverLooks, keyTimes, keyMarks, heightRange, kinds: ['spine'], landmarks,
+    times: [0, 1], anchors: [...landmarks.map(l => ({ ...l, kind: 'route' })), ...passMarks.map(m => ({ ...m, kind: 'pass' }))],
+    pivotM: blend(pair.principal.pointM, pair.companion.pointM, .5),
+    principalSlot: pair.principal.slotId, companionSlot: pair.companion.slotId };
+}
+
+// A nearby crest can hide the tagged summit after a measured massif is placed
+// on the stage floor. Prefer the summit itself. If seeing it would take an
+// excessive climb, frame a visible part of its own crown within 480 metres.
+const SUMMIT_LIFT_LIMIT_M = 450;
+
+function sightlineLift(data, eyes, point, limit) {
+  let lift = 0;
+  for (const eye of eyes) {
+    const samples = Math.min(600, Math.ceil(distanceXZ(eye, point) / 20));
+    for (let i = 1; i < samples; i++) {
+      const t = i / samples;
+      const ground = terrainHeightAt(data, lerp(eye[0], point[0], t), lerp(eye[2], point[2], t));
+      if (!Number.isFinite(ground)) return Infinity;
+      // Raising the observer lifts this point on the ray by (1-t) as much.
+      const excess = ground - lerp(eye[1], point[1], t);
+      lift = Math.max(lift, 16 + excess / (1 - t));
+      if (lift > limit) return lift;
+    }
+  }
+  return lift;
+}
+
+function clearSummitViews(path, clock, summits, data) {
+  const lifts = new Float32Array(path.s.length);
+  for (const summit of summits) {
+    const marks = [-1500, -750, 0, 750, 1500].map(dt => spineTravel(clock, summit.timeMs + dt));
+    const eyes = marks.map(distance => pathPoseAt(path, distance).eyeM);
+    const tagged = summit.point;
+    let lift = sightlineLift(data, eyes, tagged, SUMMIT_LIFT_LIMIT_M);
+    if (lift > SUMMIT_LIFT_LIMIT_M) {
+      let best = Infinity;
+      for (let dz = -480; dz <= 480; dz += 80) for (let dx = -480; dx <= 480; dx += 80) {
+        const offset = Math.hypot(dx, dz);
+        if (!offset || offset > 480 || offset >= best) continue;
+        const x = tagged[0] + dx, z = tagged[2] + dz, y = terrainHeightAt(data, x, z);
+        if (!Number.isFinite(y) || y < tagged[1] - 65) continue;
+        const crown = [x, y + 3, z];
+        const required = sightlineLift(data, eyes, crown, SUMMIT_LIFT_LIMIT_M);
+        const cost = offset + required + Math.max(0, tagged[1] - y);
+        if (required <= SUMMIT_LIFT_LIMIT_M && cost < best) {
+          summit.point = crown; lift = required; best = cost;
+        }
+      }
+    }
+    lift = Math.min(SUMMIT_LIFT_LIMIT_M, lift);
+    if (!lift) continue;
+    // One broad, smooth climb per reveal. The envelope has zero slope at
+    // the start, the plateau and the end. No per-frame occlusion feedback.
+    const ramp = Math.max(1200, 6 * lift);
+    for (let i = 0; i < path.s.length; i++) {
+      const gap = Math.max(0, marks[0] - path.s[i], path.s[i] - marks.at(-1));
+      if (gap >= ramp) continue;
+      const u = 1 - gap / ramp;
+      lifts[i] = Math.max(lifts[i], lift * u * u * (3 - 2 * u));
+    }
+  }
+  for (let i = 0; i < path.s.length; i++) path.eye[3 * i + 1] += lifts[i];
+}
+
+function spineTravel(route, timeMs) {
+  const { keyTimes: t, keyMarks: m } = route;
+  if (!(timeMs > t[0])) return m[0];
+  if (timeMs >= t.at(-1)) return m.at(-1);
+  let lo = 0, hi = t.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (t[mid] <= timeMs) lo = mid; else hi = mid; }
+  return lerp(m[lo], m[hi], (timeMs - t[lo]) / Math.max(1e-6, t[hi] - t[lo]));
+}
+
 function distanceAt(route, i, u) {
   const span = route.times[i + 1] - route.times[i], t = u * u, v = t * u;
   return (2 * v - 3 * t + 1) * route.marks[i] + (v - 2 * t + u) * span * route.speeds[i]
@@ -400,7 +536,7 @@ export function inlandFlightPose(pose, route, movement, { heightAt }) {
   let i = 0;
   while (i < route.times.length - 2 && p >= route.times[i + 1]) i++;
   const u = clamp01((p - route.times[i]) / (route.times[i + 1] - route.times[i]));
-  const travelM = distanceAt(route, i, u);
+  const travelM = route.spine ? spineTravel(route, movement.timeMs ?? 0) : distanceAt(route, i, u);
   const flight = pathPoseAt(route.path, travelM);
   const eyeM = blend(pose.eyeM, flight.eyeM, gain);
   const groundM = heightAt(eyeM[0], eyeM[2]);
@@ -408,8 +544,29 @@ export function inlandFlightPose(pose, route, movement, { heightAt }) {
   const [h0, h1] = route.heightRange;
   const pad = DEFORM_PAD_M * (h1 > h0 ? clamp01((groundM - h0) / (h1 - h0)) ** 2 : 1);
   eyeM[1] = Math.max(eyeM[1], groundM + LOW_CLEAR_M * .8 + pad);
+  let target = flight.targetM;
+  if (route.summits?.length) {
+    const now = movement.timeMs ?? 0;
+    const summit = route.summits.reduce((a,b) => Math.abs(a.timeMs-now) <= Math.abs(b.timeMs-now) ? a : b);
+    const window = Math.min(10000, ...route.summits.filter(s => s !== summit).map(s => Math.abs(s.timeMs - summit.timeMs) / 2));
+    const envelope = clamp01(1 - Math.abs(now - summit.timeMs) / Math.max(1, window));
+    const lyric = (movement.lyricKind === 'chorus' ? .19 : .1) * (movement.lyricFocus ?? 0);
+    const distance = distanceXZ(eyeM, summit.point) || 1;
+    const aim = eyeM.map((v,k) => v + (summit.point[k] - v) * SPINE_LOOK_M / distance);
+    const peakWeight = movement.subject === 'peak' ? .8 * movement.subjectWeight : 0;
+    target = blend(target, aim, Math.max(peakWeight, envelope ** 2 * (.8 + lyric)));
+    if (movement.subject === 'river') {
+      const index = route.keyTimes.findIndex(t => t >= now);
+      const river = route.riverLooks[index];
+      if (river) {
+        const length = distanceXZ(eyeM, river) || 1;
+        const riverAim = eyeM.map((v, k) => v + (river[k] - v) * SPINE_LOOK_M / length);
+        target = blend(target, riverAim, .7 * movement.subjectWeight);
+      }
+    }
+  }
   const kind = route.kinds[i];
-  return { ...pose, eyeM, targetM: blend(pose.targetM, flight.targetM, gain), songprintOrbit: {
+  return { ...pose, eyeM, targetM: blend(pose.targetM, target, gain), songprintOrbit: {
     progress01: p, gain, routeStyle: route.kind, pivotM: route.pivotM, travelM, mode: kind,
     aglM: Math.round(eyeM[1] - groundM),
     principalSlot: route.principalSlot, companionSlot: route.companionSlot,

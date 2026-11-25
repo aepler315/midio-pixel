@@ -3,6 +3,7 @@
 import { clamp01, smoothstep } from '../utils/math.js';
 import { MAX_PHRASE_FAMILIES, MAX_PHRASE_OCCURRENCES, SONGPRINT_PHRASE_VERSION, SONGPRINT_VERSION } from './SongprintData.js';
 import { reflectFrame, songprintChroma } from './SongprintChroma.js';
+import { songprintTimeline } from './SongprintTimeline.js';
 
 export { songprintChroma } from './SongprintChroma.js';
 
@@ -262,5 +263,7 @@ export function songprintFromChroma(frames, { offsetMs = 0, hopMs = 125, phrases
 
 export function analyzeSongprintPCM(mono11025, { phrases = true } = {}) {
   const { frames, offsetMs, hopMs } = songprintChroma(mono11025);
-  return songprintFromChroma(frames, { offsetMs, hopMs, phrases });
+  const print = songprintFromChroma(frames, { offsetMs, hopMs, phrases });
+  const timeline = print && songprintTimeline(mono11025, frames, { offsetMs, hopMs });
+  return print && timeline ? { ...print, timeline } : print;
 }

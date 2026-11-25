@@ -117,7 +117,7 @@ import { LibraryPanel } from './ui/LibraryPanel.js';
 import { createAudioSelection } from './audio/AudioSelection.js';
 import { normalizeSourceMetadata } from './audio/SourceMetadata.js';
 import {
-  resolveAudioIdentity, sessionSongName, adoptAudioSessionAnalysis, adoptAudioSessionLyrics,
+  resolveAudioIdentity, sessionSongName, terrainLyricSections, adoptAudioSessionAnalysis, adoptAudioSessionLyrics,
 } from './audio/AudioSessionIdentity.js';
 import { PlexSource } from './net/PlexSource.js';
 import { PlexLibraryPanel } from './ui/PlexLibraryPanel.js';
@@ -1537,8 +1537,21 @@ function offerWorldsThenStart(data, extra = {}) {
     // Only the latest preparation may land: a provisional look's terrain
     // that resolves after the whole-song identity's must not replace it.
     const terrainToken = data.terrainToken = {};
-    pendingForRange.terrainReady = prepareSongTerrain(profile, seed, undefined,
-      { songRangeWaitMs: rangeWaitMs, signature, songprint: landscapePrint }).then((terrain) => {
+    // Spend the existing lyric start wait before committing measured summit
+    // placements. Cached admissions also resolve through this promise.
+    const buildTerrain = () => prepareSongTerrain(profile, seed, undefined, {
+      songRangeWaitMs: rangeWaitMs, signature, songprint: landscapePrint,
+      lyricSections: landscapePrint?.timeline && !lyricsDisabled ? terrainLyricSections(data) : null,
+    });
+    let terrainReady;
+    if (landscapePrint?.timeline && !lyricsDisabled && extra.lyricsReady && !extra.lyricsReady.settled) {
+      pendingForRange.waitedForTerrainLyrics = true;
+      const lyricWait = exporting ? extra.lyricsReady : Promise.race([
+        extra.lyricsReady, new Promise(resolve => setTimeout(resolve, LYRICS_START_WAIT_MS)),
+      ]);
+      terrainReady = lyricWait.then(() => data.terrainToken === terrainToken ? buildTerrain() : null);
+    } else terrainReady = buildTerrain();
+    pendingForRange.terrainReady = terrainReady.then((terrain) => {
       withSignatureSource(terrain, data);
       if (data.terrainToken === terrainToken) {
         data.terrain = terrain;
@@ -1734,7 +1747,7 @@ function confirmWorld(id) {
   pendingWorldStart = null;
   if (!pending) return;
   const lyricsReady = pending.extra?.lyricsReady;
-  if (lyricsReady && !lyricsReady.settled) {
+  if (!pending.waitedForTerrainLyrics && lyricsReady && !lyricsReady.settled) {
     const gen = loadGen;
     Promise.race([lyricsReady, new Promise((r) => setTimeout(r, LYRICS_START_WAIT_MS))]).then(() => {
       // A newer song chosen while waiting wins.
@@ -4085,7 +4098,7 @@ function adoptWholeSongIdentity(data) {
   const current = () => lastTimelineData === data && data.terrainToken === token;
   const { seed, songProfile: profile } = identity;
   const signature = dualSummitsSelection({ durationMs: data.durationMs, sourceSha256: data.sourceSha256 });
-  const terrain = prepareSongTerrain(profile, seed, undefined, { songRangeWaitMs: IDENTITY_SONG_RANGE_WAIT_MS, signature, songprint: data.songprintLandscapeEnabled === false ? null : identity.songprint })
+  const terrain = prepareSongTerrain(profile, seed, undefined, { songRangeWaitMs: IDENTITY_SONG_RANGE_WAIT_MS, signature, lyricSections: identity.songprint?.timeline && !lyricsDisabled ? terrainLyricSections(data) : null, songprint: data.songprintLandscapeEnabled === false ? null : identity.songprint })
     .then((t) => withSignatureSource(t, data))
     .catch((err) => {
       console.warn('[identity] terrain for the whole-song identity failed; using the stand-in', err);

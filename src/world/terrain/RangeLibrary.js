@@ -54,12 +54,12 @@ function byDeadline(promise, deadline) {
  * catalog view (logged once per song, counted in songRangeStats). The
  * catalog choice rides along as `fallback` for later failures.
  */
-export async function songRangeChoice(profile, seed, scenery, { search, fetchImpl, signature, songprint } = {}) {
+export async function songRangeChoice(profile, seed, scenery, { search, fetchImpl, signature, songprint, lyricSections } = {}) {
   const dualSummits = dualSummitsRequested({ signature, search });
   const layout = songRangeLayoutParam(search);
   if (!dualSummits && !songRangeEnabled(search) && !layout) return null;
   const plan = dualSummits ? planDualSummitsScene(scenery.home)
-    : layout ? pilotPlan(layout, scenery.home) : planSongRange(profile, seed, { forced: songRangeForced(search), songprint, scenery });
+    : layout ? pilotPlan(layout, scenery.home) : planSongRange(profile, seed, { forced: songRangeForced(search), songprint, scenery, lyricSections });
   if (!plan) return null;
   songRangeStats.planned++;
   const home = scenery.home;
@@ -173,7 +173,7 @@ export async function prepareSongRange(profile, seed) {
  * ({ view, fallbackReason }) from the curated catalog, drawn once per song.
  */
 export async function prepareSongTerrain(profile, seed, recent = readRecentRanges(),
-  { songRangeWaitMs = SONG_RANGE_WAIT_MS, search, fetchImpl, signature, songprint } = {}) {
+  { songRangeWaitMs = SONG_RANGE_WAIT_MS, search, fetchImpl, signature, songprint, lyricSections } = {}) {
   const startedAt = Date.now();
   try {
     const directed = songprint && (dualSummitsRequested({ signature, search }) || songRangeLayoutParam(search)
@@ -188,7 +188,7 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
     const biomes = scenery.biomes;
     if (!biomes.length) return null;
     // The composed range loads alongside the home biome, never after it.
-    const rangeOptions = { fetchImpl, signature, songprint: activePrint };
+    const rangeOptions = { fetchImpl, signature, songprint: activePrint, lyricSections };
     if (search !== undefined) rangeOptions.search = search;
     const composing = songRangeChoice(profile, seed, scenery, rangeOptions).catch((err) => {
       console.warn('[song range] composed range unavailable; keeping the catalog view', err);

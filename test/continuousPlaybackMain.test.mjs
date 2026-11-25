@@ -58,6 +58,7 @@ test('an owned continuation keeps its world and skips the world picker', async (
   const context = production('offerWorldsThenStart', {
     clearCustomWorld() {}, buildSongIdentity: (d) => ({ ...d.songIdentity }), provisionalIdentity: () => assert.fail('not an opening'),
     noteLibrarySongWorld() {}, withSignatureSource: terrain => terrain,
+    lyricsDisabled: false, terrainLyricSections: () => null,
     prepareSongTerrain: async () => null, dualSummitsSelection,
     recordFitDiagnostic: () => null, lastFitDiagnostic: null, pendingWorldStart: null,
     readBulkExportFromUrl: () => null, URL_PICKS_WORLD: false, experience: 'landscape', BIOME_WAIT_MS: 1, IDENTITY_START_HOLD_MS: 1,

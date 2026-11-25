@@ -708,7 +708,10 @@ export const SCENE_FRAG = /* glsl */`
     float channelCoverage = waterCoverage * (1.0 - ice.y);
     float channelFootprint = clamp(fwidth(channelCoverage), .015, .28);
     float channel = smoothstep(.40 - .5 * channelFootprint, .59 + .5 * channelFootprint, channelCoverage);
-    float gravel = smoothstep(.2, .43, channelCoverage) * (1.0 - channel);
+    // Exposed gravel occurs in patches. Keep vegetation and the local
+    // ground colour up to the water on the remaining banks.
+    float gravelBar = smoothstep(.38, .78, vnoise12(vWorld.xz / 95.0));
+    float gravel = gravelBar * smoothstep(.33, .48, channelCoverage) * (1.0 - channel);
     waterCoverage = 0.0;
     #endif
     #ifdef MAPPED_WATER_ONLY
@@ -915,8 +918,8 @@ export const SCENE_FRAG = /* glsl */`
       if (uDebugMask == 2) { outColor = vec4(vec3(slopeDeg / 90.0), 1.0); return; }
     }
     #ifdef INLAND_RIVER
-    vec3 wetGravel = mix(vec3(.22, .19, .14), pRockLit, .32 * step(.5, uHasMaterial));
-    albedo = mix(albedo, wetGravel, .6 * gravel);
+    vec3 wetGravel = min(albedo, mix(albedo, pRockLit, .25)) * .7;
+    albedo = mix(albedo, wetGravel, gravel);
     #endif
     // The rise (LandRise.js) lowers what stands above the eye. Rock, snow
     // and forest above keep the full-height slopes they were placed on; the
@@ -1030,14 +1033,21 @@ export const SCENE_FRAG = /* glsl */`
     vec3 V = normalize(uCameraPos - vRenderedWorld);
     #ifdef INLAND_RIVER
     if (channel > 0.0) {
-      float deep = smoothstep(.47, .98, channelCoverage);
-      vec3 shallows = vec3(.030, .170, .173);
+      float deep = smoothstep(.44, .74, channelCoverage);
+      vec3 shallows = vec3(.022, .108, .134);
       vec3 pool = vec3(.012, .080, .111);
       vec3 day = hemi * .75 + uLightColor * (.22 + .32 * sunVis) * moonTransmission;
       // An analytic sheen preserves the water read in distant oblique views.
       float grazing = 1.0 - clamp(V.y, 0.0, 1.0);
+      // Vary the reflected sky in small, irregular patches. At projected
+      // footprints larger than a patch, use its mean reflectance.
+      float footprintM = max(length(waterDx), length(waterDy));
+      float resolved = 1.0 - smoothstep(3.0, 14.0, footprintM);
+      float ripple = (vnoise12(vWorld.xz / 22.0) - .5) * resolved;
+      float reach = vnoise12(vWorld.xz / 140.0);
+      float sheen = .095 + .035 * reach + .027 * ripple;
       vec3 stillWater = mix(shallows, pool, deep) * day
-        + uSkyHorizon * (.05 + .16 * grazing * grazing);
+        + uSkyHorizon * (.025 + sheen * grazing * grazing);
       lit = mix(lit, stillWater, channel);
     }
     #endif

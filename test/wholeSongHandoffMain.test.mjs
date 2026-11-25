@@ -23,6 +23,7 @@ function setup({ running = true, songSeed = 11 } = {}) {
   const data = { durationMs: 240000, songIdentity: { seed: 42, songProfile: profile }, provisionalSeed: 11,
     worldId: 'custom-1', terrain: { id: 'provisional' }, chapterState: { seed: 11 }, cameraSchedule: {} };
   const context = vm.createContext({
+    lyricsDisabled: false, terrainLyricSections: () => null,
     BIOME_WAIT_MS: 2500, console: { warn() {}, error() {} },
     setTimeout: (cb, ms) => { timers.push({ cb, ms }); return timers.length; },
     pendingWorldStart: null, lastTimelineData: data,

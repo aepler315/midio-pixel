@@ -35,7 +35,7 @@ import { settingValue } from '../../config/appSettings.js';
 export const STAGE_KIND = 'song-range-stage';
 export const PIECE_KIND = 'massif-piece';
 const BANDS = Object.freeze({ nearM: 1800, midM: 7000 });
-const INLAND_PAD_LOW = 17, INLAND_PAD_HIGH = 18;
+import { INLAND_PAD_LOW, INLAND_PAD_HIGH } from '../terrain/MeasuredRange.js';
 export { INLAND_SURFACE_STRIDE };
 
 // Before the region exists, the template rail is lifted by a conservative
@@ -67,7 +67,8 @@ function inlandTileLod(ix, iz, tilesX, tilesZ, own, corridor, forceStride) {
   const outside = Math.max(INLAND_PAD_LOW - ix, INLAND_PAD_LOW - iz,
     ix - tilesX + INLAND_PAD_HIGH + 1, iz - tilesZ + INLAND_PAD_HIGH + 1, 0);
   if (own) return { desktop: 2, mobile: 4 };
-  if (corridor === 2 && outside <= 1) return { desktop: 2, mobile: 4 };
+  if (corridor === 3 && outside <= 1) return { desktop: 1, mobile: 2 };
+  if (corridor >= 2 && outside <= 1) return { desktop: 2, mobile: 4 };
   if (corridor && outside <= 3) return { desktop: 4, mobile: 8 };
   const desktop = outside <= 1 ? 4 : outside <= 6 ? 16 : 32;
   return { desktop, mobile: Math.min(32, desktop * 2), ...(outside <= 6 ? { store: INLAND_SURFACE_STRIDE } : {}) };
@@ -175,6 +176,9 @@ export function stageTemplate(catalog, plan) {
   const original = catalog.templates.find((x) => x.id === plan.templateId);
   if (!original) throw new Error(`no stage template ${plan.templateId}`);
   const t = plan.inland ? inlandTemplate(original, plan.inland, plan.baseM ?? original.lake.levelM) : original;
+  if (plan.slots[0]?.tiles) {
+    t.slots = plan.slots.map(s => ({ ...original.slots.find(slot => slot.id === s.slotId), tiles: s.tiles }));
+  }
   if (!plan.camera && !plan.slotOffsets) return t;
   if (plan.camera) {
     const errors = cameraRailErrors(plan.camera);
@@ -534,7 +538,7 @@ export function loadSongRangeStage(view, { catalog, baseUrl, fetchImpl, signal =
   if (hit) return hit;
   const promise = (async () => {
     const t0 = globalThis.performance?.now?.() ?? Date.now();
-    const loaded = await Promise.all(view.songRange.pieces.map((p) => loadPackage(new URL(p.manifestUrl, baseUrl).href,
+    const loaded = await Promise.all([...new Map(view.songRange.pieces.map(p => [p.id, p])).values()].map((p) => loadPackage(new URL(p.manifestUrl, baseUrl).href,
       { signal, fetchImpl, expectManifestSha256: p.manifestSha256 })));
     const t1 = globalThis.performance?.now?.() ?? Date.now();
     const { plan } = view.songRange;
