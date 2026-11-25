@@ -58,6 +58,8 @@ export function decodeTerrain(manifest, bytes) {
     const tableAt = bank.byteOffset + bank.width * bank.height * (bank.version === 2 ? 4 : 1);
     const pageTable = bytes.slice(tableAt, bank.byteOffset + bank.byteLength);
     const slots = bank.pageColumns * (bank.height / (bank.coreSize + 1));
+    // RG selects the substrate slot. When present, BA selects a fall slot
+    // in the same allocation and must pass the same bounds check.
     for (let i = 0; i < pageTable.length; i += 2) {
       if (pageTable[i] + 256 * pageTable[i + 1] > slots) throw new Error('river bank page outside atlas');
     }

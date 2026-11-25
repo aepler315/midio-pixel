@@ -141,6 +141,11 @@ test('an inland song stage doubles the existing axes and carries the region and 
   const { hydrology } = stage.manifest;
   assert.equal(banks.version, 2);
   assert.ok(hydrology.region.falls.length > 0 && hydrology.region.islands.length > 0);
+  assert.equal(banks.pageChannels, 4);
+  const corruptFall = stage.decoded.slice();
+  const firstFallSlot = hydrology.riverBankAtlas.byteOffset + banks.data.byteLength + 2;
+  corruptFall[firstFallSlot] = corruptFall[firstFallSlot + 1] = 255;
+  assert.throws(() => decodeTerrain(stage.manifest, corruptFall), /river bank page outside atlas/);
   const fall = hydrology.region.falls[0];
   for (const budget of ['desktop', 'mobile']) {
     const ground = makeTerrainMeshHeightSampler(data, budget);

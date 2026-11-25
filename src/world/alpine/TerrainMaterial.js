@@ -455,17 +455,17 @@ export const SCENE_FRAG = /* glsl */`
     float a = hash12(i), b = hash12(i + vec2(1.0, 0.0)), c = hash12(i + vec2(0.0, 1.0)), d = hash12(i + vec2(1.0, 1.0));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
-  #ifdef INLAND_RIVERBED
-  // Project onto vertical planes so a falling sheet stretches with gravity
-  // and crosses adjacent terrain triangles without changing phase.
-  float fallThreads(vec3 world, vec3 normal) {
-    float across = abs(normal.z) / max(.001, abs(normal.x) + abs(normal.z));
-    float height = world.y + 10.0 * uTime;
-    float x = world.x + 2.4 * sin(.036 * world.z + height * .014);
-    float z = world.z + 2.4 * sin(.031 * world.x + height * .012);
-    float thick = mix(vnoise12(vec2(z / 7.1, height / 55.0)), vnoise12(vec2(x / 7.1, height / 55.0)), across);
-    float fine = mix(vnoise12(vec2(z / 1.6, height / 22.0)), vnoise12(vec2(x / 1.6, height / 22.0)), across);
-    return smoothstep(.28, .76, .56 * thick + .44 * fine);
+  #ifdef INLAND_FALL_FRAME
+  // Follow the same strip of water over the lip and down every triangle
+  // of the face. A stationary notch in the lip feeds each larger rope.
+  float fallThreads(float across, float elevation, float footprintM) {
+    float descent = elevation + 11.0 * uTime;
+    float notch = vnoise12(vec2(across / 10.5, 9.7));
+    float meander = 2.1 * (vnoise12(vec2(across / 12.0, descent / 41.0)) - .5);
+    float rope = vnoise12(vec2((across + meander) / 3.5, descent / 28.0));
+    float fine = vnoise12(vec2((across + .8 * meander) / 1.25, descent / 13.0));
+    fine = mix(fine, .5, smoothstep(.45, 1.6, footprintM));
+    return smoothstep(.26, .78, .34 * notch + .46 * rope + .20 * fine);
   }
   #endif
   ${MATERIAL_DETAIL_DOMAIN_GLSL}
@@ -668,12 +668,22 @@ export const SCENE_FRAG = /* glsl */`
   uniform highp sampler2D uBankDistance;
   uniform highp sampler2D uBankPages;
   uniform vec4 uBankGrid; // origin x/z, posts per metre, signed range in metres
-  vec4 riverBankAt(vec2 worldXZ) {
+  #ifdef INLAND_FALL_FRAME
+  vec2 fallPost(ivec2 at) {
+    vec3 packedPost = texelFetch(uBankDistance, at, 0).rgb;
+    // Decode first: filtering the two normalized bytes independently
+    // would lose metres of precision whenever the low byte wraps.
+    float q = dot(round(packedPost.rg * 255.0), vec2(1.0, 256.0));
+    return vec2((q - 32768.0) * .125, packedPost.b);
+  }
+  #endif
+  vec4 riverBankAt(vec2 worldXZ, out vec2 fall) {
+    fall = vec2(0.0);
     vec2 post = (worldXZ - uBankGrid.xy) * uBankGrid.z;
     ivec2 page = ivec2(floor(post / float(INLAND_BANK_CELLS)));
     ivec2 pages = textureSize(uBankPages, 0);
     if (any(lessThan(page, ivec2(0))) || any(greaterThanEqual(page, pages))) return vec4(-uBankGrid.w, 0., 0., 0.);
-    ivec2 code = ivec2(round(texelFetch(uBankPages, page, 0).rg * 255.0));
+    ivec4 code = ivec4(round(texelFetch(uBankPages, page, 0) * 255.0));
     int slot = code.x + 256 * code.y - 1;
     if (slot < 0) return vec4(-uBankGrid.w, 0., 0., 0.);
     const int side = INLAND_BANK_CELLS + 1;
@@ -684,6 +694,18 @@ export const SCENE_FRAG = /* glsl */`
     vec2 local = post - vec2(page * INLAND_BANK_CELLS);
     vec4 bank = textureLod(uBankDistance, (vec2(base) + local + .5) / vec2(dimensions), 0.0);
     bank.r = (bank.r * 255.0 - 128.0) * (uBankGrid.w / 127.0);
+    #ifdef INLAND_FALL_FRAME
+    int ledge = code.z + 256 * code.w - 1;
+    if (ledge >= 0 && bank.a > .005) {
+      // The last post is shared with the adjacent page. Clamp the cell
+      // before reading its four corners, including at integer boundaries.
+      ivec2 cell = clamp(ivec2(floor(local)), ivec2(0), ivec2(INLAND_BANK_CELLS - 1));
+      ivec2 corner = ivec2(ledge % columns, ledge / columns) * side + cell;
+      vec2 f = clamp(local - vec2(cell), 0.0, 1.0);
+      fall = mix(mix(fallPost(corner), fallPost(corner + ivec2(1, 0)), f.x),
+                 mix(fallPost(corner + ivec2(0, 1)), fallPost(corner + ivec2(1, 1)), f.x), f.y);
+    }
+    #endif
     return bank;
   }
   #endif
@@ -743,7 +765,11 @@ export const SCENE_FRAG = /* glsl */`
     float flow = s.a * 255.0;
     #ifdef INLAND_BANK_CELLS
     float waterCoverage = 0.0;
-    vec4 bank = riverBankAt(vWorld.xz);
+    vec2 fall;
+    vec4 bank = riverBankAt(vWorld.xz, fall);
+    #ifdef INLAND_FALL_FRAME
+    float fallFootprintM = fwidth(fall.x);
+    #endif
     float bankM = bank.r;
     float edgeM = clamp(.5 * fwidth(bankM), .75, .5 * uBankGrid.w);
     float channel = smoothstep(-edgeM, edgeM, bankM) * (1.0 - ice.y);
@@ -1170,10 +1196,16 @@ export const SCENE_FRAG = /* glsl */`
         vec2 drift = vWorld.xz + 1.9 * pulse;
         float pockets = vnoise12(drift / 27.0 + vec2(reach, -reach) * 1.7);
         float crests = .60 * vnoise12(drift / 4.2 + pockets) + .40 * pockets;
-        float sheet = 1.0 - smoothstep(.72, .97, iceNormal.y);
         float toe = .03 + .85 * smoothstep(.44, .80, crests) * smoothstep(.24, .61, pockets);
-        float threads = fallThreads(vWorld, iceNormal);
-        float aeration = bank.a * mix(mix(.23, .44, sheet), mix(toe, .07 + .73 * threads, sheet), resolved);
+        float aeration = mix(.23, toe, resolved);
+        #ifdef INLAND_FALL_FRAME
+        if (fall.y > .001) {
+          float sheet = fall.y * (1.0 - smoothstep(.80, .985, iceNormal.y));
+          float threads = fallThreads(fall.x, vWorld.y, fallFootprintM);
+          aeration = mix(aeration, mix(.44, .09 + .73 * threads, resolved), sheet);
+        }
+        #endif
+        aeration *= bank.a;
         vec3 foamLight = uSkyHorizon * .22 + day * .72;
         stillWater = mix(stillWater, vec3(.68,.79,.80) * foamLight, clamp(aeration, 0.0, 1.0));
       }
@@ -1557,6 +1589,7 @@ export function createSceneMaterial(THREE, uniforms, {
   if (inlandRiver) m.defines.INLAND_RIVER = 1;
   if (inlandRiver && inlandBankCells > 0 && uniforms.uBankDistance && uniforms.uBankPages) m.defines.INLAND_BANK_CELLS = inlandBankCells;
   if (m.defines.INLAND_BANK_CELLS && uniforms.uBankDistance.value?.format === THREE.RGBAFormat) m.defines.INLAND_RIVERBED = 1;
+  if (m.defines.INLAND_RIVERBED && uniforms.uBankPages.value?.format === THREE.RGBAFormat) m.defines.INLAND_FALL_FRAME = 1;
   if (mappedWaterOnly) m.defines.MAPPED_WATER_ONLY = 1;
   return m;
 }

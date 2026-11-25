@@ -50,7 +50,18 @@ function insideDistance(s, x, z, sample, best = -Infinity) {
   return outer;
 }
 
-function* indexPages(segments, grid, texelSizeM, rangeM, channels, coreSize) {
+function routedFalls(rivers, [cx, cz]) {
+  const falls = [];
+  for (const river of rivers) for (const f of river.falls ?? []) {
+    const dx = f.footX - f.x, dz = f.footZ - f.z, length = Math.hypot(dx, dz);
+    if (!(length > 0 && f.widthM > 0)) continue;
+    falls.push({ x: f.x + cx, z: f.z + cz, ex: f.footX + cx, ez: f.footZ + cz,
+      tx: dx / length, tz: dz / length, length, half: .5 * f.widthM });
+  }
+  return falls;
+}
+
+function* indexPages(segments, falls, grid, texelSizeM, rangeM, channels, coreSize) {
   const posts = coreSize + 1;
   const [ox, oz] = grid.originM, span = coreSize * texelSizeM;
   const pagesX = Math.ceil((grid.width - 1) * grid.cellSizeM / span);
@@ -78,10 +89,72 @@ function* indexPages(segments, grid, texelSizeM, rangeM, channels, coreSize) {
     if (bins.size > maxSlots) return null;
     if (i % 128 === 127) yield;
   }
-  const pageColumns = Math.max(1, Math.ceil(Math.sqrt(bins.size)));
-  const width = pageColumns * posts, height = Math.max(1, Math.ceil(bins.size / pageColumns)) * posts;
-  if (width * height * channels > remaining) return null;
-  return { bins, pagesX, pagesZ, pageColumns, width, height };
+  // Only table entries near a routed lip get a second slot. Include a
+  // filtering post outside the supported footprint, including at a page
+  // boundary. The main channel still owns which terrain can draw water.
+  const fallPages = new Set(), padM = Math.max(grid.cellSizeM, 1.5 * texelSizeM);
+  for (const f of falls) {
+    const reach = f.half + padM + texelSizeM;
+    const left = Math.max(0, Math.floor((Math.min(f.x, f.ex) - reach - ox) / span));
+    const top = Math.max(0, Math.floor((Math.min(f.z, f.ez) - reach - oz) / span));
+    const right = Math.min(pagesX - 1, Math.floor((Math.max(f.x, f.ex) + reach - ox) / span));
+    const bottom = Math.min(pagesZ - 1, Math.floor((Math.max(f.z, f.ez) + reach - oz) / span));
+    for (let pz = top; pz <= bottom; pz++) for (let px = left; px <= right; px++) {
+      const id = pz * pagesX + px;
+      if (bins.has(id)) fallPages.add(id);
+    }
+  }
+  const pageChannels = fallPages.size ? 4 : 2, slots = bins.size + fallPages.size;
+  const pageColumns = Math.max(1, Math.ceil(Math.sqrt(slots)));
+  const width = pageColumns * posts, height = Math.max(1, Math.ceil(slots / pageColumns)) * posts;
+  if (width > RIVER_BANK_MAX_TEXTURE_SIZE || height > RIVER_BANK_MAX_TEXTURE_SIZE
+    || width * height * channels + pagesX * pagesZ * pageChannels > RIVER_BANK_MAX_BYTES) return null;
+  return { bins, fallPages, padM, pageChannels, pagesX, pagesZ, pageColumns, width, height };
+}
+
+const clamp01 = x => Math.max(0, Math.min(1, x));
+const smooth = x => { const t = clamp01(x); return t * t * (3 - 2 * t); };
+
+/** The transverse coordinate extends across the whole slot, including
+ * dry posts. The weight alone gates falling water. A neighboring dry post
+ * must still interpolate the same axis through the lip or bank. */
+function writeFallPage(data, start, width, originM, ix, iz, coreSize, step, pad, falls) {
+  const span = coreSize * step, halfDiagonal = span * Math.SQRT1_2;
+  const cx = originM[0] + (ix + coreSize / 2) * step, cz = originM[1] + (iz + coreSize / 2) * step;
+  const distances = falls.map(f => {
+    const dx = cx - f.x, dz = cz - f.z, along = Math.max(0, Math.min(f.length, dx * f.tx + dz * f.tz));
+    return Math.hypot(dx - along * f.tx, dz - along * f.tz);
+  });
+  let closest = Infinity;
+  for (const distance of distances) closest = Math.min(closest, distance);
+  // Distances to a segment change by at most one metre per metre. This
+  // keeps every segment that could be globally nearest at any post, plus
+  // every active sheet that could reach it. Shared posts therefore get
+  // identical bytes even where two waterfalls occupy neighboring pages.
+  const candidates = falls.filter((f, i) => distances[i] <= halfDiagonal +
+    Math.max(closest + halfDiagonal, Math.hypot(f.half + .5 * step, pad)));
+  for (let j = 0; j <= coreSize; j++) {
+    const z = originM[1] + (iz + j) * step;
+    for (let i = 0; i <= coreSize; i++) {
+      const x = originM[0] + (ix + i) * step;
+      let best = Infinity, weight = -1, side = 0, progress = 0;
+      for (const f of candidates) {
+        const dx = x - f.x, dz = z - f.z, along = dx * f.tx + dz * f.tz;
+        const across = dz * f.tx - dx * f.tz;
+        const outside = Math.max(-along, along - f.length, 0);
+        const strength = smooth(1 - outside / pad)
+          * smooth((f.half + .5 * step - Math.abs(across)) / Math.min(f.half, step * 1.5));
+        const d2 = across * across + outside * outside;
+        if (strength > weight || strength === weight && d2 < best) {
+          weight = strength; best = d2; side = across; progress = clamp01(along / f.length);
+        }
+      }
+      const pixel = (start + j * width + i) * 4;
+      const q = Math.max(0, Math.min(65535, 32768 + Math.round(side * 8)));
+      data[pixel] = q & 255; data[pixel + 1] = q >> 8;
+      data[pixel + 2] = Math.round(255 * weight); data[pixel + 3] = Math.round(255 * progress);
+    }
+  }
 }
 
 /** Bake the complete world-space courses. isDryGround receives stage XZ: a
@@ -91,18 +164,19 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
   const segments = yield* routedSegments(rivers, centre);
   if (!segments.length) return null;
   const channels = segments.some(s => s.a.hydro && s.b.hydro) ? 4 : 1;
+  const falls = channels === 4 ? routedFalls(rivers, centre) : [];
   // Smaller pages reduce dry padding around narrow channels in the
   // four-lane format. Keep the older one-lane page layout unchanged.
   const coreSize = channels === 4 ? 16 : 32, posts = coreSize + 1;
   let texelSizeM = 10, layout;
   for (;;) {
-    layout = yield* indexPages(segments, grid, texelSizeM, 2 * texelSizeM, channels, coreSize);
+    layout = yield* indexPages(segments, falls, grid, texelSizeM, 2 * texelSizeM, channels, coreSize);
     if (layout) break;
     // Keep narrow tributaries resolved within the device budget, including
     // unusually dense or large regions. Most songs fit at the first spacing.
     texelSizeM = texelSizeM < 20 ? Math.min(20, texelSizeM * 1.25) : texelSizeM * 1.25;
   }
-  const { bins, width, height, pagesX, pagesZ, pageColumns } = layout;
+  const { bins, fallPages, padM, pageChannels, width, height, pagesX, pagesZ, pageColumns } = layout;
   if (!bins.size) return null;
   const rangeM = 2 * texelSizeM, originM = [...grid.originM];
   const islandPages = new Map(), span = coreSize * texelSizeM;
@@ -118,7 +192,7 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
       }
     }
   }
-  const pageTable = new Uint8Array(pagesX * pagesZ * 2);
+  const pageTable = new Uint8Array(pagesX * pagesZ * pageChannels);
   const data = new Uint8Array(width * height * channels);
   // Unallocated posts are dry. Reserve zero substrate for untouched ground.
   for (let i = 0; i < data.length; i += channels) data[i] = 1;
@@ -128,8 +202,8 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
     const ix = id % pagesX * coreSize, iz = Math.floor(id / pagesX) * coreSize;
     const start = Math.floor(slot / pageColumns) * posts * width + slot % pageColumns * posts;
     const entry = ++slot;
-    pageTable[2 * id] = entry & 255;
-    pageTable[2 * id + 1] = entry >> 8;
+    pageTable[pageChannels * id] = entry & 255;
+    pageTable[pageChannels * id + 1] = entry >> 8;
     winners.fill(-rangeM);
     for (const s of bin) {
       const reach = Math.max(s.radius, s.endRadius) + rangeM;
@@ -191,7 +265,16 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
     }
     yield;
   }
-  return { version: channels === 4 ? 2 : 1, data, width, height, pageTable, pagesX, pagesZ, pageColumns, coreSize, texelSizeM, rangeM, originM };
+  for (const id of fallPages) {
+    const ix = id % pagesX * coreSize, iz = Math.floor(id / pagesX) * coreSize;
+    const start = Math.floor(slot / pageColumns) * posts * width + slot % pageColumns * posts;
+    const entry = ++slot, key = pageChannels * id;
+    pageTable[key + 2] = entry & 255; pageTable[key + 3] = entry >> 8;
+    writeFallPage(data, start, width, originM, ix, iz, coreSize, texelSizeM, padM, falls);
+    yield;
+  }
+  return { version: channels === 4 ? 2 : 1, ...(fallPages.size ? { pageChannels } : {}),
+    data, width, height, pageTable, pagesX, pagesZ, pageColumns, coreSize, texelSizeM, rangeM, originM };
 }
 
 /** Signed metres at stage XZ using exactly the shader's bilinear texel and
@@ -202,7 +285,7 @@ export function riverBankDistanceAt(atlas, x, z, material) {
   const gx = (x - originM[0]) / texelSizeM, gz = (z - originM[1]) / texelSizeM;
   const px = Math.floor(gx / coreSize), pz = Math.floor(gz / coreSize);
   if (px < 0 || pz < 0 || px >= pagesX || pz >= pagesZ) return -rangeM;
-  const key = (pz * pagesX + px) * 2, slot = pageTable[key] + 256 * pageTable[key + 1] - 1;
+  const key = (pz * pagesX + px) * (atlas.pageChannels ?? 2), slot = pageTable[key] + 256 * pageTable[key + 1] - 1;
   if (slot < 0) return -rangeM;
   const posts = coreSize + 1, lx = gx - px * coreSize, lz = gz - pz * coreSize;
   const i = Math.floor(lx), j = Math.floor(lz), fx = lx - i, fz = lz - j;

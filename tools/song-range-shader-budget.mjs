@@ -80,7 +80,8 @@ window.measure = () => {
     ['scene mobile river surface', (u) => createSceneMaterial(THREE, u, { budget: 'mobile', riverSurface: true }), { MATERIAL_FEATURE_CACHE: 1 }],
     ...['desktop', 'mobile'].map(budget => ['inland banks ' + budget, (u) => {
       u.uBankDistance = { value: new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat) };
-      u.uBankPages = { value: null }; u.uBankGrid = { value: new THREE.Vector4() };
+      u.uBankPages = { value: new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat) };
+      u.uBankGrid = { value: new THREE.Vector4() };
       return createSceneMaterial(THREE, u, { budget, inlandRiver: true, inlandBankCells: 16 });
     }, { MATERIAL_FEATURE_CACHE: 1 }]),
     ['depth', (u) => createDepthMaterial(THREE, u), {}],

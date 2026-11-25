@@ -83,14 +83,16 @@ export function validateTerrainManifest(manifest, byteLengths = {}) {
     const { width, height, pagesX, pagesZ, coreSize, pageColumns, byteOffset, byteLength, texelSizeM, rangeM } = bank;
     const pageM = coreSize * texelSizeM, pitch = coreSize + 1;
     const channels = bank.version === 2 ? 4 : 1;
+    const pageChannels = bank.pageChannels ?? 2;
     if (manifest.hydrology.riverFlow !== INLAND_RIVER_FLOW || (bank.version !== 1 && bank.version !== 2)
+      || !(pageChannels === 2 || (bank.version === 2 && pageChannels === 4))
       || ![width, height, pagesX, pagesZ, pageColumns].every(v => Number.isSafeInteger(v) && v > 0)
       || Math.max(width, height, pagesX, pagesZ) > RIVER_BANK_MAX_TEXTURE_SIZE
       || coreSize !== (bank.version === 2 ? 16 : 32) || width !== pitch * pageColumns || height % pitch !== 0
       || !Number.isFinite(texelSizeM) || texelSizeM <= 0 || !Number.isFinite(rangeM) || rangeM <= 0
       || pagesX !== Math.ceil((g.width - 1) * g.cellSizeM / pageM) || pagesZ !== Math.ceil((g.height - 1) * g.cellSizeM / pageM)
       || !Array.isArray(bank.originM) || bank.originM.length !== 2 || !bank.originM.every((v, i) => v === g.originM[i])
-      || byteLength !== channels * width * height + 2 * pagesX * pagesZ || byteLength > RIVER_BANK_MAX_BYTES || !inRange(byteOffset, byteLength))
+      || byteLength !== channels * width * height + pageChannels * pagesX * pagesZ || byteLength > RIVER_BANK_MAX_BYTES || !inRange(byteOffset, byteLength))
       fail('river bank atlas layout or payload range');
   }
   for (const t of manifest.tiles) {

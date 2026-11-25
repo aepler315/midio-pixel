@@ -123,19 +123,24 @@ test('inland terrain binds both bank textures and keeps the legacy receiver byte
   }
 });
 
-test('version-two riverbed lanes use a single linear RGBA texture on desktop and mobile', () => {
+for (const pageChannels of [2, 4]) test(`version-two riverbed with ${pageChannels}-channel table binds the correct desktop and mobile shader`, () => {
   const data = terrain();
   data.manifest = { boundsM: { min: [0, 0, 0], max: [320, 500, 320] } };
-  data.riverBankAtlas = { version: 2, coreSize: 16, width: 17, height: 17, pagesX: 1, pagesZ: 1,
-    originM: [0, 0], texelSizeM: 10, rangeM: 20, data: new Uint8Array(17 * 17 * 4), pageTable: Uint8Array.of(1, 0) };
+  const width = pageChannels === 4 ? 34 : 17;
+  const pageTable = pageChannels === 4 ? Uint8Array.of(1, 0, 2, 0) : Uint8Array.of(1, 0);
+  data.riverBankAtlas = { version: 2, coreSize: 16, width, height: 17, pagesX: 1, pagesZ: 1,
+    ...(pageChannels === 4 ? { pageChannels } : {}),
+    originM: [0, 0], texelSizeM: 10, rangeM: 20, data: new Uint8Array(width * 17 * 4), pageTable };
   const surface = GL.createSurfaceTexture(THREE, data), uniforms = GL.terrainUniforms(THREE, data, surface);
   try {
     assert.equal(surface.bankDistance.format, THREE.RGBAFormat);
     assert.equal(surface.bankDistance.image.data, data.riverBankAtlas.data);
-    assert.equal(GL.riverBankTextureBytes(data.riverBankAtlas), 17 * 17 * 4 + 2);
+    assert.equal(surface.bankPages.format, pageChannels === 4 ? THREE.RGBAFormat : THREE.RGFormat);
+    assert.equal(GL.riverBankTextureBytes(data.riverBankAtlas), width * 17 * 4 + pageChannels);
     for (const budget of ['desktop', 'mobile']) {
       const material = createSceneMaterial(THREE, uniforms, { budget, inlandRiver: true, inlandBankCells: 16 });
       assert.equal(material.defines.INLAND_RIVERBED, 1);
+      assert.equal(material.defines.INLAND_FALL_FRAME, pageChannels === 4 ? 1 : undefined);
       material.dispose();
     }
   } finally {
