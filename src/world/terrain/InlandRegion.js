@@ -20,7 +20,7 @@
 // of the region turns the same land. The erosion itself still amplifies
 // small differences, as drainage does, so close is not identical.
 import { clamp01, lerp } from '../../utils/math.js';
-import { migrateChannel } from './ChannelMigration.js';
+import { cutOffChannelFolds, migrateChannel } from './ChannelMigration.js';
 import { inlandCharacter } from './InlandTerrain.js';
 import { riverHalfWidthM, riverIslandDistance, riverIslandHeightM, riverWetHalfWidthM, sampleRiverbed, simulateRiverbeds } from './Riverbed.js';
 import { INLAND_RIVER_FLOW as REGION_RIVER_FLOW, INLAND_MAX_DRY_FLOW as REGION_MAX_DRY_FLOW } from '../alpine/TerrainPackage.js';
@@ -913,6 +913,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
     }
     const moved = migrateChannel(pts, coarse.dx, height, reliefM, design.erodibility);
     roundChannelBends(moved);
+    cutOffChannelFolds(pts, moved);
     river.points = moved;
   }
   // The camera flies low along the trunk and its largest tributaries.
@@ -1057,7 +1058,7 @@ export function regionAnchors(region, centre = [0, 0]) {
   const r1 = v => Math.round(v);
   const big = region.rivers.filter(r => r.flown || r.areaKm2 >= FLOWN_AREA_KM2);
   const falls = region.rivers.flatMap(r => r.falls.map((f, i) => ({ id: `fall-${r.id}-${i}`, river: r.id,
-    x: r1(f.x + cx), z: r1(f.z + cz), footX: r1(f.footX + cx), footZ: r1(f.footZ + cz),
+    x: f.x + cx, z: f.z + cz, footX: f.footX + cx, footZ: f.footZ + cz,
     lipM: f.lipM, footM: f.footM, dropM: f.dropM, lengthM: f.lengthM, widthM: f.widthM })))
     .sort((a, b) => b.dropM * b.widthM - a.dropM * a.widthM).slice(0, 24);
   const islands = region.rivers.flatMap(r => r.islands.map((s, i) => ({ id: `island-${r.id}-${i}`, river: r.id,

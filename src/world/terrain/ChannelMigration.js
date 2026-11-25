@@ -62,3 +62,38 @@ export function migrateChannel(points, cellM, heightAt, reliefM, erodibility) {
   }
   return moved;
 }
+
+function crossesWithin(points, from, to) {
+  for (let i = from; i < to - 2; i++) for (let j = i + 2; j < to; j++) {
+    const a = points[i], b = points[i + 1], c = points[j], d = points[j + 1];
+    const ax = b.x - a.x, az = b.z - a.z, bx = d.x - c.x, bz = d.z - c.z;
+    const det = ax * bz - az * bx;
+    if (!det) continue;
+    const t = ((c.x - a.x) * bz - (c.z - a.z) * bx) / det;
+    const u = ((c.x - a.x) * az - (c.z - a.z) * ax) / det;
+    if (t > 0 && t < 1 && u > 0 && u < 1) return true;
+  }
+  return false;
+}
+
+// When converging banks carry a bend across itself inside the wet channel,
+// the water takes the cutoff. Retain every station's downstream order, load
+// and elevation, and both ends of the reach at their original positions.
+export function cutOffChannelFolds(routed, points) {
+  for (let i = 1; i < points.length - 2; i++) {
+    const p = points[i], next = points[i + 1];
+    const dx = next.x - p.x, dz = next.z - p.z;
+    if (dx * (routed[i + 1].x - routed[i].x) + dz * (routed[i + 1].z - routed[i].z) >= 0) continue;
+    const reach = .35 * p.channelM;
+    let lo = i - 1, hi = i + 2;
+    while (lo > 0 && i - lo < 32 && Math.hypot(points[lo].x - p.x, points[lo].z - p.z) < reach) lo--;
+    while (hi < points.length - 1 && hi - i < 32 && Math.hypot(points[hi].x - p.x, points[hi].z - p.z) < reach) hi++;
+    if (!crossesWithin(points, lo, hi)) continue;
+    const from = points[lo], to = points[hi], arc = [0];
+    for (let k = lo + 1; k <= hi; k++) arc.push(arc.at(-1) + Math.hypot(routed[k].x - routed[k - 1].x, routed[k].z - routed[k - 1].z));
+    if (!arc.at(-1)) continue;
+    const cutoff = arc.map(s => ({ x: from.x + (to.x - from.x) * s / arc.at(-1), z: from.z + (to.z - from.z) * s / arc.at(-1) }));
+    if (cutoff.some((q, j) => Math.hypot(q.x - points[lo + j].x, q.z - points[lo + j].z) > .8 * points[lo + j].channelM)) continue;
+    for (let k = lo + 1; k < hi; k++) { points[k].x = cutoff[k - lo].x; points[k].z = cutoff[k - lo].z; }
+  }
+}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
-import { migrateChannel } from '../src/world/terrain/ChannelMigration.js';
+import { cutOffChannelFolds, migrateChannel } from '../src/world/terrain/ChannelMigration.js';
 import { riverWetHalfWidthM } from '../src/world/terrain/Riverbed.js';
 import { makeInlandRegion, regionAnchors, regionDesign, regionElevationSpan, roundChannelBends, traceRivers } from '../src/world/terrain/InlandRegion.js';
 import { INLAND_MAX_DRY_FLOW, INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
@@ -12,6 +12,20 @@ const printFor = values => ({ version: 1, skyline: values, passages: [] });
 const SKYLINE = [.95, .15, .08, .26, .6, .75, .4, .34, .51, .72, .62, .18, .58, .31, .7, .39];
 const field = makeInlandTerrain(printFor(SKYLINE));
 const BASE_M = 2050;
+
+test('a migrated course crossing itself inside one channel takes a single downstream path', () => {
+  const routed = Array.from({ length: 9 }, (_, i) => ({ x: 7 * i, z: 0 }));
+  const stations = [[0, 0], [8, 0], [16, -1], [27, 3], [20, -2], [22, 3], [31, -2], [42, -1], [56, 0]];
+  const points = stations.map(([x, z], i) => ({ x, z, bed: 300 - i, channelM: 35 }));
+  cutOffChannelFolds(routed, points);
+  for (let i = 1; i < points.length; i++) {
+    assert.ok(points[i].x > points[i - 1].x);
+    assert.equal(points[i].bed, 300 - i);
+    assert.ok(Math.hypot(points[i].x - stations[i][0], points[i].z - stations[i][1]) < points[i].channelM);
+  }
+  assert.deepEqual([points[0].x, points[0].z], stations[0]);
+  assert.deepEqual([points.at(-1).x, points.at(-1).z], stations.at(-1));
+});
 
 test('migration follows existing bends and the available floodplain while keeping the endpoints fixed', () => {
   const start = Array.from({ length: 70 }, (_, i) => ({ x: i * 44, z: 0, area: 320, bed: 240 - i * .05,

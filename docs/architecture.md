@@ -97,7 +97,10 @@ river. Middle stages alternate between valley runs and pass climbs that drop
 into the next valley, and the music sends its quieter stage up for the wide
 view. The close rises to face the returning summits. Arrivals at stage
 boundaries fall on musical transitions, smoothed energy paces travel between
-them, and the field of view stays fixed. The original bounded orbit remains
+them, and the field of view stays fixed. At a timed summit encounter the
+planner checks the sightline against desktop and mobile terrain triangles.
+When an intervening ridge obscures the crown, it can ease the flight toward
+a nearby lookout and return to the valley after the cue. The original bounded orbit remains
 available as a fallback if a composed flight cannot be admitted.
 Listener zoom, Camera Studio, authored rails and
 explicit tours have their own controls. Late

@@ -5,7 +5,9 @@ import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHash, STAGE_KIND, stageReliefScale, reliefScaleFrom, STAGE_RELIEF,
   INLAND_SURFACE_STRIDE, stageRiseSlots, stageTemplate } from '../src/world/alpine/StageAssembly.js';
-import { decodeTerrain, makeTerrainMeshHeightSampler } from '../src/world/alpine/TerrainMesh.js';
+import { decodeTerrain, makeTerrainMeshHeightSampler, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
+import { compileInlandFlight, inlandFlightPose } from '../src/world/alpine/InlandFlight.js';
+import { songprintComposition } from '../src/world/alpine/SongprintViewpoints.js';
 import { INLAND_RIVER_FLOW, WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { RIVER_BANK_MAX_BYTES, riverBankDistanceAt } from '../src/world/terrain/RiverBankAtlas.js';
 import { planSongRange, songRangeKey, songReliefJitter } from '../src/world/terrain/SongRangePlan.js';
@@ -281,11 +283,27 @@ test('returning lyric families cast the same surveyed massif and the stage rende
   assert.notDeepEqual(chorus[0].tiles, chorus[1].tiles);
   assert.ok(new Set(plan.slots.map(s => s.pieceId)).size >= 2);
   assert.deepEqual(planFor([{ kind: 'chorus', confidence: .4 }]), planFor(null));
-  const { manifest } = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
+  const { manifest, decoded } = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
   assert.equal(manifest.landmarks.length, plan.slots.length);
   assert.ok(manifest.hydrology.region.rivers.length > 1);
   assert.ok(manifest.hydrology.region.spine.course.length > 1);
-  assert.equal(songRangeViewErrors(songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG })).length, 0);
+  const view = songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG });
+  assert.equal(songRangeViewErrors(view).length, 0);
+  const data = decodeTerrain(manifest, decoded), heightAt = (x, z) => terrainHeightAt(data, x, z);
+  view.songprintComposition = songprintComposition(data, view);
+  const flight = compileInlandFlight(data, view, { travelMs: field.song.durationMs });
+  for (const budget of ['desktop', 'mobile']) {
+    const drawn = makeTerrainMeshHeightSampler(data, budget);
+    for (const { timeMs, point: [px,,pz] } of flight.summits) for (const offset of [-1000, 0, 1000]) {
+      const now = timeMs + offset, camera = inlandFlightPose({ eyeM: [0,0,0], targetM: [0,0,0] }, flight,
+        { gain: 1, timeMs: now, progress01: now / field.song.durationMs }, { heightAt });
+      const [x, y, z] = camera.eyeM, crown = drawn(px, pz);
+      for (let i = 1; i < 500; i++) {
+        const t = i / 500, ground = drawn(x + t * (px - x), z + t * (pz - z));
+        assert.ok(ground <= y + t * (crown - y) + 1, `${budget} foothill hides the surveyed crown at ${now} ms`);
+      }
+    }
+  }
 });
 
 test('terrain camera cues use only the active timed lyric line', () => {

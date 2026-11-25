@@ -50,6 +50,39 @@ const view = {
 const timing = { guides: [{ progress01: .24, timeMs: 50000 }, { progress01: .51, timeMs: 95000 }, { progress01: .76, timeMs: 140000 }], travelMs: 175000 };
 const options = { heightAt: groundAt };
 
+test('an intervening ridge leads the timed flight to a visible shoulder and back to the valley', () => {
+  const surface = (x, z) => 2000 + 900 * Math.exp(-(((x - 7500) / 850) ** 2 + (z / 1200) ** 2))
+    + 1750 * Math.exp(-(((x - 3500) / 650) ** 2 + (z / 1850) ** 2));
+  const cue = 60000;
+  const course = Array.from({ length: 121 }, (_, i) => [0, (i - 60) * 300, 2000, i * 1000]);
+  const terrain = { groundAt: surface, manifest: { ...data.manifest,
+    hydrology: { region: { rivers: [], spine: { course, passes: [] } } },
+    landmarks: [{ localM: [7500, 0], demGroundM: surface(7500, 0) }] } };
+  const scene = { ...view, songRange: { plan: { inland: {}, slots: [{ timeMs: cue }] } } };
+  const route = compileInlandFlight(terrain, scene, { travelMs: 120000 });
+  const read = timeMs => inlandFlightPose({ eyeM: [0,0,0], targetM: [0,0,0] }, route,
+    { gain: 1, timeMs, progress01: timeMs / 120000 }, { heightAt: surface });
+  const crown = route.summits[0].point;
+  for (const time of [cue - 1500, cue, cue + 1500]) {
+    const { eyeM } = read(time);
+    assert.ok(Math.hypot(eyeM[0], eyeM[2]) > 800, 'the lookout moves around the blocking ridge');
+    for (let i = 1; i < 500; i++) {
+      const t = i / 500, x = eyeM[0] + t * (crown[0] - eyeM[0]), z = eyeM[2] + t * (crown[2] - eyeM[2]);
+      assert.ok(eyeM[1] + t * (crown[1] - eyeM[1]) >= surface(x, z) - .25);
+    }
+  }
+  for (const t of [15000, 105000]) {
+    const { eyeM } = read(t);
+    assert.ok(Math.abs(eyeM[0]) < 1 && eyeM[1] - surface(eyeM[0], eyeM[2]) < 180);
+  }
+  let previous = read(30000).eyeM;
+  for (let t = 30100; t <= 90000; t += 100) {
+    const next = read(t).eyeM;
+    assert.ok(Math.hypot(...next.map((v, i) => v - previous[i])) < 100, 'no jump while leaving or rejoining the valley');
+    previous = next;
+  }
+});
+
 test('the flight arrives at each stage boundary on the song’s transitions and ends facing the returning summits', () => {
   const route = compileInlandFlight(data, view, timing);
   assert.ok(route);

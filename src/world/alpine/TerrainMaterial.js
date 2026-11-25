@@ -377,6 +377,9 @@ export const SCENE_FRAG = /* glsl */`
   uniform sampler2D tCanopy;    uniform float sCanopy;
   uniform sampler2D tSnow;      uniform float sSnow;
   uniform sampler2D tSoil;      uniform float sSoil;
+  #ifdef INLAND_RIVERBED
+  uniform sampler2D tPebbles;   uniform float sPebbles;
+  #endif
   uniform float uHasMaterial;
   // Palette (linear) and rules.
   uniform vec3 pRockLit; uniform vec3 pRockShade; uniform vec3 pRockWarm; uniform vec3 pSoil; uniform vec3 pMeadow;
@@ -754,6 +757,26 @@ export const SCENE_FRAG = /* glsl */`
     float gravel = smoothstep(-marginM, -min(.25 * marginM, .15 * edgeM), bankM) * (1.0 - channel) * (1.0 - ice.y);
     float depthM = 16.0 * bank.b * bank.b;
     float channelDepth = 1.0 - exp(-.65 * depthM);
+    // The pack's photographed river-gravel normal and height lanes. The
+    // native 2 m swatch supplies the shingle. A rotated, enlarged reading
+    // exposes only its highest stones in patches of coarse deposits.
+    vec2 bedNormal = vec2(0.);
+    float footprintM = max(length(waterDx), length(waterDy));
+    float bedDetail = max(gravel, channel * (1.0 - smoothstep(.40, 1.9, depthM)));
+    if (bedDetail > .005 && sPebbles > 0.0 && footprintM < 3.0) {
+      mat2 rotate = mat2(.80, .60, -.60, .80);
+      vec2 warped = vWorld.xz + 2.1 * vec2(bankPatch, vnoise12(vWorld.xz / 13.0 + 17.0));
+      float shingle = smoothstep(-.85, -.05, grain) * (1.0 - smoothstep(.10, .65, footprintM));
+      vec4 fine = textureGrad(tPebbles, warped / sPebbles, waterDx / sPebbles, waterDy / sPebbles);
+      vec2 cobbleUv = rotate * warped / (6.5 * sPebbles);
+      vec4 large = textureGrad(tPebbles, cobbleUv, rotate * waterDx / (6.5 * sPebbles), rotate * waterDy / (6.5 * sPebbles));
+      float deposit = smoothstep(-.55, .18, grain) * smoothstep(.24, .72, bankPatch);
+      float boulder = deposit * smoothstep(.33, .61, large.a) * (1.0 - smoothstep(.65, 3.0, footprintM));
+      bedNormal = mix((fine.rg * 2.0 - 1.0) * shingle * .85,
+        transpose(rotate) * (large.rg * 2.0 - 1.0) * 1.15, boulder);
+      sediment *= mix(1.0, .65 + .56 * smoothstep(.16,.60,fine.a), shingle);
+      sediment = mix(sediment, mix(pRockShade, pRockLit, .30 + .62 * large.a), boulder * .92);
+    }
     #else
     float gravelBar = smoothstep(.38, .78, vnoise12(vWorld.xz / 95.0));
     float gravel = gravelBar * smoothstep(-8.0 - edgeM, -edgeM, bankM) * (1.0 - channel) * (1.0 - ice.y);
@@ -987,6 +1010,10 @@ export const SCENE_FRAG = /* glsl */`
     #ifdef INLAND_RIVER
     #ifdef INLAND_RIVERBED
     albedo = mix(albedo, sediment * mix(.72, 1., smoothstep(0., 6., -bankM)), gravel);
+    if (gravel > .005 && dot(bedNormal, bedNormal) > .00001) {
+      vec3 stoneNormal = gradNormal(normalize(n + vec3(bedNormal.x, 0.0, bedNormal.y)), vRiseGrad.xyz);
+      nShade = normalize(mix(nShade, stoneNormal, gravel));
+    }
     #else
     vec3 wetGravel = min(albedo, mix(albedo, pRockLit, .25)) * .7;
     albedo = mix(albedo, wetGravel, gravel);
@@ -1117,7 +1144,8 @@ export const SCENE_FRAG = /* glsl */`
     if (channel > 0.0) {
       vec3 shallows = vec3(.022, .108, .134);
       #ifdef INLAND_RIVERBED
-      shallows = sediment * vec3(.48,.59,.51) + vec3(.012,.040,.042);
+      float bedLight = clamp(1.0 + .6 * dot(bedNormal, uLightDir.xz), .48, 1.37);
+      shallows = sediment * vec3(.48,.59,.51) * bedLight + vec3(.012,.040,.042);
       #endif
       vec3 pool = vec3(.012, .080, .111);
       vec3 day = hemi * .75 + uLightColor * (.22 + .32 * sunVis) * moonTransmission;
@@ -1136,13 +1164,16 @@ export const SCENE_FRAG = /* glsl */`
       if (bank.a > .005) {
         // A steep or supercritical reach entrains air. Let its crests move
         // down the drawn slope; unresolved flecks converge to their mean.
-        vec2 downhill = geologicalNormal.xz / max(.01, length(geologicalNormal.xz));
-        vec2 drift = vWorld.xz - downhill * uTime * 3.0;
-        float crests = vnoise12(drift / 5.5) + .34 * vnoise12(drift / 13.0);
+        // A bounded displacement keeps long playback from amplifying
+        // facet normals into repeating chevrons across a rapid.
+        vec2 pulse = vec2(sin(.81 * uTime + reach * 3.4), cos(.67 * uTime + reach * 4.6));
+        vec2 drift = vWorld.xz + 1.9 * pulse;
+        float pockets = vnoise12(drift / 27.0 + vec2(reach, -reach) * 1.7);
+        float crests = .60 * vnoise12(drift / 4.2 + pockets) + .40 * pockets;
         float sheet = 1.0 - smoothstep(.72, .97, iceNormal.y);
-        float toe = .19 + .72 * smoothstep(.34, .88, crests);
+        float toe = .03 + .85 * smoothstep(.44, .80, crests) * smoothstep(.24, .61, pockets);
         float threads = fallThreads(vWorld, iceNormal);
-        float aeration = bank.a * mix(.48, mix(toe, .07 + .73 * threads, sheet), resolved);
+        float aeration = bank.a * mix(mix(.23, .44, sheet), mix(toe, .07 + .73 * threads, sheet), resolved);
         vec3 foamLight = uSkyHorizon * .22 + day * .72;
         stillWater = mix(stillWater, vec3(.68,.79,.80) * foamLight, clamp(aeration, 0.0, 1.0));
       }
@@ -1414,7 +1445,7 @@ export function sceneUniforms(THREE, base) {
     uBackdrop: { value: null }, uBackdropAmount: { value: 0 }, uViewProj: { value: new THREE.Matrix4() },
     tRock: { value: null }, sRock: { value: 150 }, tRockNear: { value: null }, sRockNear: { value: 6 },
     tCanopy: { value: null }, sCanopy: { value: 70 }, tSnow: { value: null }, sSnow: { value: 60 },
-    tSoil: { value: null }, sSoil: { value: 3 },
+    tSoil: { value: null }, sSoil: { value: 3 }, tPebbles: { value: null }, sPebbles: { value: 0 },
     pRockLit: { value: new THREE.Color() }, pRockShade: { value: new THREE.Color() }, pRockWarm: { value: new THREE.Color() },
     pSoil: { value: new THREE.Color() }, pMeadow: { value: new THREE.Color() }, pForestNear: { value: new THREE.Color() },
     pForestFar: { value: new THREE.Color() }, pMoss: { value: new THREE.Color() }, pSnow: { value: new THREE.Color() },
@@ -1428,7 +1459,7 @@ export function sceneUniforms(THREE, base) {
 }
 
 const ROLE_UNIFORM = { rockDetail: ['tRock', 'sRock'], rockNear: ['tRockNear', 'sRockNear'], canopy: ['tCanopy', 'sCanopy'],
-  snow: ['tSnow', 'sSnow'], soil: ['tSoil', 'sSoil'] };
+  snow: ['tSnow', 'sSnow'], soil: ['tSoil', 'sSoil'], pebbles: ['tPebbles', 'sPebbles'] };
 const PALETTE_UNIFORM = { rockLit: 'pRockLit', rockShade: 'pRockShade', rockWarm: 'pRockWarm', soil: 'pSoil', meadow: 'pMeadow',
   forestNear: 'pForestNear', forestFar: 'pForestFar', moss: 'pMoss', snow: 'pSnow', snowShade: 'pSnowShade',
   water: 'pWater', waterDeep: 'pWaterDeep', lichen: 'pLichen' };
