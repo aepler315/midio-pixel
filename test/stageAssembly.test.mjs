@@ -5,7 +5,9 @@ import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHash, STAGE_KIND, stageReliefScale, reliefScaleFrom, STAGE_RELIEF,
   INLAND_SURFACE_STRIDE, stageRiseSlots, stageTemplate } from '../src/world/alpine/StageAssembly.js';
-import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
+import { decodeTerrain, makeTerrainMeshHeightSampler, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
+import { compileInlandFlight, inlandFlightPose } from '../src/world/alpine/InlandFlight.js';
+import { songprintComposition } from '../src/world/alpine/SongprintViewpoints.js';
 import { INLAND_RIVER_FLOW, WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { RIVER_BANK_MAX_BYTES, riverBankDistanceAt } from '../src/world/terrain/RiverBankAtlas.js';
 import { planSongRange, songRangeKey, songReliefJitter } from '../src/world/terrain/SongRangePlan.js';
@@ -137,6 +139,20 @@ test('an inland song stage doubles the existing axes and carries the region and 
     Math.round(((grid.width - 1) / INLAND_SURFACE_STRIDE + 1) ** 2 * 16 / 3));
   // Rivers are a terrain surface class; massifs stay dry.
   const { hydrology } = stage.manifest;
+  assert.equal(banks.version, 2);
+  assert.ok(hydrology.region.falls.length > 0 && hydrology.region.islands.length > 0);
+  assert.equal(banks.pageChannels, 4);
+  const corruptFall = stage.decoded.slice();
+  const firstFallSlot = hydrology.riverBankAtlas.byteOffset + banks.data.byteLength + 2;
+  corruptFall[firstFallSlot] = corruptFall[firstFallSlot + 1] = 255;
+  assert.throws(() => decodeTerrain(stage.manifest, corruptFall), /river bank page outside atlas/);
+  const fall = hydrology.region.falls[0];
+  for (const budget of ['desktop', 'mobile']) {
+    const ground = makeTerrainMeshHeightSampler(data, budget);
+    const drawnDrop = ground(fall.x, fall.z) - ground(fall.footX, fall.footZ);
+    assert.ok(drawnDrop > fall.dropM * .5, `${budget} keeps the actual waterfall lip and foot`);
+  }
+  assert.ok(hydrology.region.islands.some(i => riverBankDistanceAt(banks, i.x, i.z) < -1), 'exposed sediment stays dry in the packed atlas');
   assert.equal(hydrology.riverFlow, INLAND_RIVER_FLOW);
   assert.ok(hydrology.region.rivers.some(r => r.trunk && r.flown));
   const trunk = hydrology.region.rivers.find(r => r.trunk);
@@ -272,11 +288,55 @@ test('returning lyric families cast the same surveyed massif and the stage rende
   assert.notDeepEqual(chorus[0].tiles, chorus[1].tiles);
   assert.ok(new Set(plan.slots.map(s => s.pieceId)).size >= 2);
   assert.deepEqual(planFor([{ kind: 'chorus', confidence: .4 }]), planFor(null));
-  const { manifest } = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
+  const { manifest, decoded } = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
   assert.equal(manifest.landmarks.length, plan.slots.length);
   assert.ok(manifest.hydrology.region.rivers.length > 1);
   assert.ok(manifest.hydrology.region.spine.course.length > 1);
-  assert.equal(songRangeViewErrors(songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG })).length, 0);
+  const view = songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG });
+  assert.equal(songRangeViewErrors(view).length, 0);
+  const data = decodeTerrain(manifest, decoded), heightAt = (x, z) => terrainHeightAt(data, x, z);
+  view.songprintComposition = songprintComposition(data, view);
+  const flight = compileInlandFlight(data, view, { travelMs: field.song.durationMs });
+  assertDrawnSummitsVisible(data, flight, field.song.durationMs, heightAt);
+});
+
+function assertDrawnSummitsVisible(data, flight, durationMs, heightAt) {
+  for (const budget of ['desktop', 'mobile']) {
+    const drawn = makeTerrainMeshHeightSampler(data, budget);
+    for (const { timeMs, point: [px,,pz] } of flight.summits) for (const offset of [-1000, 0, 1000]) {
+      const now = timeMs + offset, camera = inlandFlightPose({ eyeM: [0,0,0], targetM: [0,0,0] }, flight,
+        { gain: 1, timeMs: now, progress01: now / durationMs }, { heightAt });
+      const [x, y, z] = camera.eyeM, crown = drawn(px, pz);
+      for (let i = 1; i < 500; i++) {
+        const t = i / 500, ground = drawn(x + t * (px - x), z + t * (pz - z));
+        assert.ok(ground <= y + t * (crown - y) + 1, `${budget} foothill hides the surveyed crown at ${now} ms`);
+      }
+    }
+  }
+}
+
+test('the STEPPE summit encounters leave its mid-song river shot low and looking down the valley', () => {
+  // Numeric output of the player’s analysis of the synthetic 100s STEPPE recording.
+  const songprint = JSON.parse(fs.readFileSync(new URL('fixtures/steppe-river-flight-songprint.json', import.meta.url)));
+  const plan = planSongRange(null, 0, { songprint });
+  assert.equal(plan.biome, 'STEPPE');
+  assert.deepEqual(plan.slots.map(s => s.timeMs), [13000, 65000]);
+  const { manifest, decoded } = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
+  const data = decodeTerrain(manifest, decoded), heightAt = (x, z) => terrainHeightAt(data, x, z);
+  const view = songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG });
+  view.songprintComposition = songprintComposition(data, view);
+  const durationMs = plan.inland.song.durationMs;
+  const flight = compileInlandFlight(data, view, { travelMs: durationMs });
+  assertDrawnSummitsVisible(data, flight, durationMs, heightAt);
+  for (let now = 34000; now <= 38000; now += 500) {
+    const { eyeM, targetM } = inlandFlightPose({ eyeM: [0,0,0], targetM: [0,0,0] }, flight,
+      { gain: 1, timeMs: now, progress01: now / durationMs }, { heightAt });
+    const agl = eyeM[1] - heightAt(eyeM[0], eyeM[2]);
+    assert.ok(agl > 55 && agl <= 160, `river shot at ${now} ms flies ${agl} m above ground`);
+    assert.ok(targetM[1] <= eyeM[1], 'the next lookout must not lift the river shot’s aim');
+    const lead = Math.hypot(targetM[0] - eyeM[0], targetM[2] - eyeM[2]);
+    assert.ok(lead > 800 && lead < 1250, `river shot uses its valley look-ahead (${lead} m)`);
+  }
 });
 
 test('terrain camera cues use only the active timed lyric line', () => {

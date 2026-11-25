@@ -1,7 +1,7 @@
 import { copySongprint, copySongprintSkyline } from '../../audio/SongprintData.js';
 import { clamp01 } from '../../utils/math.js';
 
-export const INLAND_TERRAIN_VERSION = 4;
+export const INLAND_TERRAIN_VERSION = 5;
 
 // The fine noise every region is carved from. One fixed ground for every
 // song, like bedrock: it never depends on a recording, so it adds no hash.
@@ -31,6 +31,28 @@ function outlineCoefficients(skyline) {
     let sum = 0;
     for (let i = 0; i < n; i++) sum += (skyline[i] - mean) * Math.cos(Math.PI * k * (i + .5) / n);
     return Math.sqrt(2 / n) * sum;
+  });
+}
+
+// The same musical evidence controls both the surrounding drainage and its
+// surveyed summits. The skyline bins measure pitch recurrence at different
+// lags, so their adjacent differences describe shape, never passage times.
+export function inlandCharacter({ character, skyline, song }) {
+  if (character) return character;
+  const mean = values => values.reduce((sum, v) => sum + v, 0) / values.length;
+  let slope = 0, curvature = 0;
+  for (let i = 1; i < skyline.length; i++) {
+    slope += Math.abs(skyline[i] - skyline[i - 1]);
+    if (i > 1) curvature += Math.abs(skyline[i] - 2 * skyline[i - 1] + skyline[i - 2]);
+  }
+  const relief = .65 * (Math.max(...skyline) - Math.min(...skyline)) + .35 * mean(skyline);
+  const ruggedness = clamp01(2.2 * slope / (skyline.length - 1));
+  const activity = clamp01(1.35 * curvature / (skyline.length - 2));
+  if (!song?.measured) return Object.freeze({ relief, ruggedness, activity });
+  return Object.freeze({
+    relief: .40 * relief + .35 * song.dynamics + .25 * mean(song.loudness),
+    ruggedness: .55 * ruggedness + .45 * mean(song.tension),
+    activity: .50 * activity + .50 * mean(song.novelty),
   });
 }
 
@@ -64,15 +86,21 @@ export function makeInlandTerrain(songprint) {
   // often as random turns did (19 of 47 against 20; 15 without it).
   const song = songTimeline(songprint);
   const balance = skyline.reduce((sum, height, i) => sum + height * (2 * i / last - 1), 0) / skyline.length;
-  const direction = song?.key
-    ? (song.key.tonic + (song.key.major ? 0 : .5)) / 12 * 2 * Math.PI + .6 * balance
-    : Math.atan2(coefficients[2], coefficients[0]) - DIRECTION_CENTRE - Math.PI / 2;
+  let direction = Math.atan2(coefficients[2], coefficients[0]) - DIRECTION_CENTRE - Math.PI / 2;
+  if (song?.key) {
+    const keyed = (song.key.tonic + (song.key.major ? 0 : .5)) / 12 * 2 * Math.PI + .6 * balance;
+    // An uncertain key leaves the outline in charge. Blend over the short
+    // arc so a small confidence change cannot swing the river valley around.
+    const turn = keyed - direction;
+    direction += clamp01(2 * song.key.confidence) * Math.atan2(Math.sin(turn), Math.cos(turn));
+  }
 
   return Object.freeze({
     version: INLAND_TERRAIN_VERSION,
     ground: INLAND_GROUND,
     skyline: Object.freeze(skyline),
     shape: Object.freeze(shape),
+    character: inlandCharacter({ skyline, song }),
     east: Math.cos(direction),
     north: Math.sin(direction),
     spacingM: 11200 - 5800 * clamp01(variation * 3.1),

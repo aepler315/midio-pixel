@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
+import { inlandCharacter, makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
 
 const skyline = [.95, .15, .08, .26, .6, .75, .4, .34, .51, .72, .62, .18, .58, .31, .7, .39];
 const printFor = values => ({ version: 1, skyline: values, passages: [] });
@@ -37,4 +37,30 @@ test('a close outline, as from another recording of the song, gives a close fiel
     assert.ok(Math.abs(near.reliefM - field.reliefM) < 1000 * amount + 1e-6);
     previous = turn;
   }
+});
+
+test('the measured outline and heard-time evidence share stable relief, roughness and activity', () => {
+  const broad = Array.from({ length: 16 }, (_, i) => .25 + .45 * Math.sin(Math.PI * i / 15));
+  const jagged = broad.map((_, i) => i % 2 ? .95 : .05);
+  const base = makeInlandTerrain(printFor(broad));
+  const near = makeInlandTerrain(printFor(broad.map((v, i) => v + .001 * Math.cos(i))));
+  const different = makeInlandTerrain(printFor(jagged));
+  for (const axis of ['relief', 'ruggedness', 'activity']) {
+    assert.ok(Math.abs(base.character[axis] - near.character[axis]) < .006);
+    assert.ok(different.character[axis] > base.character[axis] + .20);
+  }
+  assert.deepEqual(inlandCharacter({ skyline: broad }), base.character, 'previous fields recover their outline-only controls');
+  const series = Array(40).fill(.5), timeline = { version: 1, stepMs: 2000, key: { tonic: 0, major: true, confidence: .9 },
+    dynamics: .5, loudness: series, brightness: series, tension: series, novelty: series, major: series };
+  const controls = changes => makeInlandTerrain({ ...printFor(broad), timeline: { ...timeline, ...changes } }).character;
+  const average = controls({});
+  const active = controls({ novelty: Array(40).fill(.9) });
+  assert.deepEqual([active.relief, active.ruggedness], [average.relief, average.ruggedness]);
+  assert.ok(active.activity > average.activity + .19);
+  assert.ok(controls({ tension: Array(40).fill(.9) }).ruggedness > average.ruggedness + .17);
+  assert.ok(controls({ dynamics: .9 }).relief > average.relief + .13);
+  assert.deepEqual(controls({ tension: [] }), base.character, 'invalid timeline falls back to the measured outline');
+  const uncertain = makeInlandTerrain({ ...printFor(broad), timeline: { ...timeline, key: { ...timeline.key, confidence: 0 } } });
+  assert.equal(uncertain.east, base.east);
+  assert.equal(uncertain.north, base.north);
 });

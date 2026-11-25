@@ -6,7 +6,7 @@ import { MIRROR_LIFT } from './WaterMirror.js';
 import { LAND_MAX_DISPLACEMENT_M, LAND_TOUR_FADE_END_M, landDetailErrorM } from './LandMotionLimits.js';
 import { risenHeight } from './LandRise.js';
 import { landRiseCamera } from './LandRiseCamera.js';
-import { terrainHeightAt } from './TerrainMesh.js';
+import { terrainHeightAt, tileMeshShape } from './TerrainMesh.js';
 import { cameraStudioTour, normalizeCameraStudioSettings } from './CameraStudio.js';
 
 const dot = (a, b) => a.reduce((n, v, i) => n + v * b[i], 0);
@@ -237,7 +237,8 @@ function pixelTerrainPlan(plan, data, requirements, { heightPx, pixelHeightPx, p
     }
     if (stride > strides.get(tile.id)) coarsened++;
     strides.set(tile.id, stride);
-    triangles += 2 * (data.cells / stride) ** 2;
+    const { cols, rows } = tileMeshShape(tile, data.cells, stride);
+    triangles += 2 * (cols - 1) * (rows - 1);
     if (ppm > 0) {
       const error = (tile.errorsM?.[stride] || 0) * ppm;
       maxErrorPx = Math.max(maxErrorPx, error);
@@ -396,7 +397,9 @@ export function planTerrainWindow(data, tour, index, options = {}) {
         }
       }
       stride = Math.min(data.cells, Math.max(tile.stride, stride * (summit || studioActive ? 1 : bias)));
-      strides.set(tile.id, stride); triangles += 2 * (data.cells / stride) ** 2;
+      strides.set(tile.id, stride);
+      const { cols, rows } = tileMeshShape(tile, data.cells, stride);
+      triangles += 2 * (cols - 1) * (rows - 1);
       if (ppm) {
         const error = (tile.errorsM?.[stride] || 0) * ppm;
         maxErrorPx = Math.max(maxErrorPx, error);

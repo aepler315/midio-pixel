@@ -22,7 +22,7 @@ import { massifSkylines } from './songprintSkylines.js';
 import { planSongScenes } from './SongScenePlan.js';
 import { slotOrigin } from './StageFloor.js';
 import { compositionTarget, summitSpacing, summitCandidate, summitPairScore } from './SongprintComposition.js';
-import { measuredRange } from './MeasuredRange.js';
+import { measuredRange, summitCharacterError, surveyedSummitRanks } from './MeasuredRange.js';
 import { makeInlandTerrain } from './InlandTerrain.js';
 import { chooseSongBiomes } from './BiomeSet.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
@@ -31,7 +31,7 @@ import MASSIF_CATALOG from './massifCatalogData.js';
 import { settingValue } from '../../config/appSettings.js';
 
 export const SONG_RANGE_VERSION = 3;
-const SONGPRINT_RANGE_VERSION = 9;
+const SONGPRINT_RANGE_VERSION = 11;
 
 /** Biome to material family; mirrors DEFAULT_PACKS in tools/build-range-scene.mjs. */
 export const BIOME_FAMILY = Object.freeze({
@@ -100,11 +100,12 @@ function indexOf(catalog) {
 // Pick the two main crests before filling the rest of the stage. The home
 // supplies the biome and a modest source preference, while the song
 // supplies the desired shapes and balance across the camera frame.
-function composeFromOutline(templates, pieces, homeView, song, songprint, family, forced) {
-  const target = compositionTarget(song, measuredViewOutline(homeView));
+function composeFromOutline(templates, pieces, homeView, homeOutline, song, songprint, family, forced) {
+  const target = compositionTarget(song, homeOutline);
   const balance = summitSpacing(target);
   const inland = makeInlandTerrain(songprint);
   const measured = pieces.filter(piece => massifSkylines[piece.manifestSha256]);
+  const ranks = surveyedSummitRanks(measured);
   let best = null;
   for (const template of templates) {
     const principalSlot = template.slots.find(slot => slot.id === template.principalSlot);
@@ -116,6 +117,11 @@ function composeFromOutline(templates, pieces, homeView, song, songprint, family
         const measure = massifSkylines[piece.manifestSha256];
         const forward = summitCandidate(template, slot, piece, measure, target, hero, false);
         const reverse = summitCandidate(template, slot, piece, measure, target, hero, true);
+        if (ranks.has(piece)) {
+          const characterCost = .08 * summitCharacterError(ranks.get(piece), inland.character);
+          forward.score += characterCost;
+          reverse.score += characterCost;
+        }
         return [forward, reverse];
       }).sort((a, b) => a.score - b.score || a.piece.id.localeCompare(b.piece.id));
       return { slot, candidates };
@@ -222,7 +228,8 @@ export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced 
       if (measured) return forced ? { ...measured, forced: true } : measured;
     }
   }
-  if (homeView) return composeFromOutline(usable, pieces, homeView, song, songprint, family, forced);
+  const homeOutline = homeView && measuredViewOutline(homeView);
+  if (homeOutline) return composeFromOutline(usable, pieces, homeView, homeOutline, song, songprint, family, forced);
   const template = pick(usable, seedTicket(seed, SALT_TEMPLATE));
   const principalSlot = template.slots.find((s) => s.id === template.principalSlot);
   // Principal: character odds over every piece that fits the principal slot

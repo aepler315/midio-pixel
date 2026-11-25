@@ -23,7 +23,7 @@
 import { TERRAIN_SCHEMA, TERRAIN_VERSION, STRIDES, WATER_FLOW, INLAND_RIVER_FLOW, INLAND_MAX_DRY_FLOW, INLAND_SURFACE_STRIDE,
   validateTerrainManifest } from './TerrainPackage.js';
 import { TILE_CELLS, LOD_BUDGETS, VISIBILITY, FRAMINGS, SHORE_MAX_STRIDE, tileStrideError, encodeResiduals, splitPlanes, quantizationFor } from './TerrainTiles.js';
-import { decodeTerrain } from './TerrainMesh.js';
+import { decodeTerrain, tileMeshShape } from './TerrainMesh.js';
 import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, projectPoint, cameraRailErrors } from '../terrain/SceneTravel.js';
 import { stageFloorHeight, inStageLake, slotOrigin } from '../terrain/StageFloor.js';
 import { inlandRegionSteps, regionAnchors } from '../terrain/InlandRegion.js';
@@ -271,6 +271,25 @@ function* assembleStageSteps(plan, blocks, { catalog, id = `song-range-${stageHa
   const cells = TILE_CELLS;
   const tilesX = (W - 1) / cells, tilesZ = (H - 1) / cells;
   if (!Number.isInteger(tilesX) || !Number.isInteger(tilesZ)) throw new Error(`${t.id}: grid is not whole tiles`);
+  // A ledge is often shorter than one 40–80 m mobile triangle. Keep both
+  // elevations of the drop on the native lattice in the affected tiles.
+  const fallTiles = new Map(), tileM = cells * c;
+  for (const river of region?.rivers ?? []) for (const f of river.falls ?? []) {
+    const pad = .5 * f.widthM + c;
+    const left = Math.max(0, Math.floor((Math.min(f.x, f.footX) + centre[0] - pad - originM[0]) / tileM));
+    const right = Math.min(tilesX - 1, Math.floor((Math.max(f.x, f.footX) + centre[0] + pad - originM[0]) / tileM));
+    const top = Math.max(0, Math.floor((Math.min(f.z, f.footZ) + centre[1] - pad - originM[1]) / tileM));
+    const bottom = Math.min(tilesZ - 1, Math.floor((Math.max(f.z, f.footZ) + centre[1] + pad - originM[1]) / tileM));
+    for (let iz = top; iz <= bottom; iz++) for (let ix = left; ix <= right; ix++) {
+      const x0 = ix * tileM + originM[0] - centre[0], z0 = iz * tileM + originM[1] - centre[1], key = iz * tilesX + ix;
+      const detail = [Math.max(0, Math.floor((Math.min(f.x, f.footX) - pad - x0) / c)),
+        Math.max(0, Math.floor((Math.min(f.z, f.footZ) - pad - z0) / c)),
+        Math.min(cells, Math.ceil((Math.max(f.x, f.footX) + pad - x0) / c)),
+        Math.min(cells, Math.ceil((Math.max(f.z, f.footZ) + pad - z0) / c))];
+      if (!fallTiles.has(key)) fallTiles.set(key, []);
+      fallTiles.get(key).push(detail);
+    }
+  }
   // Which piece block covers each stage tile (slots never overlap).
   const owner = new Array(tilesX * tilesZ).fill(null);
   const placed = [];
@@ -339,10 +358,11 @@ function* assembleStageSteps(plan, blocks, { catalog, id = `song-range-${stageHa
     const tx0 = originM[0] + ix * cells * c, tz0 = originM[1] + iz * cells * c;
     const corridor = inland ? region.corridor(tx0 - centre[0], tz0 - centre[1], tx0 + cells * c - centre[0], tz0 + cells * c - centre[1]) : 0;
     const inlandLod = inland ? inlandTileLod(ix, iz, tilesX, tilesZ, own, corridor, forceStride) : null;
+    const fallDetail = !forceStride && fallTiles.get(iz * tilesX + ix);
     // Inland tiles near the travelled area store samples at the surface
     // atlas spacing even where the mesh draws fewer: rivers and hillside
     // shading come out of the atlas at full detail.
-    const sourceStride = inlandLod ? Math.min(inlandLod.desktop, inlandLod.mobile, inlandLod.store ?? Infinity) : 1;
+    const sourceStride = inlandLod && !fallDetail ? Math.min(inlandLod.desktop, inlandLod.mobile, inlandLod.store ?? Infinity) : 1;
     const n1 = cells / sourceStride + 1;
     let minY = Infinity, maxY = -Infinity, wet = 0, land = 0;
     for (let v = 0; v < n1; v++) for (let u = 0; u < n1; u++) {
@@ -357,7 +377,7 @@ function* assembleStageSteps(plan, blocks, { catalog, id = `song-range-${stageHa
       let y, flow;
       if (inland) {
         const ground = sampleRegion(x, z);
-        y = ground.heightM + r;
+        y = (r > 1 ? ground.heightM : ground.renderHeightM) + r;
         // Measured relief is dry ground: no channel runs over a massif.
         flow = r > 1 ? Math.min(ground.flowByte, INLAND_MAX_DRY_FLOW >> 1) : ground.flowByte;
       } else {
@@ -411,7 +431,7 @@ function* assembleStageSteps(plan, blocks, { catalog, id = `song-range-${stageHa
     const residual = splitPlanes(encodeResiduals(q, n));
     const hAt = push(residual), fAt = push(flow);
     tiles.push({
-      id: `t${ix}_${iz}`, ix, iz, stride, samples: n,
+      id: `t${ix}_${iz}`, ix, iz, stride, samples: n, ...(fallDetail ? { fallDetail } : {}),
       heights: { byteOffset: hAt, byteLength: residual.byteLength, count: n * n, type: 'uint16', predictor: 'planar', planes: 'lo-hi' },
       flow: { byteOffset: fAt, byteLength: flow.byteLength, count: n * n, type: 'uint8', water: WATER_FLOW },
       validity: { mode: 'all' }, minY, maxY, visible: true, framing: framing || 'outside',
@@ -444,7 +464,7 @@ function* assembleStageSteps(plan, blocks, { catalog, id = `song-range-${stageHa
     const banks = yield* bakeRiverBankAtlasSteps(region.rivers, t.grid, centre, isDryGround);
     if (banks) {
       const { data, pageTable, ...layout } = banks;
-      riverBankAtlas = { ...layout, version: 1, byteOffset: push(data), byteLength: data.byteLength + pageTable.byteLength };
+      riverBankAtlas = { ...layout, byteOffset: push(data), byteLength: data.byteLength + pageTable.byteLength };
       push(pageTable);
     }
   }
@@ -453,7 +473,10 @@ function* assembleStageSteps(plan, blocks, { catalog, id = `song-range-${stageHa
   for (const ch of chunks) { decoded.set(ch, at); at += ch.byteLength; }
   const estimate = (budget) => {
     let vertices = 0, triangles = 0;
-    for (const tile of tiles) { const m = cells / tile.lod[budget]; vertices += (m + 1) * (m + 1); triangles += 2 * m * m; }
+    for (const tile of tiles) {
+      const { cols, rows } = tileMeshShape(tile, cells, tile.lod[budget]);
+      vertices += cols * rows; triangles += 2 * (cols - 1) * (rows - 1);
+    }
     const stride = inland ? INLAND_SURFACE_STRIDE : 1;
     const texturePixels = ((W - 1) / stride + 1) * ((H - 1) / stride + 1);
     return { vertices, triangles, meshBytes: vertices * 12 + triangles * 3 * 4, surfaceTextureBytes: Math.round(texturePixels * 4 * 4 / 3) };

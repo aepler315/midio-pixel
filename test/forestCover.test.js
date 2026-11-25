@@ -9,6 +9,7 @@ import { decodeTerrain, terrainHeightAt } from '../src/world/alpine/TerrainMesh.
 import { placeForest, keptInstances, forestKeepFraction, LATTICE_M } from '../src/world/alpine/ForestCover.js';
 import { sceneDeformation, rangeMusicState } from '../src/world/alpine/RangeFrame.js';
 import { bakeRiverBankAtlasSteps, riverBankDistanceAt } from '../src/world/terrain/RiverBankAtlas.js';
+import { simulateRiverbeds } from '../src/world/terrain/Riverbed.js';
 import { INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { finishPreparation } from '../src/world/alpine/PreparationSteps.js';
 
@@ -89,6 +90,14 @@ test('inland tree roots follow a diagonal bank through mixed flow cells', () => 
   const edgeTrees = trees.filter(nearBank);
   assert.ok(edgeTrees.some(t => t[0] < .4 * t[2]) && edgeTrees.some(t => t[0] > .4 * t[2]));
   assert.ok(trees.every(([x, , z]) => riverBankDistanceAt(atlas, x, z) <= -2));
+  const river = { id: 0, joins: null, points: points.map((p, i) => ({ ...p,
+    area: 90 + i, bed: 400 - .05 * i, broad: 1, gorge: 0, erodibility: 1.1 })) };
+  simulateRiverbeds([river], { character: { relief: .4, activity: .4, ruggedness: .3 } });
+  const sediment = finishPreparation(bakeRiverBankAtlasSteps([river], grid));
+  const beachTrees = all(placeForest({ ...legacy, riverBankAtlas: sediment }, view, rules, { seed: 5 }));
+  assert.ok(beachTrees.length > 100 && beachTrees.some(t => Math.abs(t[0] - .4 * t[2]) < 80));
+  assert.ok(beachTrees.every(([x, , z]) => riverBankDistanceAt(sediment, x, z) < -7),
+    'the active sediment shore stays exposed below the woodland');
 });
 
 test('no trees on water, cliffs or above the treeline; roots sit on the drawn surface', () => {

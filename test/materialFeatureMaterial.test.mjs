@@ -56,9 +56,12 @@ test('the cache composes with mobile pixel and river materials without extra sam
     assert.equal(material.defines.RIVER_SURFACE, 1);
     assert.equal(material.defines.FAR_FOREST_KMAX, 4);
     const samplerNames = source => [...source.matchAll(/uniform\s+(?:(?:lowp|mediump|highp)\s+)?sampler2D\s+(\w+)/g)].map(m => m[1]);
-    const bankBlock = SCENE_FRAG.match(/#ifdef INLAND_BANK_CELLS\b[^#]*#endif/)[0];
+    const bankBlock = SCENE_FRAG.match(/#ifdef INLAND_BANK_CELLS\b[^#]*/)[0];
     assert.deepEqual(samplerNames(bankBlock), ['uBankDistance', 'uBankPages']);
-    const names = samplerNames(SCENE_FRAG.replace(bankBlock, ''));
+    const bedBlock = SCENE_FRAG.match(/#ifdef INLAND_RIVERBED\s+uniform sampler2D tPebbles;[^#]*#endif/)[0];
+    assert.deepEqual(samplerNames(bedBlock), ['tPebbles']);
+    assert.equal(material.defines.INLAND_RIVERBED, undefined);
+    const names = samplerNames(SCENE_FRAG.replace(bankBlock, '').replace(bedBlock, ''));
     assert.equal(names.length, 13);
     assert.equal(new Set(names).size, 13);
   } finally { material.dispose(); target.dispose(); }

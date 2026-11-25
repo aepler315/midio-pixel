@@ -55,9 +55,11 @@ export function decodeTerrain(manifest, bytes) {
   const data = { manifest, tiles, byIndex, cells: manifest.tileCells, grid: manifest.grid };
   const bank = manifest.hydrology?.riverBankAtlas;
   if (bank) {
-    const tableAt = bank.byteOffset + bank.width * bank.height;
+    const tableAt = bank.byteOffset + bank.width * bank.height * (bank.version === 2 ? 4 : 1);
     const pageTable = bytes.slice(tableAt, bank.byteOffset + bank.byteLength);
     const slots = bank.pageColumns * (bank.height / (bank.coreSize + 1));
+    // RG selects the substrate slot. When present, BA selects a fall slot
+    // in the same allocation and must pass the same bounds check.
     for (let i = 0; i < pageTable.length; i += 2) {
       if (pageTable[i] + 256 * pageTable[i + 1] > slots) throw new Error('river bank page outside atlas');
     }
@@ -111,6 +113,54 @@ function tileStride(tile, budget, cells, bias = 1) {
   return Math.min(cells, Math.max(tile.stride, (tile.lod?.[budget] ?? tile.stride) * bias));
 }
 
+/** A waterfall keeps native mesh rows and columns through its lip and
+ * plunge pool. A normal tile retains its uniform grid and storage. */
+export function tileMeshShape(tile, cells, stride) {
+  const n = cells / stride + 1;
+  if (!tile.fallDetail || stride === 1) return { cols: n, rows: n };
+  const axis = k => {
+    const coordinates = [];
+    for (let i = 0; i <= cells; i++)
+      if (i % stride === 0 || tile.fallDetail.some(bounds => i >= bounds[k] && i <= bounds[k + 2])) coordinates.push(i);
+    return coordinates;
+  };
+  const x = axis(0), z = axis(1);
+  return { x, z, cols: x.length, rows: z.length };
+}
+
+function meshNodeHeights(tile, stride, cells, neighbourStride, shape, neighbourTile) {
+  const regular = tileMeshHeights(tile, stride, cells, neighbourStride);
+  // Where either side adds waterfall knots, agree on every post shared by
+  // both edges. Only the intermediate vertices follow the straight chord.
+  const edge = (dx, dz) => {
+    const other = neighbourTile(dx, dz);
+    if (!other || (!shape.x && !other.fallDetail)) return null;
+    const neighbourStep = neighbourStride(dx, dz);
+    if (!neighbourStep) return null;
+    const axis = dz ? 'x' : 'z', here = shape[axis], there = tileMeshShape(other, cells, neighbourStep)[axis];
+    const shared = [];
+    for (let i = 0; i <= cells; i++) {
+      if ((here ? here.includes(i) : i % stride === 0) && (there ? there.includes(i) : i % neighbourStep === 0)) shared.push(i);
+    }
+    return shared;
+  };
+  const north = edge(0, -1), south = edge(0, 1), west = edge(-1, 0), east = edge(1, 0);
+  if (!shape.x && !(north || south || west || east)) return regular;
+  const raw = (u, v) => sampleAt(tile, u / tile.stride, v / tile.stride);
+  return (u, v) => {
+    const x = shape.x ? shape.x[u] : u * stride, z = shape.z ? shape.z[v] : v * stride;
+    const horizontal = z === 0 || z === cells;
+    const shared = horizontal ? (z === 0 ? north : south) : x === 0 ? west : x === cells ? east : null;
+    if (!shared) return shape.x ? raw(x, z) : regular(u, v);
+    if (!Number.isFinite(raw(x, z))) return NaN;
+    const q = horizontal ? x : z, next = shared.findIndex(p => p >= q);
+    if (shared[next] === q) return raw(x, z);
+    const a = shared[next - 1], b = shared[next];
+    const h0 = horizontal ? raw(a, z) : raw(x, a), h1 = horizontal ? raw(b, z) : raw(x, b);
+    return h0 + (h1 - h0) * ((q - a) / (b - a));
+  };
+}
+
 /** Sample the same snapped vertices used by buildTerrainGeometry. */
 function tileMeshHeights(tile, stride, cells, neighbourStride) {
   const m = cells / stride, step = stride / tile.stride;
@@ -146,7 +196,7 @@ export function makeTerrainMeshHeightSampler(data, budget) {
   const { grid, cells, manifest } = data;
   const [ox, oz] = grid.originM;
   const strideFor = tile => tileStride(tile, budget, cells);
-  let owner, height, stride;
+  let owner, height, stride, shape;
   return (x, z) => {
     const gx = (x - ox) / grid.cellSizeM, gz = (z - oz) / grid.cellSizeM;
     const ix = Math.floor(gx / cells) - (gx === manifest.tilesX * cells ? 1 : 0);
@@ -156,17 +206,21 @@ export function makeTerrainMeshHeightSampler(data, budget) {
     if (owner !== tile) {
       owner = tile;
       stride = strideFor(tile);
-      height = tileMeshHeights(tile, stride, cells, (dx, dz) => {
+      shape = tileMeshShape(tile, cells, stride);
+      height = meshNodeHeights(tile, stride, cells, (dx, dz) => {
         const other = data.byIndex.get(`${ix + dx},${iz + dz}`);
         return other ? strideFor(other) : 0;
-      });
+      }, shape, (dx, dz) => data.byIndex.get(`${ix + dx},${iz + dz}`));
     }
     const m = cells / stride;
     const fu = (gx - ix * cells) / stride, fv = (gz - iz * cells) / stride;
     const u = Math.min(m - 1, Math.floor(fu)), v = Math.min(m - 1, Math.floor(fv));
-    const tu = fu - u, tv = fv - v;
-    const a = Math.fround(height(u, v)), b = Math.fround(height(u + 1, v));
-    const c = Math.fround(height(u, v + 1)), d = Math.fround(height(u + 1, v + 1));
+    const gridU = shape.x ? Math.min(shape.cols - 2, shape.x.findLastIndex(value => value <= gx - ix * cells)) : u;
+    const gridV = shape.z ? Math.min(shape.rows - 2, shape.z.findLastIndex(value => value <= gz - iz * cells)) : v;
+    const tu = shape.x ? (gx - ix * cells - shape.x[gridU]) / (shape.x[gridU + 1] - shape.x[gridU]) : fu - u;
+    const tv = shape.z ? (gz - iz * cells - shape.z[gridV]) / (shape.z[gridV + 1] - shape.z[gridV]) : fv - v;
+    const a = Math.fround(height(gridU, gridV)), b = Math.fround(height(gridU + 1, gridV));
+    const c = Math.fround(height(gridU, gridV + 1)), d = Math.fround(height(gridU + 1, gridV + 1));
     if (!(Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && Number.isFinite(d))) return NaN;
     return tu >= tv ? a + (b - a) * tu + (d - b) * tv : a + (d - c) * tu + (c - a) * tv;
   };
@@ -215,7 +269,7 @@ function planBands(data, stridesById, includeHidden, railSplit = true) {
   for (const t of data.tiles.values()) {
     seq++;
     if (!drawn(t)) continue;
-    const s = stridesById.get(t.id), m = cells / s, band = bandOf(t), at = BANDS.indexOf(band);
+    const s = stridesById.get(t.id), band = bandOf(t), at = BANDS.indexOf(band);
     let fringe = false, railFringe = false;
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const nb = (dx || dz) && data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
@@ -223,14 +277,15 @@ function planBands(data, stridesById, includeHidden, railSplit = true) {
       fringe = true;
       if (isRail(nb)) railFringe = true;
     }
-    const tv = (m + 1) * (m + 1), ti = 6 * m * m, sz = size[band], sec = sections[band];
+    const { cols, rows } = tileMeshShape(t, cells, s);
+    const tv = cols * rows, ti = 6 * (cols - 1) * (rows - 1), sz = size[band], sec = sections[band];
     sz.v += tv; sz.i += ti; if (fringe) sz.f += ti;
     if (!isRail(t)) { sec.D.push({ t, seq, fringe, ignoreTourOnly: false }); continue; }
     // Corners never snap (along() keeps multiples of the coarse step), so
     // only the four edge neighbours can move a rail tile's vertices.
     const split = SIDES.some(([dx, dz]) => {
       const nb = data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
-      return tourOnly(nb) && stridesById.get(nb.id) > s;
+      return tourOnly(nb) && (stridesById.get(nb.id) > s || (t.fallDetail && s > 1));
     });
     if (!split) { sec.A.push({ t, seq, fringe, railFringe, ignoreTourOnly: false }); continue; }
     sz.v += tv; sz.i += ti; sz.copyV += tv; sz.copyI += ti;
@@ -287,8 +342,7 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
     // One tile into the band's arrays: [first, last) of its indices.
     const emit = ({ t, ignoreTourOnly }) => {
       const s = stridesById.get(t.id);
-      const m = cells / s; // runtime cells per side
-      const n = m + 1;
+      const shape = tileMeshShape(t, cells, s), n = shape.cols, rows = shape.rows;
       // A rail copy is shaped as if the tour-only tiles were not there.
       const neighbourStride = (dx, dz) => {
         const nb = data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
@@ -298,17 +352,18 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
       const base = vertexCount;
       const x0 = grid.originM[0] + t.ix * cells * grid.cellSizeM;
       const z0 = grid.originM[1] + t.iz * cells * grid.cellSizeM;
-      const snap = tileMeshHeights(t, s, cells, neighbourStride);
-      const heights = new Float32Array(n * n);
+      const snap = meshNodeHeights(t, s, cells, neighbourStride, shape,
+        (dx, dz) => data.byIndex.get(`${t.ix + dx},${t.iz + dz}`));
+      const heights = new Float32Array(n * rows);
       const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
-      for (let v = 0; v < n; v++) {
+      for (let v = 0; v < rows; v++) {
         for (let u = 0; u < n; u++) {
           const y = snap(u, v);
           heights[v * n + u] = y;
           const o = 3 * (base + v * n + u);
-          P[o] = x0 + u * s * grid.cellSizeM;
+          P[o] = x0 + (shape.x ? shape.x[u] : u * s) * grid.cellSizeM;
           P[o + 1] = Number.isFinite(y) ? y : 0;
-          P[o + 2] = z0 + v * s * grid.cellSizeM;
+          P[o + 2] = z0 + (shape.z ? shape.z[v] : v * s) * grid.cellSizeM;
           if (Number.isFinite(y)) for (let axis = 0; axis < 3; axis++) {
             box[axis] = Math.min(box[axis], P[o + axis]);
             box[axis + 3] = Math.max(box[axis + 3], P[o + axis]);
@@ -316,8 +371,8 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
         }
       }
       const first = k;
-      for (let v = 0; v < m; v++) {
-        for (let u = 0; u < m; u++) {
+      for (let v = 0; v < rows - 1; v++) {
+        for (let u = 0; u < n - 1; u++) {
           const la = v * n + u;
           // Skip quads touching no-data.
           if (!(Number.isFinite(heights[la]) && Number.isFinite(heights[la + 1])
@@ -329,7 +384,7 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
           I[k++] = a; I[k++] = d; I[k++] = b;
         }
       }
-      vertexCount += n * n;
+      vertexCount += n * rows;
       pushChunk(chunks, first, k - first, box);
       return [first, k, box];
     };

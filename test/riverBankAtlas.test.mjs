@@ -8,6 +8,86 @@ const river = (...points) => ({ points: points.map(([x, z, channelM]) => ({ x, z
 const bake = (rivers, options = {}) => finishPreparation(
   bakeRiverBankAtlasSteps(rivers, options.grid ?? grid, options.centre, options.isDryGround));
 
+test('modeled channels serialize bank sediment, hydraulic depth, local whitewater and dry islands', () => {
+  const station = (x, grainMm, bankRock, rapid) => ({ x, z: 0, channelM: 72, bed: 100 - x * .01,
+    hydro: { grainMm, bankRock, rapid, fall: 0, barSide: 0, barStrength: 0, depthM: 2 } });
+  const island = { x: 0, z: 0, tx: 1, tz: 0, halfLengthM: 65, halfWidthM: 24, heightM: 1, sand: .6, rock: .1 };
+  const atlas = bake([{ points: [station(-800, 1, .02, 0), station(0, 1, .02, 0), station(420, 40, .9, 1),
+    station(800, 40, .9, 1)], islands: [island] }]);
+  assert.equal(atlas.version, 2);
+  assert.equal(atlas.data.length, atlas.width * atlas.height * 4);
+  const pixel = (x, z) => {
+    const gx = (x - atlas.originM[0]) / atlas.texelSizeM, gz = (z - atlas.originM[1]) / atlas.texelSizeM;
+    const n = atlas.coreSize, side = n + 1;
+    const px = Math.floor(gx / n), pz = Math.floor(gz / n), key = 2 * (pz * atlas.pagesX + px);
+    const slot = atlas.pageTable[key] + atlas.pageTable[key + 1] * 256 - 1;
+    const i = 4 * ((Math.floor(slot / atlas.pageColumns) * side + gz % n) * atlas.width + slot % atlas.pageColumns * side + gx % n);
+    return atlas.data.subarray(i, i + 4);
+  };
+  const calm = pixel(-600, 0), rapid = pixel(600, 0), crown = pixel(0, 0), bank = pixel(600, 80);
+  assert.ok(calm[0] > 128 && calm[1] < 96 && calm[2] > 80 && calm[3] === 0);
+  assert.ok(rapid[0] > 128 && rapid[1] > 195 && rapid[2] === calm[2] && rapid[3] > 175);
+  assert.ok(crown[0] < 128 && crown[2] === 0 && crown[3] === 0);
+  assert.ok(bank[0] < 128 && bank[2] === 0 && bank[3] === 0);
+  assert.ok(riverBankDistanceAt(atlas, 0, 0) < 0 && riverBankDistanceAt(atlas, 0, 40) > 0);
+});
+
+test('sparse ledge slots follow the actual lip axis, agree on shared posts, and preserve the ordinary bank field', () => {
+  const hydro = { depthM: 2, grainMm: 19, bankRock: .8, rapid: .6, fall: 0, barSide: 0, barStrength: 0 };
+  const station = (x, z) => ({ x, z, bed: 120 - x * .01, channelM: 48, hydro });
+  const falls = [{ x: 0, z: 0, footX: 48, footZ: 36, widthM: 96 },
+    { x: 175, z: 80, footX: 150, footZ: 140, widthM: 75 }];
+  const course = { points: [station(-1100, -150), station(0, 0), station(48, 36), station(175, 80),
+    station(150, 140), station(1100, 140)] };
+  const centre = [40, -20];
+  const plain = bake([course], { centre }), atlas = bake([{ ...course, falls }], { centre });
+  assert.equal(plain.pageChannels, undefined);
+  assert.equal(atlas.pageChannels, 4);
+  assert.equal(atlas.pageTable.length, 4 * atlas.pagesX * atlas.pagesZ);
+  assert.equal(atlas.texelSizeM, plain.texelSizeM);
+  const n = atlas.coreSize, pitch = n + 1;
+  const slotAt = (px, pz, lane) => {
+    const key = 4 * (pz * atlas.pagesX + px) + lane;
+    return atlas.pageTable[key] + 256 * atlas.pageTable[key + 1] - 1;
+  };
+  const at = (slot, i, j) => {
+    const k = 4 * ((Math.floor(slot / atlas.pageColumns) * pitch + j) * atlas.width + slot % atlas.pageColumns * pitch + i);
+    return [...atlas.data.subarray(k, k + 4)];
+  };
+  const fallPost = (x, z) => {
+    const gx = (x + centre[0] - atlas.originM[0]) / atlas.texelSizeM, gz = (z + centre[1] - atlas.originM[1]) / atlas.texelSizeM;
+    const px = Math.floor(gx / n), pz = Math.floor(gz / n), slot = slotAt(px, pz, 2);
+    assert.ok(slot >= 0);
+    const [lo, hi, weight, progress] = at(slot, gx % n, gz % n);
+    return { across: (lo + hi * 256 - 32768) / 8, weight, progress };
+  };
+  const lip = fallPost(0, 0), mid = fallPost(20, 20), left = fallPost(0, 20);
+  assert.deepEqual(lip, { across: 0, weight: 255, progress: 0 });
+  assert.deepEqual(mid, { across: 4, weight: 255, progress: 119 });
+  assert.equal(left.across, 16); // 20m Z projected onto the actual left normal.
+  assert.deepEqual(fallPost(0, 80), { across: 64, weight: 0, progress: 204 });
+  assert.equal(fallPost(70, 50).progress, 255);
+  assert.ok(fallPost(70, 50).weight < mid.weight);
+  let shared = 0, ordinary = 0, ledges = 0;
+  for (let pz = 0; pz < atlas.pagesZ; pz++) for (let px = 0; px < atlas.pagesX; px++) {
+    const slot = slotAt(px, pz, 2), bank = slotAt(px, pz, 0);
+    if (slot < 0) { if (bank >= 0) ordinary++; continue; }
+    ledges++; assert.ok(bank >= 0 && bank !== slot);
+    const east = px + 1 < atlas.pagesX ? slotAt(px + 1, pz, 2) : -1;
+    const south = pz + 1 < atlas.pagesZ ? slotAt(px, pz + 1, 2) : -1;
+    for (let k = 0; k <= n; k++) {
+      if (east >= 0) { assert.deepEqual(at(slot, n, k), at(east, 0, k)); shared++; }
+      if (south >= 0) { assert.deepEqual(at(slot, k, n), at(south, k, 0)); shared++; }
+    }
+  }
+  assert.ok(shared > 100 && ledges > 1 && ordinary > ledges);
+  for (let x = -950; x < 960; x += 37) for (let z = -150; z < 210; z += 23) {
+    const a = {}, b = {};
+    assert.equal(riverBankDistanceAt(atlas, x, z, a), riverBankDistanceAt(plain, x, z, b));
+    assert.deepEqual(a, b);
+  }
+});
+
 test('oblique banks keep their physical width between coarse posts and across page seams', () => {
   for (const angle of [0, 5, 15, 30, 45]) {
     const radians = angle * Math.PI / 180, tx = Math.cos(radians), tz = Math.sin(radians);

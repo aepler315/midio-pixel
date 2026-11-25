@@ -88,6 +88,47 @@ test('different musical contours change the landscape and near island within the
   assert.notDeepEqual(first.inland, second.inland, 'the region itself changes with the outline');
 });
 
+test('heard-time peaks match the song and repeat their surveyed source at timed choruses', () => {
+  const skyline = printFor(ross).skyline;
+  const series = Array(90).fill(.45);
+  const timeline = { version: 1, stepMs: 2000, key: { tonic: 3, major: true, confidence: .9 },
+    dynamics: .4, loudness: series, brightness: series, tension: series, novelty: series, major: series };
+  const songprint = { version: 1, skyline, passages: [], timeline };
+  const scenery = planSongScenes(null, 0, { songprint });
+  const lyricSections = [22000, 109000].map(startMs => ({ kind: 'chorus', familyId: 3, startMs, endMs: startMs + 6000, confidence: .9 }));
+  const plan = (print, seed = 0, sections = lyricSections) => planSongRange(null, seed, { songprint: print, scenery, lyricSections: sections });
+  const a = plan(songprint), cast = range => range.slots.map(s => s.pieceId);
+  assert.deepEqual(a, plan(songprint, 98765));
+  assert.deepEqual(cast(a), cast(plan(perturbed(songprint))));
+  const reversed = plan({ ...songprint, skyline: [...skyline].reverse() });
+  assert.notDeepEqual(cast(a), cast(reversed), 'a reversed contour still has the same activity and overall relief');
+  const chorus = a.slots.filter(s => s.family === 'lyric-3');
+  assert.deepEqual(chorus.map(s => s.timeMs), [25000, 112000]);
+  assert.equal(chorus[0].pieceId, chorus[1].pieceId);
+  for (const slot of a.slots) assert.ok(massifs.pieces.find(p => p.id === slot.pieceId)?.manifestSha256);
+  const rough = plan({ ...songprint, skyline: skyline.map((_, i) => i % 2 ? .01 : .99), timeline: {
+    ...timeline, dynamics: .95, loudness: Array(90).fill(.9), tension: Array(90).fill(.93), novelty: Array(90).fill(.85) } });
+  const pieces = new Map(massifs.pieces.map(p => [p.id, p]));
+  const mean = (range, get) => cast(range).reduce((sum, id) => sum + get(pieces.get(id)), 0) / range.slots.length;
+  assert.ok(mean(rough, p => p.peakReliefM) > mean(a, p => p.peakReliefM));
+  assert.ok(mean(rough, p => p.characterScores.rawness) > mean(a, p => p.characterScores.rawness));
+  assert.ok(plan(songprint, 0, null).slots.every(s => s.family === null));
+  const older = plan({ ...songprint, timeline: null });
+  assert.ok(older.inland.character && !older.inland.song);
+  assert.ok(older.slots.every(s => !Object.hasOwn(s, 'timeMs')));
+});
+
+test('a missing home survey and a flat song outline keep the ordinary catalog fallback', () => {
+  const songprint = printFor(ross), scenery = planSongScenes(null, 0, { songprint });
+  const sceneByBiome = new Map(scenery.sceneByBiome);
+  const choice = sceneByBiome.get(scenery.home);
+  sceneByBiome.set(scenery.home, { ...choice, view: { ...choice.view, terrainManifestSha256: 'stale-survey' } });
+  const unmeasured = planSongRange(null, 0, { songprint, scenery: { ...scenery, sceneByBiome } });
+  assert.ok(unmeasured && !unmeasured.inland && !unmeasured.songprintVersion);
+  assert.deepEqual(planSongRange(profile, 7, { songprint: { ...songprint, skyline: Array(16).fill(.5) } }),
+    planSongRange(profile, 7));
+});
+
 test('musical height across each footprint continuously varies the relief even with identical discrete pieces', () => {
   const songprint = printFor(ross);
   const quieter = { ...songprint, skyline: songprint.skyline.map(h => .9 * h + .05) };

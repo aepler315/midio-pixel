@@ -43,7 +43,7 @@ import { hierarchyLattice, buildTerrainHierarchyAsync, createHierarchyTexture, H
 import { buildMistFlowAsync, createMistFlowTexture, MIST_FLOW_MAX_SAMPLES } from './MistFlow.js';
 import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, terrainPixelProtection, TourWindowCache, terrainWindowStudio, terrainWindowTour } from './TerrainWindow.js';
 import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorkerClient.js';
-import { buildTerrainGeometry } from './TerrainMesh.js';
+import { buildTerrainGeometry, tileMeshShape } from './TerrainMesh.js';
 import { buildRockStage } from './RockStage.js';
 import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
@@ -155,9 +155,9 @@ export function terrainMeshEstimate(data, budget) {
   let vertices = 0, triangles = 0;
   for (const t of data.tiles.values()) {
     if (!t.visible) continue;
-    const m = data.cells / (t.lod?.[budget] ?? t.stride);
-    vertices += (m + 1) * (m + 1);
-    triangles += 2 * m * m;
+    const { cols, rows } = tileMeshShape(t, data.cells, t.lod?.[budget] ?? t.stride);
+    vertices += cols * rows;
+    triangles += 2 * (cols - 1) * (rows - 1);
   }
   return { vertices, triangles, meshBytes: vertices * 12 + triangles * 3 * 4 };
 }
@@ -1165,8 +1165,8 @@ export class RangeScene {
     if (index != null) {
       for (const tile of p.data.tiles.values()) {
         if (!tile.visible) continue;
-        const m = p.data.cells / plan.strides.get(tile.id);
-        terrain += 12 * (m + 1) ** 2 + 48 * m * m;
+        const { cols, rows } = tileMeshShape(tile, p.data.cells, plan.strides.get(tile.id));
+        terrain += 12 * cols * rows + 48 * (cols - 1) * (rows - 1);
       }
     }
     const bytes = scratch + (index == null ? 0 : 2 * terrain + forest.count * 56 + forestSpanBytes(forest.count) + 2 * 1024 ** 2);
