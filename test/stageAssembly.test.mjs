@@ -9,6 +9,8 @@ import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { INLAND_RIVER_FLOW, WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { planSongRange, songRangeKey, songReliefJitter } from '../src/world/terrain/SongRangePlan.js';
 import { planDualSummitsScene } from '../src/world/terrain/DualSummitsScene.js';
+import { terrainLyricCue } from '../src/world/alpine/RangeFrame.js';
+import { measuredRange } from '../src/world/terrain/MeasuredRange.js';
 import { makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
 import MASSIF_CATALOG from '../src/world/terrain/massifCatalogData.js';
 import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
@@ -240,4 +242,37 @@ test('?rangeRelief fixes the scale for review captures; invalid values are ignor
   assert.equal(reliefScaleFrom('?rangeRelief=2.5'), 2.5);
   assert.equal(reliefScaleFrom('?rangeRelief=1'), 1);
   for (const bad of ['?rangeRelief=0', '?rangeRelief=-1', '?rangeRelief=99', '?rangeRelief=big']) assert.equal(reliefScaleFrom(bad), null, bad);
+});
+
+test('returning lyric families cast the same surveyed massif and the stage renders a separate watershed', () => {
+  const series = Array.from({ length: 90 }, (_, i) => (i % 8) / 7);
+  const timeline = { version: 1, stepMs: 2000, key: { tonic: 3, major: true, confidence: .9 },
+    dynamics: .6, loudness: series, brightness: series, tension: series, novelty: series, major: series };
+  const field = makeInlandTerrain({ version: 1, skyline: series.slice(0,16), passages: [], timeline });
+  const sections = [20000, 110000].map(startMs => ({ startMs, endMs: startMs + 10000,
+    kind: 'chorus', confidence: .8, familyId: 0 }));
+  const planFor = lyrics => measuredRange(MASSIF_CATALOG.templates[0], MASSIF_CATALOG, field, lyrics, 'CONIFER', 'dry-conifer');
+  const plan = planFor(sections);
+  const chorus = plan.slots.filter(slot => slot.kind === 'chorus');
+  assert.equal(chorus.length, 2);
+  assert.equal(chorus[0].pieceId, chorus[1].pieceId);
+  assert.notDeepEqual(chorus[0].tiles, chorus[1].tiles);
+  assert.ok(new Set(plan.slots.map(s => s.pieceId)).size >= 2);
+  assert.deepEqual(planFor([{ kind: 'chorus', confidence: .4 }]), planFor(null));
+  const { manifest } = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
+  assert.equal(manifest.landmarks.length, plan.slots.length);
+  assert.ok(manifest.hydrology.region.rivers.length > 1);
+  assert.ok(manifest.hydrology.region.spine.course.length > 1);
+  assert.equal(songRangeViewErrors(songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG })).length, 0);
+});
+
+test('terrain camera cues use only the active timed lyric line', () => {
+  const manager = { _lyricLineCursor: 1, _syncedLyrics: [{ tMs: 1000, text: 'cross the creek' },
+    { tMs: 4000, text: 'over the ridge' }] };
+  assert.equal(terrainLyricCue(manager, 2300).subject, 'river');
+  assert.equal(terrainLyricCue(manager, 4500), null);
+  manager._lyricLineCursor = 2;
+  assert.equal(terrainLyricCue(manager, 5700).subject, 'peak');
+  assert.equal(terrainLyricCue(manager, 11000), null);
+  assert.equal(terrainLyricCue({}, 2300), null);
 });

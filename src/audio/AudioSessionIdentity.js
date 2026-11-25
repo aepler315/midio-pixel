@@ -34,6 +34,18 @@ export function adoptAudioSessionAnalysis(data, full) {
   Object.assign(data, { sourceTrack, lyricIdentity, lyricSession, lyricSections, syncedLyrics, sourceFileName, sourceSha256 });
 }
 
+const terrainLyrics = new WeakMap();
+
+/** Static geography can use lyrics available at playback start. Later
+ * admissions affect only the heard-time performance, including on replay. */
+export function terrainLyricSections(data) {
+  if (!terrainLyrics.has(data)) {
+    const initial = data.lyricSession?.admissions?.findLast(a => a.heardTimeMs === 0);
+    terrainLyrics.set(data, initial?.lyricSections ?? null);
+  }
+  return terrainLyrics.get(data);
+}
+
 /** Publish a resolved result only while the load still owns its data. The
  * supplied gate includes active A while a replacement B is only downloading;
  * selection-ticket equality alone is insufficient. The caller keeps cache

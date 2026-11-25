@@ -25,6 +25,7 @@ function setup({ rejectStorage = false } = {}) {
     buildSongIdentity: (d) => (d.songIdentity?.songProfile ? { ...d.songIdentity } : { seed: 88, songProfile: profile }),
     provisionalIdentity: () => ({ seed: 99, songProfile: profile, provisional: true }), dualSummitsSelection,
     musicLibrary: { async noteSongWorld(track, record) { calls.push({ track, record }); if (rejectStorage) throw Error('storage unavailable'); } },
+    lyricsDisabled: false, terrainLyricSections: () => null,
     prepareSongTerrain: async (p, seed) => { const plan = planSongScenes(p, seed); plans.push(plan); return plan; },
     pendingWorldStart: null, lastFitDiagnostic: null, recordFitDiagnostic: () => null,
     readBulkExportFromUrl: () => null, DEFAULT_WORLD_ID: 'alpine', BIOME_WAIT_MS: 2500, IDENTITY_START_HOLD_MS: 5000,
@@ -54,6 +55,23 @@ test('the actual world start persists the identity profile used by playback, rat
   assert.equal(calls.length, 1); assert.equal(calls[0].track, track);
   assert.deepEqual(calls[0].record, createSongWorldRecord(profile, 417));
   assert.equal(describeSongWorld(calls[0].record).viewId, plans[0].sceneByBiome.get(plans[0].home).view.id);
+});
+
+test('a cached timeline waits for initial lyric admission before casting its summits', async () => {
+  const { context } = setup();
+  context.LYRICS_START_WAIT_MS = 2000;
+  context.terrainLyricSections = data => data.lyricSections;
+  let resolveLyrics, planned;
+  const lyricsReady = new Promise(resolve => { resolveLyrics = resolve; });
+  context.prepareSongTerrain = async (_p, _seed, _recent, options) => { planned = options; return {}; };
+  const data = { songIdentity: { seed: 42, songProfile: profile, songprint: { version: 1,
+    timeline: {}, skyline: Array.from({ length: 16 }, (_, i) => i / 15), passages: [] } } };
+  context.offerWorldsThenStart(data, { lyricsReady });
+  assert.equal(planned, undefined);
+  data.lyricSections = [{ startMs: 15000, endMs: 25000, kind: 'chorus', confidence: .8, familyId: 1 }];
+  resolveLyrics();
+  await context.pendingWorldStart.terrainReady;
+  assert.deepEqual(planned.lyricSections, data.lyricSections);
 });
 
 test('a restored recording sends the full print to its landscape and only its skyline to the library', async () => {

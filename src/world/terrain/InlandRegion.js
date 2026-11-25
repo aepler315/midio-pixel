@@ -11,7 +11,7 @@
 // A recording with a measured Songprint timeline builds a sea of peaks
 // instead: its heard time is laid out as distance along a spine through the
 // region, so the ground under the flight at a moment was raised by that
-// moment of the song (see songSpine and songPeaks below).
+// moment of the song. Catalog massif blocks supply the foreground summits.
 //
 // The river region is a pure function of the field (the Songprint outline) and the
 // stage geometry, so one recording always rebuilds the same region. No value
@@ -24,11 +24,11 @@
 import { clamp01, lerp } from '../../utils/math.js';
 import { INLAND_RIVER_FLOW as REGION_RIVER_FLOW, INLAND_MAX_DRY_FLOW as REGION_MAX_DRY_FLOW } from '../alpine/TerrainPackage.js';
 
-export const INLAND_REGION_VERSION = 2;
+export const INLAND_REGION_VERSION = 3;
 // Rivers this large carry the low flight and keep the finest mesh.
 const FLOWN_AREA_KM2 = 150;
 const FLOWN_TRIBUTARIES = 3;
-const MAX_DETAIL_M = 95, PEAK_DETAIL_M = 190;
+const MAX_DETAIL_M = 95;
 
 const COARSE = 385;
 const TRUNK_AREA_KM2 = 420;
@@ -136,7 +136,7 @@ export function regionDesign(field, massifs = [], halfM = 44800) {
   if (field.song?.measured) Object.assign(design, peakCharacter(field.song));
   // Keep the trunk clear of the measured massifs: they belong on the ranges.
   let best = -Infinity;
-  for (let k = -8; k <= 8; k++) {
+  for (let k = -8; !design.peaks && k <= 8; k++) {
     const offset = k * .045 * halfM;
     let clearance = Infinity;
     for (const m of massifs) {
@@ -149,8 +149,7 @@ export function regionDesign(field, massifs = [], halfM = 44800) {
   }
   if (design.peaks) {
     design.spine = songSpine(field, design, halfM);
-    const { peaks, passes } = songPeaks(field, design.spine);
-    design.songPeaks = peaks; design.passes = passes; design.peakAt = peakIndex(peaks);
+    design.passes = songPasses(field.song, design.spine);
   }
   return design;
 }
@@ -159,7 +158,6 @@ export function regionDesign(field, massifs = [], halfM = 44800) {
  *  from the plan alone (no lattice needed). */
 export function regionElevationSpan(field, baseM) {
   const { reliefM } = regionDesign(field);
-  if (field.song?.measured) return { floorM: baseM + 40, topM: baseM + 40 + reliefM };
   return { floorM: baseM + 40, topM: baseM + 40 + reliefM };
 }
 
@@ -191,8 +189,8 @@ function peakCharacter(song) {
     handGain: lerp(2.6, 3.6, clamp01(1.4 * tension)),
     creep: lerp(.012, .004, tension),
     concavity: .45,
-    reliefM: lerp(2500, 3700, clamp01(.55 * song.dynamics + .45 * loud)),
-    riverAreaKm2: 6,
+    reliefM: lerp(650, 1050, clamp01(.55 * song.dynamics + .45 * loud)),
+    riverAreaKm2: lerp(28, 46, tension),
   };
 }
 
@@ -285,51 +283,8 @@ function maxima(series, floor, gap) {
   return found;
 }
 
-/** The peaks the song plants beside its spine, each { x, z, h, r, sharp }.
- *  Passages raise single summits on the side their musical coordinate
- *  names; each phrase family keeps one recognisable shape that returns with
- *  the phrase; loud climaxes raise the tallest pairs; changes raise a cross
- *  ridge the flight crests. Heights are uplift units (about 0..1.4). */
-export function songPeaks(field, spine) {
-  const { song, ground } = field;
-  const { stepMs } = song;
-  const peaks = [], passes = [];
-  const at = (series, t) => seriesAt(series, stepMs, t);
-  const place = (timeMs, side, lateralM, h, r, alongM = 0) => {
-    const p = spine.pointAtArc(spine.arcAtTime(timeMs) + alongM);
-    const nx = -p.tz, nz = p.tx;
-    const sharp = lerp(1.2, 2.2, at(song.tension, timeMs));
-    peaks.push({ x: p.x + nx * side * lateralM, z: p.z + nz * side * lateralM, h, r, sharp });
-  };
-  const loudAt = t => at(song.loudness, t);
-  // Lining: the corridor is never open country.
-  for (let t = 0, k = 0; t < spine.durationMs; t += 3000, k++) {
-    const side = k % 2 ? 1 : -1, loud = loudAt(t);
-    place(t, side, lerp(1100, 2400, unit(ground, 2100 + k)), .55 + .5 * loud, lerp(900, 1400, unit(ground, 2200 + k)));
-  }
-  // Passages: one summit each.
-  for (const [timeMs, landmark01, strength] of song.passages) {
-    if (strength < .15) continue;
-    const side = landmark01 < .5 ? -1 : 1, off = Math.abs(landmark01 - .5) * 2;
-    place(timeMs, side, 1300 + 2400 * off, .55 + .7 * loudAt(timeMs) * (.45 + .55 * strength), lerp(1200, 800, at(song.tension, timeMs)));
-  }
-  // Phrase families: the same shape every time the phrase returns.
-  for (const [k, family] of song.families.entries()) {
-    const side = family.landmark01 < .5 ? -1 : 1, shape = k % 4;
-    for (const timeMs of family.times) {
-      const lift = .85 + .55 * loudAt(timeMs);
-      if (shape === 0) place(timeMs, side, 1900, lift + .25, 900);                       // horn
-      else if (shape === 1) for (const a of [-650, 650]) place(timeMs, side, 2100, lift + .1, 800, a); // twin
-      else if (shape === 2) for (let j = 0; j < 4; j++) place(timeMs, side, 1500 + 900 * j, lift + .2 - .12 * j, 650); // comb
-      else for (let j = -2; j <= 2; j++) place(timeMs, side, 1700, lift - .06 * Math.abs(j), 700, 600 * j); // wall
-    }
-  }
-  // Climaxes: the tallest pair, either side of the flight.
-  for (const i of maxima(song.loudness, .82, 6)) {
-    const t = (i + .5) * stepMs;
-    place(t, -1, 2600, 1.25 + .2 * song.loudness[i], 1500);
-    place(t, 1, 2900, 1.15 + .2 * song.loudness[i], 1400, 500);
-  }
+function songPasses(song, spine) {
+  const passes = [], stepMs = song.stepMs;
   // Changes: a cross ridge over the spine, crossed at a col.
   for (const i of maxima(song.novelty, .55, 8)) {
     const t = i * stepMs;
@@ -338,22 +293,7 @@ export function songPeaks(field, spine) {
     const p = spine.pointAtArc(arc);
     passes.push({ x: p.x, z: p.z, tx: p.tx, tz: p.tz, arc, timeMs: t, h: .75 + .45 * song.novelty[i] });
   }
-  return { peaks, passes };
-}
-
-/** Bucket peaks for uplift lookups. */
-function peakIndex(peaks, cellM = 3000) {
-  const buckets = new Map(), key = (i, j) => i * 65536 + j;
-  for (const p of peaks) {
-    const reach = Math.ceil(3 * p.r / cellM);
-    const ci = Math.floor(p.x / cellM), cj = Math.floor(p.z / cellM);
-    for (let j = cj - reach; j <= cj + reach; j++) for (let i = ci - reach; i <= ci + reach; i++) {
-      const k = key(i, j);
-      if (!buckets.has(k)) buckets.set(k, []);
-      buckets.get(k).push(p);
-    }
-  }
-  return (x, z) => buckets.get(key(Math.floor(x / cellM), Math.floor(z / cellM))) ?? [];
+  return passes;
 }
 
 /** Uplift of a sea of peaks laid out along the song spine. */
@@ -374,11 +314,6 @@ function peakUpliftAt(field, design, massifs, halfM, x, z) {
     sea = Math.max(sea, tall * Math.exp(-(q ** 1.6)));
   }
   let u = .5 + .55 * sea + .15 * (fbm(ground ^ 0x2c1b, x / 7000, z / 7000, 3) - .5);
-  // The song's own peaks.
-  for (const p of design.peakAt(x, z)) {
-    const q = Math.hypot(x - p.x, z - p.z) / p.r;
-    if (q < 3) u = Math.max(u, .35 + p.h * Math.exp(-(q ** p.sharp)));
-  }
   // The corridor the flight threads: narrow when quiet, wider when loud.
   const width = lerp(420, 900, loud) * (1 + beyondM / 4000);
   let col = 0;
@@ -477,6 +412,7 @@ export function* coarseLandformSteps(field, design, massifs, { halfM, n = COARSE
   const xAt = i => -halfM + (i % n) * dx, zAt = i => -halfM + Math.floor(i / n) * dx;
   const U = new Float64Array(N), h = new Float64Array(N), Kmap = new Float64Array(N);
   const outlet = new Uint8Array(N);
+  let mouthCell = 0, mouthCost = Infinity;
   for (let i = 0; i < N; i++) {
     const x = xAt(i), z = zAt(i);
     U[i] = upliftAt(field, design, massifs, halfM, x, z);
@@ -489,10 +425,11 @@ export function* coarseLandformSteps(field, design, massifs, { halfM, n = COARSE
     const gx = i % n, gz = Math.floor(i / n);
     if (gx === 0 || gz === 0 || gx === n - 1 || gz === n - 1) {
       const d = Math.abs(across - axisAcross(design, along, halfM));
-      if (design.peaks ? (gx + gz) % 3 === 0 : trunkStation(design, along, halfM) > .9 && d < 2600) { outlet[i] = 1; h[i] = 0; }
+      const cost = d + 4 * Math.max(0, .9 * halfM - design.flow * along);
+      if (cost < mouthCost) { mouthCell = i; mouthCost = cost; }
     }
   }
-  if (!outlet.some(Boolean)) { outlet[0] = 1; h[0] = 0; }
+  outlet[mouthCell] = 1; h[mouthCell] = 0;
   const rcv = new Int32Array(N), stack = new Int32Array(N), area = new Int32Array(N);
   const diag = new Uint8Array(N);
   const filled = new Float64Array(N), done = new Uint8Array(N);
@@ -643,9 +580,37 @@ function chaikin(points, rounds) {
   return p;
 }
 
+// Capture a larger channel only across low ground. A ridge between two
+// nearby channels keeps both basins intact. Search is bounded in metres.
+function valleyConfluence(cell, owner, { n, dx, h, area, rcv }, reliefM) {
+  const x = cell % n, z = Math.floor(cell / n), next = rcv[cell];
+  const vx = next % n - x, vz = Math.floor(next / n) - z;
+  const radius = Math.max(1, Math.min(5, Math.floor(850 / dx)));
+  let best = -1, bestDistance = Infinity;
+  for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) {
+    const distance = dx * dx + dz * dz;
+    if (!distance || distance > radius * radius || distance >= bestDistance) continue;
+    const xx = x + dx, zz = z + dz;
+    if (xx < 0 || zz < 0 || xx >= n || zz >= n) continue;
+    const k = zz * n + xx;
+    if (owner[k] < 0 || area[k] <= area[cell] || h[k] > h[cell] || reliefM * (h[cell] - h[k]) > 30) continue;
+    const down = rcv[k];
+    if (vx * (down % n - xx) + vz * (Math.floor(down / n) - zz) <= 0) continue;
+    const steps = Math.max(Math.abs(dx), Math.abs(dz));
+    let previous = h[cell], open = true;
+    for (let t = 1; t <= steps; t++) {
+      const v = h[Math.round(z + dz*t/steps) * n + Math.round(x + dx*t/steps)];
+      if ((v - previous) * reliefM > 1 || (v - h[cell]) * reliefM > 1) { open = false; break; }
+      previous = v;
+    }
+    if (open) { best = k; bestDistance = distance; }
+  }
+  return best;
+}
+
 /** Trace channels from the routed lattice: heads to junctions, junctions to
  *  the outlet. Each polyline ends exactly on the point it joins. */
-function traceRivers(coarse, reliefM, baseM, riverAreaKm2) {
+export function traceRivers(coarse, reliefM, baseM, riverAreaKm2) {
   const { n, dx, halfM, h, rcv, area } = coarse;
   const cellKm2 = dx * dx / 1e6;
   const isRiver = i => area[i] * cellKm2 >= riverAreaKm2;
@@ -666,11 +631,13 @@ function traceRivers(coarse, reliefM, baseM, riverAreaKm2) {
     for (let guard = 0; guard < 4 * n; guard++) {
       if (owner[c] >= 0) { joins = owner[c]; cells.push(c); break; }
       cells.push(c);
-      owner[c] = rivers.length;
+      const join = valleyConfluence(c, owner, coarse, reliefM);
+      if (join >= 0) { joins = owner[join]; cells.push(join); break; }
       if (rcv[c] === c) break;
       c = rcv[c];
     }
     if (cells.length < 4) continue;
+    for (const cell of cells) if (owner[cell] < 0) owner[cell] = rivers.length;
     rivers.push({ id: rivers.length, joins, cells });
   }
   // Polylines with monotone beds, smoothed but pinned at both ends.
@@ -784,7 +751,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
   }
   coarse.h = rel;
   const floorM = baseM + 40;
-  let rivers = design.peaks ? [] : traceRivers(coarse, reliefM, floorM, design.riverAreaKm2);
+  const rivers = traceRivers(coarse, reliefM, floorM, design.riverAreaKm2);
   yield 'rivers';
   const height = bicubicSampler(rel, coarse.n, halfM);
   // Local relief: how much ground stands over a river within a few km.
@@ -806,8 +773,8 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
   // cuts an inner gorge; in open country, and above all in the basin, big
   // rivers spread across a broad floor.
   const { ground, east, north } = field;
-  if (design.peaks) rivers = [spineCourse(field, design, height, reliefM, floorM)];
-  for (const river of design.peaks ? [] : rivers) for (const p of river.points) {
+  const flightCourse = design.peaks ? spineCourse(field, design, height, reliefM, floorM) : null;
+  for (const river of rivers) for (const p of river.points) {
     p.relief = localRelief(p.x, p.z);
     const along = p.x * east + p.z * north;
     const s = trunkStation(design, along, halfM);
@@ -818,7 +785,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
     const size = clamp01((Math.sqrt(p.area) - 5) / 25);
     p.broad = clamp01(Math.max(inBasin * size * 1.4, clamp01(1 - (p.relief - 300) / 500) * size * .8));
     p.gorge = clamp01(Math.max(atGorge * (river.trunk || p.area > 200 ? 1 : .4), (p.relief - 700) / 500 * size) * (1 - p.broad));
-    p.channelM = Math.min(46, 12 + 1.1 * Math.sqrt(p.area));
+    p.channelM = Math.min(92, 8 + 1.85 * Math.sqrt(p.area));
     p.floorM = p.channelM * lerp(lerp(1.6, 7, p.broad), 1.05, p.gorge) + 30 * (1 - p.gorge);
   }
   // Meanders. The lattice routes water across a flat in a straight line;
@@ -840,11 +807,13 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
         const d = Math.hypot(before[i].x - end.x, before[i].z - end.z);
         if (d < best) { best = d; k = i; }
       }
-      const dx = parent.points[k].x - before[k].x, dz = parent.points[k].z - before[k].z;
+      const junction = parent.points[k];
+      const dx = junction.x - end.x, dz = junction.z - end.z, dy = junction.bed - end.bed;
       let run = 0;
       const tail = new Float64Array(n);
       for (let i = n - 2; i >= 0; i--) { run += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].z - pts[i].z); tail[i] = run; }
-      pts = pts.map((p, i) => { const w = smooth(1 - tail[i] / 1500); return { ...p, x: p.x + dx * w, z: p.z + dz * w }; });
+      pts = pts.map((p, i) => { const w = smooth(1 - tail[i] / 1500); return { ...p, x: p.x + dx * w, z: p.z + dz * w, bed: p.bed + dy * w }; });
+      for (let i = n - 2; i >= 0; i--) pts[i].bed = Math.max(pts[i].bed, pts[i + 1].bed);
     }
     const arc = new Float64Array(n);
     for (let i = 1; i < n; i++) arc[i] = arc[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
@@ -875,8 +844,6 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
   // The camera flies low along the trunk and its largest tributaries.
   const ranked = rivers.filter(r => !r.trunk && r.joins !== null).sort((a, b) => b.areaKm2 - a.areaKm2);
   for (const river of rivers) river.flown = river.trunk || ranked.indexOf(river) >= 0 && ranked.indexOf(river) < FLOWN_TRIBUTARIES;
-  const songTension = design.peaks
-    ? (x, z) => seriesAt(field.song.tension, field.song.stepMs, design.spine.timeAtAlong(x * east + z * north).timeMs) : null;
   const index = segmentIndex(rivers, halfM);
   yield 'index';
   const hit = {};
@@ -896,7 +863,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
     return lerp(b, a, hh) - k * hh * (1 - hh);
   };
   const region = {
-    version: INLAND_REGION_VERSION, design, rivers, coarse, reliefM, floorM, halfM,
+    version: INLAND_REGION_VERSION, design, rivers, flightCourse, coarse, reliefM, floorM, halfM,
     /** Ground and surface class at (x, z), before any measured massif. */
     sample(x, z, out = {}) {
       const base = floorM + reliefM * height(x, z);
@@ -912,21 +879,23 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
         gorge = lerp(a.gorge, b.gorge, t);
         const broad = lerp(a.broad, b.broad, t);
         // The floor's edge wanders; the channel follows its own course.
-        const edge = Math.max(channel, floorHalf + (valueNoise(ground ^ 0x77, alongOf(field, x, z) / 700, acrossOf(field, x, z) / 700) - .5) * .6 * (floorHalf - channel));
-        const across = d;
-        // Walls: gentle benches in open reaches, steep in a gorge.
+        // The atlas needs half a texel on each bank to carry the channel.
+        const waterHalf = Math.max(channel, 40);
+        const bankDistance = Math.max(0, d - waterHalf);
+        const edge = Math.max(waterHalf + 1, floorHalf + (valueNoise(field.ground ^ 0x77,
+          alongOf(field, x, z) / 700, acrossOf(field, x, z) / 700) - .5) * .6 * (floorHalf - channel));
+        // Inland water is painted directly on this surface. Keep its
+        // cross-section level and its longitudinal profile on the routed
+        // bed. Ease the dry bank into the surrounding eroded floor.
+        wet = d < waterHalf;
         const wallTan = lerp(lerp(.55, .22, broad), 1.7, gorge);
-        let target;
-        if (across < channel) target = bed - 3 * (1 - (across / channel) ** 2);
-        else if (across < edge) target = bed + 1 + 5 * ((across - channel) / Math.max(1, edge - channel)) ** 2;
-        else target = bed + 6 + (across - edge) * wallTan;
+        const target = d <= edge ? bed + 6 * (bankDistance / (edge - waterHalf)) ** 2
+          : bed + 6 + (d - edge) * wallTan;
         const k = lerp(30, 8, gorge);
-        ground = smin(base, target, k);
-        floorMask = 1 - smooth((across - edge) / 160);
-        // Water needs about one atlas texel either side to read as a river.
-        wet = !design.peaks && across < Math.max(channel, 40);
+        ground = lerp(target, smin(base, target, k), smooth(bankDistance / 160));
+        floorMask = 1 - smooth((d - edge) / 160);
         flow = wet ? REGION_RIVER_FLOW : Math.round(REGION_MAX_DRY_FLOW
-          * clamp01(1 - (across - channel) / (500 + 25 * Math.sqrt(lerp(a.area, b.area, t)))) ** 1.5);
+          * clamp01(1 - bankDistance / (500 + 25 * Math.sqrt(lerp(a.area, b.area, t)))) ** 1.5);
         out.distanceM = d; out.floorHalfM = floorHalf; out.broad = broad; out.areaKm2 = lerp(a.area, b.area, t); out.river = seg.river.id;
       } else {
         out.distanceM = Infinity; out.floorHalfM = 0; out.broad = 0; out.areaKm2 = 0; out.river = -1;
@@ -935,22 +904,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
       // Spur-and-gully detail, stretched downslope, on hillsides only.
       const hand = Math.max(0, ground - bed);
       let detail = 0;
-      if (design.peaks) {
-        // Serrated crests everywhere above the corridor floor; tense music
-        // cuts them deeper.
-        const c = g > 1e-4 ? gx / Math.hypot(gx, gz) : 1, sn = g > 1e-4 ? gz / Math.hypot(gx, gz) : 0;
-        const u = (x * c + z * sn) / 1100, v = (z * c - x * sn) / 380;
-        const high = clamp01((base - floorM) / 700) * (1 - floorMask) * clamp01(g * 2 + .3);
-        const amp = lerp(110, PEAK_DETAIL_M, songTension(x, z));
-        const steep = clamp01(g * 1.6);
-        const u2 = (x * c + z * sn) / 340, v2 = (z * c - x * sn) / 105;
-        detail = high * (amp * (ridged(field.ground ^ 0x3d, u, v, 3) - .42) + 40 * (fbm(field.ground ^ 0x5e, x / 900, z / 900, 3) - .5)
-          // Couloirs and rock ribs down the steep faces, and broken
-          // blocks on the crests, at the scale the near mesh can carry.
-          + steep * 75 * (ridged(field.ground ^ 0x4f1, u2, v2, 3) - .45)
-          + 26 * (valueNoise(field.ground ^ 0x9a, x / 160, z / 160) - .5) + 12 * (valueNoise(field.ground ^ 0x9b, x / 70, z / 70) - .5));
-        detail = Math.max(-PEAK_DETAIL_M, Math.min(PEAK_DETAIL_M, detail));
-      } else if (!wet) {
+      if (!wet) {
         const c = g > 1e-4 ? gx / Math.hypot(gx, gz) : 1, sn = g > 1e-4 ? gz / Math.hypot(gx, gz) : 0;
         const u = (x * c + z * sn) / 1500, v = (z * c - x * sn) / 430;
         const rough = clamp01(hand / 260) * (1 - floorMask) * clamp01(g * 2.5 + .25);
@@ -973,7 +927,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
         // The walls the flight passes keep the finest mesh: 3 within
         // reach of the slot, 2 for the faces behind it.
         let best = Infinity;
-        const pts = rivers[0].points;
+        const pts = flightCourse.points;
         for (const p of pts) {
           const dx = Math.max(x0 - p.x, 0, p.x - x1), dz = Math.max(z0 - p.z, 0, p.z - z1);
           best = Math.min(best, Math.hypot(dx, dz));
@@ -1000,7 +954,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
   };
   let top = -Infinity;
   for (const v of rel) top = Math.max(top, v);
-  region.boundsM = [floorM - 12, floorM + reliefM * top + (design.peaks ? PEAK_DETAIL_M : MAX_DETAIL_M)];
+  region.boundsM = [floorM - MAX_DETAIL_M - 12, floorM + reliefM * top + MAX_DETAIL_M];
   return region;
 }
 
@@ -1051,13 +1005,13 @@ export function regionAnchors(region, centre = [0, 0]) {
     }
     return found.sort((a, b) => b.lengthM - a.lengthM).slice(0, 8);
   };
-  const spineRiver = region.rivers.find(r => r.spine);
+  const spineRiver = region.flightCourse;
   if (spineRiver) {
     const course = [];
     for (const [i, p] of spineRiver.points.entries()) if (i % 3 === 0 || i === spineRiver.points.length - 1)
       course.push([r1(p.x + cx), r1(p.z + cz), r1(p.bed), Math.round(p.timeMs)]);
     const passes = region.design.passes.map(p => ({ x: r1(p.x + cx), z: r1(p.z + cz), timeMs: Math.round(p.timeMs) }));
-    return { version: INLAND_REGION_VERSION, rivers, confluences: [], gorges: [], broadReaches: [], passes: [],
+    return { version: INLAND_REGION_VERSION, rivers, confluences, gorges: runs('gorge', .55, 'gorge'), broadReaches: runs('broad', .45, 'broad'), passes: [],
       spine: { durationMs: region.design.spine.durationMs, course, passes } };
   }
   return { version: INLAND_REGION_VERSION, rivers, confluences, gorges: runs('gorge', .55, 'gorge'),

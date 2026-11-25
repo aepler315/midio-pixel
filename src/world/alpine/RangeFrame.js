@@ -365,6 +365,30 @@ export function usesHighResolutionRangeSky(manager) {
     && (presentation.skyPan?.tourPose || presentation.skyPan?.skyCamera));
 }
 
+/** Only admitted, timed words steer the view. The lyric cursor follows
+ * playback and is reconstructed on seek by the biome manager. */
+export function terrainLyricCue(mgr, timeMs) {
+  const section = mgr._lyricSections?.find(s => s.confidence >= .5 && s.startMs <= timeMs && timeMs < s.endMs);
+  const cue = {};
+  if (section) {
+    const envelope = Math.max(0, Math.min(1, (timeMs - section.startMs) / 1800, (section.endMs - timeMs) / 1800));
+    cue.lyricFocus = envelope * section.confidence;
+    cue.lyricKind = section.kind;
+  }
+  const index = mgr._lyricLineCursor - 1;
+  const line = mgr._syncedLyrics?.[index];
+  if (line) {
+    const end = Math.min(line.tMs + 6000, mgr._syncedLyrics[index + 1]?.tMs ?? Infinity);
+    const weight = Math.min(1, (timeMs - line.tMs) / 950, (end - timeMs) / 950);
+    if (weight > 0) {
+      const subject = /\b(rivers?|streams?|creeks?|tributar(?:y|ies))\b/i.test(line.text) ? 'river'
+        : /\b(mountains?|summits?|peaks?|ridges?)\b/i.test(line.text) ? 'peak' : null;
+      if (subject) { cue.subject = subject; cue.subjectWeight = weight; }
+    }
+  }
+  return cue.lyricKind || cue.subject ? cue : null;
+}
+
 /**
  * Assemble the frame snapshot.
  *   frameId, generation   renderer frame counter and load generation
@@ -394,6 +418,10 @@ export function buildRangeFrame({
   // Scenic framing opens on major musical arrivals without driving the
   // stage's independent impact/dip/tilt controls.
   const performance = { ...score, lens: score.revealLens || NEUTRAL_LENS };
+  if (performance.songprintOrbit) {
+    const cue = terrainLyricCue(mgr, timeMs);
+    if (cue) performance.songprintOrbit = { ...performance.songprintOrbit, ...cue };
+  }
   const progress01 = mgr.terrainPreview ? SCENE_PREVIEW_PROGRESS : sceneProgressAt({
     timeMs, curves: mgr.energyCurves, durationMs: mgr.durationMs, response: mgr.world?.response,
   });

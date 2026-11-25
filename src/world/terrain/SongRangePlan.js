@@ -22,6 +22,7 @@ import { massifSkylines } from './songprintSkylines.js';
 import { planSongScenes } from './SongScenePlan.js';
 import { slotOrigin } from './StageFloor.js';
 import { compositionTarget, summitSpacing, summitCandidate, summitPairScore } from './SongprintComposition.js';
+import { measuredRange } from './MeasuredRange.js';
 import { makeInlandTerrain } from './InlandTerrain.js';
 import { chooseSongBiomes } from './BiomeSet.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
@@ -200,7 +201,7 @@ function composeFromOutline(templates, pieces, homeView, song, songprint, family
  * Returns { version, family, biome, forced?, templateId, baseM, principal: { slotId,
  * pieceId, name }, slots: [{ slotId, pieceId, mirrored }], label }.
  */
-export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced = false, songprint, scenery } = {}) {
+export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced = false, songprint, scenery, lyricSections } = {}) {
   const song = songprintOutline(songprint);
   const scenes = song ? scenery ?? planSongScenes(profile, seed, { songprint }) : null;
   const homeView = scenes?.songprintVersion && scenes.sceneByBiome.get(scenes.home)?.view;
@@ -214,6 +215,13 @@ export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced 
   const pieces = byFamily.get(family) || [];
   const usable = templates.filter((t) => t.families.includes(family));
   if (!usable.length || !pieces.length) return null;
+  if (homeView && songprint?.timeline) {
+    const inland = makeInlandTerrain(songprint);
+    if (inland?.song?.measured) {
+      const measured = measuredRange(usable[0], catalog, inland, lyricSections, biome, family);
+      if (measured) return forced ? { ...measured, forced: true } : measured;
+    }
+  }
   if (homeView) return composeFromOutline(usable, pieces, homeView, song, songprint, family, forced);
   const template = pick(usable, seedTicket(seed, SALT_TEMPLATE));
   const principalSlot = template.slots.find((s) => s.id === template.principalSlot);
@@ -307,7 +315,8 @@ export function songRangeKey(plan) {
     const relief = s.reliefScale === undefined ? '' : '@' + s.reliefScale;
     return `${s.slotId}=${s.pieceId}${s.mirrored ? '~' : ''}${relief}`;
   });
-  const layout = `${plan.templateId}|${placements.join('|')}`;
+  const route = plan.slots[0]?.tiles ? JSON.stringify(plan.slots) : '';
+  const layout = `${plan.templateId}|${placements.join('|')}${route}`;
   const seed = Number.isInteger(plan.songSeed) ? `|seed:${plan.songSeed}` : '';
   const stage = plan.camera || plan.slotOffsets ? `|stage:${JSON.stringify({ camera: plan.camera,
     offsets: Object.entries(plan.slotOffsets || {}).sort(([a], [b]) => a.localeCompare(b)) })}` : '';

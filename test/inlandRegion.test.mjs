@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
-import { makeInlandRegion, regionAnchors, regionDesign, regionElevationSpan } from '../src/world/terrain/InlandRegion.js';
+import { makeInlandRegion, regionAnchors, regionDesign, regionElevationSpan, traceRivers } from '../src/world/terrain/InlandRegion.js';
 import { INLAND_MAX_DRY_FLOW, INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 
 const printFor = values => ({ version: 1, skyline: values, passages: [] });
@@ -65,6 +65,13 @@ test('rivers run downhill along the low ground and join into one network', () =>
   const byId = new Map(region.rivers.map(r => [r.id, r]));
   for (const river of region.rivers) {
     for (let i = 1; i < river.points.length; i++) assert.ok(river.points[i].bed <= river.points[i - 1].bed + 1e-9, `river ${river.id} never climbs`);
+    // Check the surface the renderer receives, not just the routing metadata.
+    for (let i = 1; i < river.points.length; i += 15) {
+      const a = river.points[i - 1], b = river.points[i];
+      const mid = region.sample((a.x + b.x) / 2, (a.z + b.z) / 2);
+      assert.equal(mid.wet, true);
+      assert.ok(Math.abs(mid.heightM - (a.bed + b.bed) / 2) < 1e-6);
+    }
     if (river.joins === null) continue;
     // Each tributary ends on its parent's course.
     const end = river.points.at(-1), parent = byId.get(river.joins);
@@ -129,7 +136,7 @@ test('the region has connected ridges, passes, broad reaches and a gorge that re
   assert.ok(max - floorM > .7 * (topM - floorM), 'the travelled core reaches most of the relief');
 });
 
-test('a measured timeline turns the peak region by key and supplies a dry flight course', () => {
+test('a measured timeline turns the peak region by key and supplies a flight over a connected watershed', () => {
   const series = Array.from({ length: 24 }, (_, i) => (i % 8) / 7);
   const timeline = { version: 1, stepMs: 2000, key: { tonic: 0, major: true, confidence: .9 },
     dynamics: .7, loudness: series, brightness: series, tension: series, novelty: series, major: series };
@@ -144,6 +151,50 @@ test('a measured timeline turns the peak region by key and supplies a dry flight
   for (const [x, z] of spine.course) {
     const sample = landscape.sample(x, z, {});
     assert.ok(Number.isFinite(sample.heightM));
-    assert.equal(sample.wet, false);
+    assert.ok(Number.isFinite(sample.bedM));
   }
+  assert.equal(landscape.rivers.filter(r => r.joins === null).length, 1);
+  assert.ok(landscape.rivers.length > 1);
+  for (const r of landscape.rivers.filter(r => r.trunk)) {
+    const p = r.points[Math.floor(r.points.length / 2)];
+    assert.equal(landscape.sample(p.x, p.z, {}).wet, true);
+  }
+});
+
+test('a tributary converges when it reaches the larger downhill channel on a shared floor', () => {
+  const n = 21, h = new Float64Array(n*n), area = new Int32Array(n*n);
+  const rcv = Int32Array.from({ length: n*n }, (_, i) => i);
+  const cell = (x,z) => x + z*n;
+  for (let z = 0; z < n; z++) {
+    const trunk = cell(8,z);
+    rcv[trunk] = cell(8,Math.min(n-1,z+1));
+    h[trunk] = 1-z*.01; area[trunk] = 60+z;
+    if (z < 3 || z >= n-1) continue;
+    const x = Math.max(9,16-z), i = cell(x,z);
+    rcv[i] = z === n-2 ? cell(8,n-1) : cell(Math.max(9,x-1),z+1);
+    h[i] = h[trunk]+.004; area[i] = 5+z;
+  }
+  const rivers = traceRivers({ n, dx: 1000, halfM: 10000, h, rcv, area }, 1000, 0, 4);
+  assert.equal(rivers.length, 2);
+  const tributary = rivers.find(r => r.joins !== null);
+  assert.ok(tributary.points.at(-1).z < 0, 'joins near first contact instead of paralleling to the outlet');
+});
+
+test('a ridge between adjacent drainage basins preserves the downstream confluence', () => {
+  const n = 31, h = new Float64Array(n*n).fill(2), area = new Int32Array(n*n);
+  const rcv = Int32Array.from({ length: n*n }, (_, i) => i);
+  const cell = (x, z) => x + z*n;
+  for (let z = 0; z < n; z++) {
+    const trunk = cell(10, z);
+    rcv[trunk] = cell(10, Math.min(n-1, z+1));
+    h[trunk] = 1 - z*.01; area[trunk] = 300+z;
+    if (z < 4 || z === n-1) continue;
+    const x = z === n-2 ? 11 : 12, branch = cell(x, z);
+    h[branch] = h[trunk] + .003; area[branch] = 150+z;
+    rcv[branch] = cell(z >= n-3 ? x-1 : x, z+1);
+  }
+  const rivers = traceRivers({ n, dx: 200, halfM: 3000, h, rcv, area }, 1000, 0, 4);
+  assert.equal(rivers.length, 2);
+  const tributary = rivers.find(r => r.joins !== null);
+  assert.ok(tributary.points.at(-1).z >= 2600, 'the stream stays in its own basin until the ridge ends');
 });
