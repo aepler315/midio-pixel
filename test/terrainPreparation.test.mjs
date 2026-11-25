@@ -143,6 +143,28 @@ test('version-two riverbed lanes use a single linear RGBA texture on desktop and
   }
 });
 
+test('a fall on a shared tile edge preserves common native elevations on both meshes', () => {
+  const cells = 16, samples = 17, data = { grid: { originM: [0, 0], width: 33, height: 17, cellSizeM: 20 },
+    cells, manifest: { tilesX: 2, tilesZ: 1 }, tiles: new Map(), byIndex: new Map() };
+  for (let ix = 0; ix < 2; ix++) {
+    const heightsM = Float32Array.from({ length: samples ** 2 }, (_, k) => {
+      const z = Math.floor(k / samples); return z < 6 ? 160 : z === 6 ? 134 : 100;
+    });
+    const tile = { ix, iz: 0, id: String(ix), band: 'far', visible: true, samples, stride: 1, lod: { desktop: 4, mobile: 8 },
+      heightsM, fallDetail: [ix ? [0, 4, 4, 8] : [12, 4, 16, 8]] };
+    data.tiles.set(tile.id, tile); data.byIndex.set(`${ix},0`, tile);
+  }
+  for (const budget of ['desktop', 'mobile']) {
+    const ground = Mesh.makeTerrainMeshHeightSampler(data, budget);
+    const { positions } = Mesh.buildTerrainGeometry(data, { budget }).bands.far;
+    const column = [];
+    for (let i = 0; i < positions.length; i += 3)
+      if (positions[i] === 320 && positions[i + 2] === 120) column.push(positions[i + 1]);
+    assert.deepEqual(column, [134, 134], `both ${budget} tile edges contain the surveyed ledge`);
+    for (const x of [319.9, 320.1]) assert.equal(ground(x, 100) - ground(x, 140), 60);
+  }
+});
+
 test('tour geometry finalization yields between bands while preserving every buffer and bounds', async () => {
   assert.equal(typeof GL.createBandGeometriesAsync, 'function');
   const built = { bands: Object.fromEntries(['far', 'mid', 'near'].map((b, i) => [b, {

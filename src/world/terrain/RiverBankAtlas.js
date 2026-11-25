@@ -6,6 +6,8 @@ import { riverIslandDistance, sampleRiverbed } from './Riverbed.js';
 
 export const RIVER_BANK_MAX_BYTES = 8 * 1024 * 1024;
 export const RIVER_BANK_MAX_TEXTURE_SIZE = 2048;
+// The active beach extends farther across fine alluvium than exposed rock.
+export const ROCK_SHORE_M = 6, SAND_SHORE_M = 32;
 
 
 function* routedSegments(rivers, [cx, cz]) {
@@ -31,17 +33,21 @@ function* routedSegments(rivers, [cx, cz]) {
 
 // Distance inside the union of overlapping variable-radius circles along
 // this segment. If one end's circle contains the whole reach it alone wins.
-function insideDistance(s, x, z, sample) {
+function insideDistance(s, x, z, sample, best = -Infinity) {
   const dx = x - s.x, dz = z - s.z;
   const along = dx * s.tx + dz * s.tz, lateral = dz * s.tx - dx * s.tz, across = Math.abs(lateral);
   const at = s.widthSlope >= 1 ? s.length : s.widthSlope <= -1 ? 0
     : Math.max(0, Math.min(s.length, along + across * s.offset));
   const radial = s.length ? Math.sqrt((along - at) ** 2 + across ** 2) : Math.hypot(dx, dz);
+  const outer = (s.length ? s.radius + at * s.widthSlope : Math.max(s.radius, s.endRadius)) - radial;
+  // Point bars can only narrow this envelope. A losing segment cannot
+  // change either the chosen shoreline or its material.
+  if (outer <= best) return outer;
   if (sample && s.a.hydro && s.b.hydro) {
     sampleRiverbed(s.a, s.b, s.length ? at / s.length : 0, lateral < 0 ? -radial : radial, sample);
     return sample.signedWetDistanceM;
   }
-  return (s.length ? s.radius + at * s.widthSlope : Math.max(s.radius, s.endRadius)) - radial;
+  return outer;
 }
 
 function* indexPages(segments, grid, texelSizeM, rangeM, channels, coreSize) {
@@ -88,7 +94,6 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
   // Smaller pages reduce dry padding around narrow channels in the
   // four-lane format. Keep the older one-lane page layout unchanged.
   const coreSize = channels === 4 ? 16 : 32, posts = coreSize + 1;
-  const islands = rivers.flatMap(river => river.islands ?? []);
   let texelSizeM = 10, layout;
   for (;;) {
     layout = yield* indexPages(segments, grid, texelSizeM, 2 * texelSizeM, channels, coreSize);
@@ -100,6 +105,19 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
   const { bins, width, height, pagesX, pagesZ, pageColumns } = layout;
   if (!bins.size) return null;
   const rangeM = 2 * texelSizeM, originM = [...grid.originM];
+  const islandPages = new Map(), span = coreSize * texelSizeM;
+  for (const river of rivers) for (const island of river.islands ?? []) {
+    const reach = Math.max(island.halfLengthM, island.halfWidthM) + rangeM;
+    const x = island.x + centre[0] - originM[0], z = island.z + centre[1] - originM[1];
+    for (let pz = Math.max(0, Math.floor((z - reach) / span)); pz <= Math.min(pagesZ - 1, Math.floor((z + reach) / span)); pz++) {
+      for (let px = Math.max(0, Math.floor((x - reach) / span)); px <= Math.min(pagesX - 1, Math.floor((x + reach) / span)); px++) {
+        const key = pz * pagesX + px;
+        if (!bins.has(key)) continue;
+        if (!islandPages.has(key)) islandPages.set(key, []);
+        islandPages.get(key).push(island);
+      }
+    }
+  }
   const pageTable = new Uint8Array(pagesX * pagesZ * 2);
   const data = new Uint8Array(width * height * channels);
   // Unallocated posts are dry. Reserve zero substrate for untouched ground.
@@ -124,7 +142,7 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
         for (let i = left; i <= right; i++) {
           const x = originM[0] + (ix + i) * texelSizeM;
           const pixel = (row + i) * channels, local = j * posts + i;
-          const d = insideDistance(s, x, z, channels === 4 ? sample : null);
+          const d = insideDistance(s, x, z, channels === 4 ? sample : null, winners[local]);
           if (d <= winners[local]) continue;
           winners[local] = d;
           data[pixel] = 128 + Math.round(127 * Math.min(1, d / rangeM));
@@ -134,13 +152,13 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
             data[pixel + 1] = 1 + Math.round(127 * (1 + sample.rock - sample.sand));
             data[pixel + 2] = Math.round(255 * Math.sqrt(Math.min(1, Math.max(0, sample.depthM) / 16)));
             data[pixel + 3] = Math.round(255 * sample.foam);
-          }
+          } else if (channels === 4) data.fill(0, pixel + 1, pixel + 4);
         }
       }
     }
     // Subtract islands from the complete channel union, including where a
     // second reach enters the same pool. All tests are regional coordinates.
-    for (const island of islands) {
+    for (const island of islandPages.get(id) ?? []) {
       const reach = Math.max(island.halfLengthM, island.halfWidthM) + rangeM;
       const left = Math.max(0, Math.ceil((island.x + centre[0] - reach - originM[0]) / texelSizeM) - ix);
       const right = Math.min(coreSize, Math.floor((island.x + centre[0] + reach - originM[0]) / texelSizeM) - ix);
@@ -149,7 +167,9 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
       for (let j = top; j <= bottom; j++) for (let i = left; i <= right; i++) {
         const x = originM[0] + (ix + i) * texelSizeM - centre[0], z = originM[1] + (iz + j) * texelSizeM - centre[1];
         const d = -riverIslandDistance(island, x, z), pixel = (start + j * width + i) * channels;
-        if (d >= winners[j * posts + i]) continue;
+        const local = j * posts + i;
+        if (d >= winners[local]) continue;
+        winners[local] = d;
         const encoded = 128 + Math.round(127 * Math.max(-1, Math.min(1, d / rangeM)));
         data[pixel] = Math.min(data[pixel], encoded);
         if (channels === 4) {
@@ -176,7 +196,8 @@ export function* bakeRiverBankAtlasSteps(rivers, grid, centre = [0, 0], isDryGro
 
 /** Signed metres at stage XZ using exactly the shader's bilinear texel and
  * page lookup. Absent pages are dry. */
-export function riverBankDistanceAt(atlas, x, z) {
+export function riverBankDistanceAt(atlas, x, z, material) {
+  if (material) material.grain = 0;
   const { coreSize, texelSizeM, rangeM, originM, pagesX, pagesZ, pageColumns, pageTable, width, data } = atlas;
   const gx = (x - originM[0]) / texelSizeM, gz = (z - originM[1]) / texelSizeM;
   const px = Math.floor(gx / coreSize), pz = Math.floor(gz / coreSize);
@@ -189,5 +210,10 @@ export function riverBankDistanceAt(atlas, x, z) {
   const k = ((Math.floor(slot / pageColumns) * posts + j) * width + slot % pageColumns * posts + i) * channels;
   const top = data[k] + (data[k + channels] - data[k]) * fx;
   const bottom = data[k + row] + (data[k + row + channels] - data[k + row]) * fx;
+  if (material && channels === 4) {
+    const a = data[k + 1] + (data[k + channels + 1] - data[k + 1]) * fx;
+    const b = data[k + row + 1] + (data[k + row + channels + 1] - data[k + row + 1]) * fx;
+    material.grain = Math.max(-1, (a + (b - a) * fz - 128) / 127);
+  }
   return (top + (bottom - top) * fz - 128) * rangeM / 127;
 }

@@ -126,12 +126,37 @@ export function tileMeshShape(tile, cells, stride) {
   return { x, z, cols: x.length, rows: z.length };
 }
 
-function meshNodeHeights(tile, stride, cells, neighbourStride, shape) {
-  if (!shape.x) return tileMeshHeights(tile, stride, cells, neighbourStride);
-  // Both tiles meet on their coarser base edge even when extra interior
-  // rows reach it. Thus independently refined neighbours share a line.
-  const h = tileMeshHeights(tile, 1, cells, (dx, dz) => Math.max(stride, neighbourStride(dx, dz) || 0));
-  return (u, v) => h(shape.x[u], shape.z[v]);
+function meshNodeHeights(tile, stride, cells, neighbourStride, shape, neighbourTile) {
+  const regular = tileMeshHeights(tile, stride, cells, neighbourStride);
+  // Where either side adds waterfall knots, agree on every post shared by
+  // both edges. Only the intermediate vertices follow the straight chord.
+  const edge = (dx, dz) => {
+    const other = neighbourTile(dx, dz);
+    if (!other || (!shape.x && !other.fallDetail)) return null;
+    const neighbourStep = neighbourStride(dx, dz);
+    if (!neighbourStep) return null;
+    const axis = dz ? 'x' : 'z', here = shape[axis], there = tileMeshShape(other, cells, neighbourStep)[axis];
+    const shared = [];
+    for (let i = 0; i <= cells; i++) {
+      if ((here ? here.includes(i) : i % stride === 0) && (there ? there.includes(i) : i % neighbourStep === 0)) shared.push(i);
+    }
+    return shared;
+  };
+  const north = edge(0, -1), south = edge(0, 1), west = edge(-1, 0), east = edge(1, 0);
+  if (!shape.x && !(north || south || west || east)) return regular;
+  const raw = (u, v) => sampleAt(tile, u / tile.stride, v / tile.stride);
+  return (u, v) => {
+    const x = shape.x ? shape.x[u] : u * stride, z = shape.z ? shape.z[v] : v * stride;
+    const horizontal = z === 0 || z === cells;
+    const shared = horizontal ? (z === 0 ? north : south) : x === 0 ? west : x === cells ? east : null;
+    if (!shared) return shape.x ? raw(x, z) : regular(u, v);
+    if (!Number.isFinite(raw(x, z))) return NaN;
+    const q = horizontal ? x : z, next = shared.findIndex(p => p >= q);
+    if (shared[next] === q) return raw(x, z);
+    const a = shared[next - 1], b = shared[next];
+    const h0 = horizontal ? raw(a, z) : raw(x, a), h1 = horizontal ? raw(b, z) : raw(x, b);
+    return h0 + (h1 - h0) * ((q - a) / (b - a));
+  };
 }
 
 /** Sample the same snapped vertices used by buildTerrainGeometry. */
@@ -183,7 +208,7 @@ export function makeTerrainMeshHeightSampler(data, budget) {
       height = meshNodeHeights(tile, stride, cells, (dx, dz) => {
         const other = data.byIndex.get(`${ix + dx},${iz + dz}`);
         return other ? strideFor(other) : 0;
-      }, shape);
+      }, shape, (dx, dz) => data.byIndex.get(`${ix + dx},${iz + dz}`));
     }
     const m = cells / stride;
     const fu = (gx - ix * cells) / stride, fv = (gz - iz * cells) / stride;
@@ -242,7 +267,7 @@ function planBands(data, stridesById, includeHidden, railSplit = true) {
   for (const t of data.tiles.values()) {
     seq++;
     if (!drawn(t)) continue;
-    const s = stridesById.get(t.id), m = cells / s, band = bandOf(t), at = BANDS.indexOf(band);
+    const s = stridesById.get(t.id), band = bandOf(t), at = BANDS.indexOf(band);
     let fringe = false, railFringe = false;
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const nb = (dx || dz) && data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
@@ -258,7 +283,7 @@ function planBands(data, stridesById, includeHidden, railSplit = true) {
     // only the four edge neighbours can move a rail tile's vertices.
     const split = SIDES.some(([dx, dz]) => {
       const nb = data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
-      return tourOnly(nb) && stridesById.get(nb.id) > s;
+      return tourOnly(nb) && (stridesById.get(nb.id) > s || (t.fallDetail && s > 1));
     });
     if (!split) { sec.A.push({ t, seq, fringe, railFringe, ignoreTourOnly: false }); continue; }
     sz.v += tv; sz.i += ti; sz.copyV += tv; sz.copyI += ti;
@@ -325,7 +350,8 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
       const base = vertexCount;
       const x0 = grid.originM[0] + t.ix * cells * grid.cellSizeM;
       const z0 = grid.originM[1] + t.iz * cells * grid.cellSizeM;
-      const snap = meshNodeHeights(t, s, cells, neighbourStride, shape);
+      const snap = meshNodeHeights(t, s, cells, neighbourStride, shape,
+        (dx, dz) => data.byIndex.get(`${t.ix + dx},${t.iz + dz}`));
       const heights = new Float32Array(n * rows);
       const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
       for (let v = 0; v < rows; v++) {

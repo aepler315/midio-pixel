@@ -80,7 +80,10 @@ mobile), 80 m on core hillsides and coarser ground outward. For each
 generated reach a sparse texture records signed distance to the exposed
 shore, substrate and aeration. Bars and islands cut through the water mask.
 Physical terrain sampling distinguishes the submerged bed from the drawn
-water surface. Adjacent texture pages share edge samples. The coarse flow
+water surface. Waterfall lips retain native mesh samples across desktop and
+mobile tile boundaries. The terrain material and tree placement share the
+exposed beach width, from narrow rock toes to wider sandy margins.
+Adjacent texture pages share edge samples. The coarse flow
 marker (254) and the earlier single-channel atlas remain readable. Assembly
 yields between slices and retains the catalog view during loading.
 Material bands are carried from each pack's surveyed elevation span onto the

@@ -29,6 +29,7 @@ import { CROWN_GLSL } from './ForestProfile.js';
 import { HORIZON_GLSL } from './TerrainOcclusion.js';
 import { TERRAIN_LIGHTING_GLSL } from './TerrainLighting.js';
 import { INLAND_RIVER_FLOW } from './TerrainPackage.js';
+import { ROCK_SHORE_M, SAND_SHORE_M } from '../terrain/RiverBankAtlas.js';
 
 /** Poisson cover of vertical crowns; vectors are unit world directions. */
 export function expectedForestCover({ forest, radius, crownHeight, normal, toEye }) {
@@ -749,7 +750,7 @@ export const SCENE_FRAG = /* glsl */`
     vec3 sediment = mix(pRockLit * .69, mix(pRockWarm, vec3(.44, .33, .20), .68), max(0.0, -grain));
     sediment = mix(sediment, mix(pRockShade, pRockLit, .38 + .32 * bankPatch), max(0.0, grain));
     sediment *= .84 + .24 * bankPatch;
-    float marginM = min(.95 * uBankGrid.w, 15.0);
+    float marginM = min(.90 * uBankGrid.w, mix(${ROCK_SHORE_M.toFixed(1)}, ${SAND_SHORE_M.toFixed(1)}, .5 - .5 * grain));
     float gravel = smoothstep(-marginM, -min(.25 * marginM, .15 * edgeM), bankM) * (1.0 - channel) * (1.0 - ice.y);
     float depthM = 16.0 * bank.b * bank.b;
     float channelDepth = 1.0 - exp(-.65 * depthM);

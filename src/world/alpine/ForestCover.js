@@ -17,7 +17,7 @@ import { terrainHeightAt, makeTerrainMeshHeightSampler, BANDS } from './TerrainM
 import { INLAND_RIVER_FLOW, INLAND_SURFACE_STRIDE } from './TerrainPackage.js';
 import { RULE_DEFAULTS } from './MaterialPackage.js';
 import { scenePoseAt, pathStations } from '../terrain/SceneTravel.js';
-import { riverBankDistanceAt } from '../terrain/RiverBankAtlas.js';
+import { ROCK_SHORE_M, SAND_SHORE_M, riverBankDistanceAt } from '../terrain/RiverBankAtlas.js';
 
 export const LATTICE_M = 13;
 export const FOREST_RINGS = Object.freeze({ detailM: 450, meshM: 1200, billboardM: 8000 });
@@ -357,6 +357,7 @@ function* placeInlandForestSteps(data, view, rules, seed, budget) {
   const floor = rules.forestFloorM ?? RULE_DEFAULTS.forestFloorM;
   const corridorAt = inlandCorridor(data);
   const banks = data.riverBankAtlas;
+  const bankMaterial = {};
   const renderedHeightAt = makeTerrainMeshHeightSampler(data, budget);
   const cs = data.grid.cellSizeM, L = inlandLattice(budget);
   const cap = INLAND_TREE_CAP[budget] ?? INLAND_TREE_CAP.desktop;
@@ -381,7 +382,14 @@ function* placeInlandForestSteps(data, view, rules, seed, budget) {
     if (!habitat || (!banks && habitat.wet > 0)) return null;
     const moisture = clamp01((habitat.flow - 48) / 112);
     if (inlandStand(seed, x, z, density, moisture, slope) < .5) return null;
-    if (banks ? riverBankDistanceAt(banks, x, z) >= -INLAND_ROOT_CLEARANCE_M : touchesRiverCell(data, x, z)) return null;
+    if (banks) {
+      const distance = riverBankDistanceAt(banks, x, z, banks.version === 2 ? bankMaterial : null);
+      // Keep the freshly worked portion of the beach exposed. Trees can
+      // establish on upper banks and the crowns of stable islands.
+      const shore = banks.version === 2 ? Math.min(.9 * banks.rangeM,
+        ROCK_SHORE_M + (SAND_SHORE_M - ROCK_SHORE_M) * (.5 - .5 * bankMaterial.grain)) : 0;
+      if (distance >= -Math.max(INLAND_ROOT_CLEARANCE_M, .55 * shore)) return null;
+    } else if (touchesRiverCell(data, x, z)) return null;
     return { x, z, y, slope, band: habitat.band };
   };
   // A sparse pre-pass estimates how many trees the corridor holds, so a
