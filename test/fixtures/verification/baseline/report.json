@@ -74,75 +74,75 @@
     {
       "id": "classic-0",
       "png": "classic-0.png",
-      "sha256": "262c62676ad30715fb5febb055276e3bde73eeac976715b03667ae2647a95f7a",
+      "sha256": "aa0eff0b0a1d74d02411db7045b1e82c9f075fe203392a88ee503ce3e890572e",
       "width": 640,
       "height": 360
     },
     {
       "id": "classic-45000",
       "png": "classic-45000.png",
-      "sha256": "01007d87adc590e084fb09036277265b45253b64afbce41f049ec862ded19c9a",
+      "sha256": "c2dd5dc7a6aa7277a084f5338c1e9f3a1718cf9ce788710ad766a84f1cc9dee3",
       "width": 640,
       "height": 360
     },
     {
       "id": "classic-85000",
       "png": "classic-85000.png",
-      "sha256": "f039d3a5fe715aca422584724539c019c42dc940640004f2756187283983605f",
+      "sha256": "abfcadf9a0bd0e296cc5ca5c97d4d32847aab7c71ef0e647ffa896e752d750a5",
       "width": 640,
       "height": 360
     },
     {
       "id": "detailed-0",
       "png": "detailed-0.png",
-      "sha256": "06a246e6f60b3e67a801a5099b5ab3193b1b277b7b4858add200abeac15dfe0d",
+      "sha256": "60a28339ac2d3678aa458446a10c651586a848fcbe6f8fdb91c8f5ce2164afb1",
       "width": 640,
       "height": 360
     },
     {
       "id": "detailed-45000",
       "png": "detailed-45000.png",
-      "sha256": "65f38b6ca7b101cc01a34256eb54491b8be88ec83b664d34ad4003586f628844",
+      "sha256": "9f39e66eec584b32277615a82b014a5f8a599f9fc5058ab7f58c8f9814d3de72",
       "width": 640,
       "height": 360
     },
     {
       "id": "detailed-85000",
       "png": "detailed-85000.png",
-      "sha256": "707d5c5fff3d5578f46d80ad16f15a17ad3435a2bc721307acf640ccebe8344d",
+      "sha256": "a6f64b679642695ad180814c92cc96b9d6d97f61b9c261e605ae5954f2f97607",
       "width": 640,
       "height": 360
     },
     {
       "id": "half-rise-45000",
       "png": "half-rise-45000.png",
-      "sha256": "ef5499b58605308195265f2eba42c8b49b0c726749a7ce22239e76a01c91a591",
+      "sha256": "88cd3d6a82c13bdb8442df338d86446578daac4ce16863d2d820e896ae82bf06",
       "width": 640,
       "height": 360
     },
     {
       "id": "weather-q3-54000",
       "png": "weather-q3-54000.png",
-      "sha256": "c17c07c9ac41804b9d150ce5c5757e789ebbca72c674acfe79549cf0fd6e054c",
+      "sha256": "a932576565aaa68747456ed8f6b1a714b77e20c2487b919d874a986216dffc09",
       "width": 640,
       "height": 360
     }
   ],
   "source": {
-    "commit": "7b8cadc9672bdbe48e0916c78efbbc51866a4de8",
+    "commit": "e8f49b73f4c92c72a10472c23cef270a79eb403b",
     "branch": "",
     "dirty": "",
-    "digest": "9026a11c1e5ab5938f0b9aed970117e8a90451eb35d4fa0b5b34e759d6cd7ca1"
+    "digest": "d117587c4d3d8e9581fa7cfc4b1a3e00d47a054b2899c59d68cbcb43458259e8"
   },
   "scope": "Fixed-clock software WebGL export; technical references, no artistic, live-motion, GPU-time or JOYING certification.",
-  "browserVersion": "156.0.8078.4",
-  "browser": "chromium-156",
+  "browserVersion": "158.0.8127.36",
+  "browser": "chromium-158",
   "audioSha256": "c0160a5c95669def70cfe43feeca1c06b81117cf01f2b4e43d59f1ef59e02297",
   "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "approval": {
-    "reviewer": "Codex-technical-inspection",
-    "reason": "Initial eight-frame reference: actual hosted output inspected as a contact sheet and representative full-size images; exact pixel match with clean main 58454dd. Technical baseline only; owner artistic approval and motion/device evidence remain unreviewed.",
-    "at": "2026-11-13T16:31:37.105Z",
+    "reviewer": "independent-Codex-technical-inspection",
+    "reason": "Inspected eight frames from clean upstream e8f49b73f4c92c72a10472c23cef270a79eb403b on Chromium 158. Compared original source, old references, current upstream and difference images. The direct-terrain title, Teton skyline, reflections, half-rise and weather agree with the merged renderer and camera changes. Against the same upstream source on Chromium 156, all eight meet the original tolerances and all camera and audio states match. PR candidate images were excluded from the reference. Owner artistic verdict unreviewed.",
+    "at": "2026-11-25T18:42:20.296Z",
     "kind": "inspected-images",
     "artisticVerdict": "unreviewed"
   }
