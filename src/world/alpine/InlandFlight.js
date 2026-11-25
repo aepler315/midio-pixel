@@ -523,6 +523,33 @@ function summitLookout(data, surfaces, bounds, eyes, point) {
   return best;
 }
 
+// A lateral excursion can cross several terrain posts during one second.
+// Enclose every safe altitude with a 60 m/s climb/descent, then smooth a
+// moving maximum. Every value in the averaging window still covers the
+// original altitude at its centre, including the cue's sightline.
+function smoothLookoutAltitude(path, times) {
+  const n = times.length, y = Float64Array.from(times, (_, i) => path.eye[i * 3 + 1]);
+  for (let i = 1; i < n; i++) y[i] = Math.max(y[i], y[i - 1] - .06 * (times[i] - times[i - 1]));
+  for (let i = n - 2; i >= 0; i--) y[i] = Math.max(y[i], y[i + 1] - .06 * (times[i + 1] - times[i]));
+  const windowMs = 1800, upper = new Float64Array(n);
+  for (let pass = 0; pass < 2; pass++) for (let i = 0, left = 0, right = 0; i < n; i++) {
+    while (times[left] < times[i] - windowMs) left++;
+    while (right + 1 < n && times[right + 1] <= times[i] + windowMs) right++;
+    if (!pass) {
+      upper[i] = y[i];
+      for (let k = left; k <= right; k++) upper[i] = Math.max(upper[i], y[k]);
+    } else {
+      let sum = 0, weight = 0;
+      for (let k = left; k <= right; k++) {
+        const dt = times[Math.min(n - 1, k + 1)] - times[Math.max(0, k - 1)];
+        const w = dt * (1 - Math.abs(times[k] - times[i]) / windowMs);
+        sum += w * upper[k]; weight += w;
+      }
+      path.eye[i * 3 + 1] = weight ? sum / weight : y[i];
+    }
+  }
+}
+
 function clearSummitViews(path, clock, summits, data, bounds, heightRange) {
   const surfaces = [(x, z) => terrainHeightAt(data, x, z)];
   if (!data.groundAt) surfaces.push(makeTerrainMeshHeightSampler(data, 'mobile'), makeTerrainMeshHeightSampler(data, 'desktop'));
@@ -585,7 +612,10 @@ function clearSummitViews(path, clock, summits, data, bounds, heightRange) {
       path.eye[3 * i + 2] += dz * weight;
     }
   }
-  if (shifted) clearPath(path, ground, bounds, heightRange, 120, true);
+  if (shifted) {
+    clearPath(path, ground, bounds, heightRange, 120, true);
+    smoothLookoutAltitude(path, sampleTimes);
+  }
 }
 
 function spineTravel(route, timeMs) {
