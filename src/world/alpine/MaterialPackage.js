@@ -57,7 +57,7 @@ export function inlandMaterialRules(view, rules, catalog = MASSIF_CATALOG) {
   out.treelineM = Math.max(out.treelineM, Math.round(floorM + woodedFraction * (topM - floorM)));
   // Snow keeps to the upper crests: the region's foothills stay green.
   if (plan.family !== 'icefield') {
-    const band = Math.round(floorM + (peaks ? .5 : .72) * (topM - floorM));
+    const band = Math.ceil(floorM + (peaks ? .5 : .72) * (topM - floorM));
     out.snowlineM = peaks ? band : Math.max(out.snowlineM, band);
   }
   out.snowlineM = Math.max(out.snowlineM, out.treelineM + 120);

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHash, STAGE_KIND, stageReliefScale, reliefScaleFrom, STAGE_RELIEF,
   INLAND_SURFACE_STRIDE, stageRiseSlots, stageTemplate } from '../src/world/alpine/StageAssembly.js';
-import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
+import { decodeTerrain, makeTerrainMeshHeightSampler } from '../src/world/alpine/TerrainMesh.js';
 import { INLAND_RIVER_FLOW, WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { RIVER_BANK_MAX_BYTES, riverBankDistanceAt } from '../src/world/terrain/RiverBankAtlas.js';
 import { planSongRange, songRangeKey, songReliefJitter } from '../src/world/terrain/SongRangePlan.js';
@@ -137,6 +137,15 @@ test('an inland song stage doubles the existing axes and carries the region and 
     Math.round(((grid.width - 1) / INLAND_SURFACE_STRIDE + 1) ** 2 * 16 / 3));
   // Rivers are a terrain surface class; massifs stay dry.
   const { hydrology } = stage.manifest;
+  assert.equal(banks.version, 2);
+  assert.ok(hydrology.region.falls.length > 0 && hydrology.region.islands.length > 0);
+  const fall = hydrology.region.falls[0];
+  for (const budget of ['desktop', 'mobile']) {
+    const ground = makeTerrainMeshHeightSampler(data, budget);
+    const drawnDrop = ground(fall.x, fall.z) - ground(fall.footX, fall.footZ);
+    assert.ok(drawnDrop > fall.dropM * .5, `${budget} keeps the actual waterfall lip and foot`);
+  }
+  assert.ok(hydrology.region.islands.some(i => riverBankDistanceAt(banks, i.x, i.z) < -1), 'exposed sediment stays dry in the packed atlas');
   assert.equal(hydrology.riverFlow, INLAND_RIVER_FLOW);
   assert.ok(hydrology.region.rivers.some(r => r.trunk && r.flown));
   const trunk = hydrology.region.rivers.find(r => r.trunk);

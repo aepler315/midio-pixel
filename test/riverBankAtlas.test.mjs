@@ -8,6 +8,30 @@ const river = (...points) => ({ points: points.map(([x, z, channelM]) => ({ x, z
 const bake = (rivers, options = {}) => finishPreparation(
   bakeRiverBankAtlasSteps(rivers, options.grid ?? grid, options.centre, options.isDryGround));
 
+test('modeled channels serialize bank sediment, hydraulic depth, local whitewater and dry islands', () => {
+  const station = (x, grainMm, bankRock, rapid) => ({ x, z: 0, channelM: 72, bed: 100 - x * .01,
+    hydro: { grainMm, bankRock, rapid, fall: 0, barSide: 0, barStrength: 0, depthM: 2 } });
+  const island = { x: 0, z: 0, tx: 1, tz: 0, halfLengthM: 65, halfWidthM: 24, heightM: 1, sand: .6, rock: .1 };
+  const atlas = bake([{ points: [station(-800, 1, .02, 0), station(0, 1, .02, 0), station(420, 40, .9, 1),
+    station(800, 40, .9, 1)], islands: [island] }]);
+  assert.equal(atlas.version, 2);
+  assert.equal(atlas.data.length, atlas.width * atlas.height * 4);
+  const pixel = (x, z) => {
+    const gx = (x - atlas.originM[0]) / atlas.texelSizeM, gz = (z - atlas.originM[1]) / atlas.texelSizeM;
+    const n = atlas.coreSize, side = n + 1;
+    const px = Math.floor(gx / n), pz = Math.floor(gz / n), key = 2 * (pz * atlas.pagesX + px);
+    const slot = atlas.pageTable[key] + atlas.pageTable[key + 1] * 256 - 1;
+    const i = 4 * ((Math.floor(slot / atlas.pageColumns) * side + gz % n) * atlas.width + slot % atlas.pageColumns * side + gx % n);
+    return atlas.data.subarray(i, i + 4);
+  };
+  const calm = pixel(-600, 0), rapid = pixel(600, 0), crown = pixel(0, 0), bank = pixel(600, 80);
+  assert.ok(calm[0] > 128 && calm[1] < 96 && calm[2] > 80 && calm[3] === 0);
+  assert.ok(rapid[0] > 128 && rapid[1] > 195 && rapid[2] === calm[2] && rapid[3] > 175);
+  assert.ok(crown[0] < 128 && crown[2] === 0 && crown[3] === 0);
+  assert.ok(bank[0] < 128 && bank[2] === 0 && bank[3] === 0);
+  assert.ok(riverBankDistanceAt(atlas, 0, 0) < 0 && riverBankDistanceAt(atlas, 0, 40) > 0);
+});
+
 test('oblique banks keep their physical width between coarse posts and across page seams', () => {
   for (const angle of [0, 5, 15, 30, 45]) {
     const radians = angle * Math.PI / 180, tx = Math.cos(radians), tz = Math.sin(radians);

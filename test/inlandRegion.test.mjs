@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
+import { migrateChannel } from '../src/world/terrain/ChannelMigration.js';
+import { riverWetHalfWidthM } from '../src/world/terrain/Riverbed.js';
 import { makeInlandRegion, regionAnchors, regionDesign, regionElevationSpan, roundChannelBends, traceRivers } from '../src/world/terrain/InlandRegion.js';
 import { INLAND_MAX_DRY_FLOW, INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { finishPreparation } from '../src/world/alpine/PreparationSteps.js';
@@ -10,6 +12,23 @@ const printFor = values => ({ version: 1, skyline: values, passages: [] });
 const SKYLINE = [.95, .15, .08, .26, .6, .75, .4, .34, .51, .72, .62, .18, .58, .31, .7, .39];
 const field = makeInlandTerrain(printFor(SKYLINE));
 const BASE_M = 2050;
+
+test('migration follows existing bends and the available floodplain while keeping the endpoints fixed', () => {
+  const start = Array.from({ length: 70 }, (_, i) => ({ x: i * 44, z: 0, area: 320, bed: 240 - i * .05,
+    channelM: 60, floorM: 390, gorge: 0, broad: 1 }));
+  const straight = migrateChannel(start, 110, () => 0, 1900, 1);
+  assert.deepEqual(straight, start, 'a uniform straight valley does not acquire a repeating wave');
+  const bend = start.map((p, i) => ({ ...p, z: 250 * Math.exp(-((i - 30) ** 2) / 69) }));
+  const open = migrateChannel(bend, 110, () => 0, 1900, 1);
+  const gorge = bend.map(p => ({ ...p, gorge: .98, broad: 0, floorM: 64 }));
+  const rock = migrateChannel(gorge, 110, () => 0, 1900, 1);
+  const displacements = out => out.map((p, i) => Math.hypot(bend[i].x - p.x, bend[i].z - p.z));
+  assert.ok(Math.max(...displacements(open)) > 20);
+  assert.ok(Math.max(...displacements(rock)) <= 4.001);
+  assert.deepEqual(open[0], bend[0]); assert.deepEqual(open.at(-1), bend.at(-1));
+  assert.deepEqual(open.map(p => p.bed), bend.map(p => p.bed));
+  assert.deepEqual(open, migrateChannel(bend, 110, () => 0, 1900, 1));
+});
 
 test('a wide river rounds a tight turn inside its original wet footprint', () => {
   // Local metre coordinates of the TAIGA trunk at the pointed inside bank.
@@ -35,6 +54,27 @@ test('a wide river rounds a tight turn inside its original wet footprint', () =>
 });
 const massifs = [{ x: -9000, z: -12000, radiusM: 5000, weight: 1 }, { x: 8000, z: -14000, radiusM: 4200, weight: .7 }];
 const region = makeInlandRegion(field, BASE_M, { massifs });
+
+test('ordinary soil-covered divides have subdued local relief and curved hillslopes', () => {
+  const spans = [], curvature = [];
+  const { coarse, halfM } = region;
+  for (let z = -19000; z <= 19000; z += 1000) for (let x = -19000; x <= 19000; x += 1000) {
+    const i = Math.round((z + halfM) / coarse.dx) * coarse.n + Math.round((x + halfM) / coarse.dx);
+    if (coarse.U[i] >= .6 || massifs.some(m => Math.hypot(x - m.x, z - m.z) < m.radiusM + 1600)) continue;
+    const here = region.sample(x, z);
+    if (here.distanceM < 350) continue;
+    const sides = d => [region.heightAt(x + d, z), region.heightAt(x - d, z),
+      region.heightAt(x, z + d), region.heightAt(x, z - d)];
+    const ring = sides(1000);
+    spans.push(Math.max(here.heightM, ...ring) - Math.min(here.heightM, ...ring));
+    curvature.push(Math.abs(sides(250).reduce((sum, h) => sum + h, 0) / 4 - here.heightM));
+  }
+  const percentile = (v, f) => v.sort((a, b) => a - b)[Math.floor(f * v.length)];
+  assert.ok(spans.length > 150, 'measure across the interior watershed');
+  assert.ok(percentile(spans, .5) > 35 && percentile(spans, .95) < 320);
+  assert.ok(percentile(curvature, .5) > .5 && percentile(curvature, .95) < 24);
+  assert.ok(region.rivers.some(r => r.points.some(p => p.colluviumM > 0)), 'hillslopes deliver sediment to the rivers');
+});
 
 // Heights on a grid laid along and across the region's own trunk, so a
 // region that turned a little compares as the same land.
@@ -94,14 +134,19 @@ test('rivers run downhill along the low ground and join into one network', () =>
     for (let i = 1; i < river.points.length; i += 15) {
       const a = river.points[i - 1], b = river.points[i];
       const mid = region.sample((a.x + b.x) / 2, (a.z + b.z) / 2);
-      assert.equal(mid.wet, true);
-      assert.ok(Math.abs(mid.heightM - (a.bed + b.bed) / 2) < 1e-6);
+      assert.ok(mid.wet || mid.island || mid.barHeightM > 0);
+      assert.ok(Math.abs(mid.waterM - (a.bed + b.bed) / 2) < 1e-6);
+      assert.equal(mid.bedM, mid.heightM);
+      assert.equal(mid.renderHeightM, mid.wet ? mid.waterM : mid.heightM);
+      if (mid.wet) assert.ok(mid.depthM > 0 && mid.heightM < mid.waterM);
     }
     if (river.joins === null) continue;
     // Each tributary ends on its parent's course.
     const end = river.points.at(-1), parent = byId.get(river.joins);
-    const gap = Math.min(...parent.points.map(p => Math.hypot(p.x - end.x, p.z - end.z)));
-    assert.ok(gap < 1e-6, `river ${river.id} meets river ${river.joins} (${gap.toFixed(1)} m)`);
+    const junction = parent.points.find(p => Math.hypot(p.x - end.x, p.z - end.z) < 1e-6);
+    assert.ok(junction, `river ${river.id} meets river ${river.joins}`);
+    assert.ok(Math.abs(junction.bed - end.bed) < 1e-6, 'water levels meet');
+    assert.ok(Math.abs(junction.hydro.depthM - end.hydro.depthM) < 1e-6, 'submerged beds meet');
     for (let k = river.joins, guard = 0; k !== null; k = byId.get(k).joins) assert.ok(++guard < 100);
   }
   // Water sits in the valley: the land rises on both sides of the flown
@@ -117,7 +162,7 @@ test('rivers run downhill along the low ground and join into one network', () =>
       const len = Math.hypot(nx, nz); nx /= len; nz /= len;
       if (Math.max(Math.abs(p.x), Math.abs(p.z)) > 30000) continue;
       const here = region.sample(p.x, p.z, {});
-      assert.equal(here.flowByte, INLAND_RIVER_FLOW);
+      if (!here.island && !here.barHeightM) assert.equal(here.flowByte, INLAND_RIVER_FLOW);
       // Skip a side that reaches another channel or a bend further downstream.
       const sides = [-1, 1].map(side => region.sample(p.x + side * nx * 1500, p.z + side * nz * 1500, {}))
         .filter(q => !(q.distanceM < 500)).map(q => q.heightM - here.heightM);
@@ -130,6 +175,25 @@ test('rivers run downhill along the low ground and join into one network', () =>
   assert.ok(checked > 20);
   assert.ok(below <= .05 * checked, `ground sits well below the river beside ${below} of ${checked} river samples`);
   assert.ok(rising >= .75 * checked, `valley walls rise beside ${rising} of ${checked} river samples`);
+});
+
+test('visible waterfalls descend and sediment islands stand between two wet channels', () => {
+  const anchors = regionAnchors(region);
+  assert.ok(anchors.falls.length > 0 && anchors.islands.length > 0);
+  for (const fall of anchors.falls) {
+    const lip = region.sample(fall.x, fall.z), foot = region.sample(fall.footX, fall.footZ);
+    assert.ok(fall.lipM > fall.footM && fall.dropM > 0);
+    assert.ok(Math.abs(lip.waterM - fall.lipM) < 1 && Math.abs(foot.waterM - fall.footM) < 1);
+  }
+  let complete = 0;
+  for (const island of anchors.islands) {
+    const crest = region.sample(island.x, island.z);
+    assert.ok(crest.island && !crest.wet && crest.heightM > crest.waterM && crest.depthM === 0);
+    const offset = island.halfWidthM * 1.65;
+    const sides = [-1, 1].map(side => region.sample(island.x - side * offset * island.tz, island.z + side * offset * island.tx));
+    if (sides.every(q => q.wet && q.depthM > 0 && q.bedM < q.renderHeightM)) complete++;
+  }
+  assert.ok(complete > 0, 'at least one deposited island is surrounded by physically flowing water');
 });
 
 test('the region has connected ridges, passes, broad reaches and a gorge that read differently', () => {
@@ -182,7 +246,9 @@ test('a measured timeline turns the peak region by key and supplies a flight ove
   assert.ok(landscape.rivers.length > 1);
   for (const r of landscape.rivers.filter(r => r.trunk)) {
     const p = r.points[Math.floor(r.points.length / 2)];
-    assert.equal(landscape.sample(p.x, p.z, {}).wet, true);
+    const crossing = landscape.sample(p.x, p.z, {});
+    assert.ok(crossing.wet || crossing.island, 'a trunk may split around a deposited island');
+    if (crossing.island) assert.ok(crossing.heightM > crossing.waterM);
   }
 });
 
@@ -216,8 +282,10 @@ test('the generated terrain carries a narrow tributary at its physical bank widt
       for (const side of [-1, 1]) {
         const sample = offset => region.sample((a.x + b.x) / 2 - dz / length * offset * side,
           (a.z + b.z) / 2 + dx / length * offset * side);
-        assert.ok(sample(half - 3).wet);
-        if (!sample(half + 6).wet) dryBanks++;
+        const bank = riverWetHalfWidthM(a, b, .5, side);
+        const inside = sample(bank - 3);
+        assert.ok(inside.wet || inside.island);
+        if (!sample(bank + 6).wet) dryBanks++;
         checked++;
       }
     }
@@ -231,11 +299,13 @@ test('drawn banks follow both sides of generated reaches through the full 89.6 k
   const errors = [];
   for (const { points } of region.rivers) for (let k = 6; k < points.length - 6; k += 71) {
     const a = points[k - 1], b = points[k], dx = b.x - a.x, dz = b.z - a.z, length = Math.hypot(dx, dz);
-    const x = (a.x + b.x) / 2, z = (a.z + b.z) / 2, half = (a.channelM + b.channelM) / 2;
+    const x = (a.x + b.x) / 2, z = (a.z + b.z) / 2;
     if (length < 1 || Math.max(Math.abs(x), Math.abs(z)) > 44600) continue;
-    assert.ok(riverBankDistanceAt(atlas, x, z) > 0, 'every sampled channel centre stays wet');
+    const centre = region.sample(x, z), distance = riverBankDistanceAt(atlas, x, z);
+    if (Math.abs(distance) > atlas.texelSizeM) assert.equal(distance > 0, centre.wet, 'river and island centres agree with rendered coverage');
     for (const side of [-1, 1]) {
       const nx = -side * dz / length, nz = side * dx / length;
+      const half = riverWetHalfWidthM(a, b, .5, side);
       const wet = d => region.sample(x + d * nx, z + d * nz).wet;
       const drawn = d => riverBankDistanceAt(atlas, x + d * nx, z + d * nz) > 0;
       // A near-by channel can own the opposite bank at a confluence. Only

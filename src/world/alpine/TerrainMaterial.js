@@ -451,6 +451,19 @@ export const SCENE_FRAG = /* glsl */`
     float a = hash12(i), b = hash12(i + vec2(1.0, 0.0)), c = hash12(i + vec2(0.0, 1.0)), d = hash12(i + vec2(1.0, 1.0));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
+  #ifdef INLAND_RIVERBED
+  // Project onto vertical planes so a falling sheet stretches with gravity
+  // and crosses adjacent terrain triangles without changing phase.
+  float fallThreads(vec3 world, vec3 normal) {
+    float across = abs(normal.z) / max(.001, abs(normal.x) + abs(normal.z));
+    float height = world.y + 10.0 * uTime;
+    float x = world.x + 2.4 * sin(.036 * world.z + height * .014);
+    float z = world.z + 2.4 * sin(.031 * world.x + height * .012);
+    float thick = mix(vnoise12(vec2(z / 7.1, height / 55.0)), vnoise12(vec2(x / 7.1, height / 55.0)), across);
+    float fine = mix(vnoise12(vec2(z / 1.6, height / 22.0)), vnoise12(vec2(x / 1.6, height / 22.0)), across);
+    return smoothstep(.28, .76, .56 * thick + .44 * fine);
+  }
+  #endif
   ${MATERIAL_DETAIL_DOMAIN_GLSL}
   #ifdef MATERIAL_FEATURE_CACHE
   ${MATERIAL_FEATURE_GLSL}
@@ -651,22 +664,23 @@ export const SCENE_FRAG = /* glsl */`
   uniform highp sampler2D uBankDistance;
   uniform highp sampler2D uBankPages;
   uniform vec4 uBankGrid; // origin x/z, posts per metre, signed range in metres
-  float riverBankDistance(vec2 worldXZ) {
+  vec4 riverBankAt(vec2 worldXZ) {
     vec2 post = (worldXZ - uBankGrid.xy) * uBankGrid.z;
     ivec2 page = ivec2(floor(post / float(INLAND_BANK_CELLS)));
     ivec2 pages = textureSize(uBankPages, 0);
-    if (any(lessThan(page, ivec2(0))) || any(greaterThanEqual(page, pages))) return -uBankGrid.w;
+    if (any(lessThan(page, ivec2(0))) || any(greaterThanEqual(page, pages))) return vec4(-uBankGrid.w, 0., 0., 0.);
     ivec2 code = ivec2(round(texelFetch(uBankPages, page, 0).rg * 255.0));
     int slot = code.x + 256 * code.y - 1;
-    if (slot < 0) return -uBankGrid.w;
+    if (slot < 0) return vec4(-uBankGrid.w, 0., 0., 0.);
     const int side = INLAND_BANK_CELLS + 1;
     ivec2 dimensions = textureSize(uBankDistance, 0);
     int columns = dimensions.x / side;
     ivec2 base = ivec2(slot % columns, slot / columns) * side;
     // The final post of each page is the first post of its neighbour.
     vec2 local = post - vec2(page * INLAND_BANK_CELLS);
-    float sampleByte = textureLod(uBankDistance, (vec2(base) + local + .5) / vec2(dimensions), 0.0).r * 255.0;
-    return (sampleByte - 128.0) * (uBankGrid.w / 127.0);
+    vec4 bank = textureLod(uBankDistance, (vec2(base) + local + .5) / vec2(dimensions), 0.0);
+    bank.r = (bank.r * 255.0 - 128.0) * (uBankGrid.w / 127.0);
+    return bank;
   }
   #endif
   // Filter only native appearance, inward from the sourced shore. Keeping
@@ -725,12 +739,25 @@ export const SCENE_FRAG = /* glsl */`
     float flow = s.a * 255.0;
     #ifdef INLAND_BANK_CELLS
     float waterCoverage = 0.0;
-    float bankM = riverBankDistance(vWorld.xz);
+    vec4 bank = riverBankAt(vWorld.xz);
+    float bankM = bank.r;
     float edgeM = clamp(.5 * fwidth(bankM), .75, .5 * uBankGrid.w);
     float channel = smoothstep(-edgeM, edgeM, bankM) * (1.0 - ice.y);
+    #ifdef INLAND_RIVERBED
+    float grain = clamp((bank.g * 255.0 - 128.0) / 127.0, -1.0, 1.0); // fine sand through gravel to bedrock
+    float bankPatch = vnoise12(vWorld.xz / 28.0);
+    vec3 sediment = mix(pRockLit * .69, mix(pRockWarm, vec3(.44, .33, .20), .68), max(0.0, -grain));
+    sediment = mix(sediment, mix(pRockShade, pRockLit, .38 + .32 * bankPatch), max(0.0, grain));
+    sediment *= .84 + .24 * bankPatch;
+    float marginM = min(.95 * uBankGrid.w, 15.0);
+    float gravel = smoothstep(-marginM, -min(.25 * marginM, .15 * edgeM), bankM) * (1.0 - channel) * (1.0 - ice.y);
+    float depthM = 16.0 * bank.b * bank.b;
+    float channelDepth = 1.0 - exp(-.65 * depthM);
+    #else
     float gravelBar = smoothstep(.38, .78, vnoise12(vWorld.xz / 95.0));
     float gravel = gravelBar * smoothstep(-8.0 - edgeM, -edgeM, bankM) * (1.0 - channel) * (1.0 - ice.y);
     float channelDepth = smoothstep(0.0, 20.0, bankM);
+    #endif
     #else
     float waterCoverage = waterCoverageAt(uv);
     #ifdef INLAND_RIVER
@@ -770,6 +797,9 @@ export const SCENE_FRAG = /* glsl */`
     vec3 albedo;
     vec3 nShade = n;
     float rough = 0.85;
+    #ifdef INLAND_RIVERBED
+    float bareMineral = 0.0;
+    #endif
     float snow01 = 0.0;
     float farCrownWeight = 0.0;
     vec3 farCrownNormal = vec3(0.0, 1.0, 0.0);
@@ -940,6 +970,9 @@ export const SCENE_FRAG = /* glsl */`
       nShade = gradNormal(nShade, vRiseGrad.xyz);
       nShade = normalize(mix(nShade, farCrownNormal, farCrownWeight));
       rough = mix(mix(0.9, macro.b, rockMask), 0.6, snow);
+      #ifdef INLAND_RIVERBED
+      bareMineral = mix(rockMask * (1.0 - snow) * (1.0 - crowns), max(0.0, grain), gravel);
+      #endif
       snow01 = snow;
       if (paintWater) {
         float depthMix = smoothstep(.5, .98, waterCoverage);
@@ -951,8 +984,12 @@ export const SCENE_FRAG = /* glsl */`
       if (uDebugMask == 2) { outColor = vec4(vec3(slopeDeg / 90.0), 1.0); return; }
     }
     #ifdef INLAND_RIVER
+    #ifdef INLAND_RIVERBED
+    albedo = mix(albedo, sediment * mix(.72, 1., smoothstep(0., 6., -bankM)), gravel);
+    #else
     vec3 wetGravel = min(albedo, mix(albedo, pRockLit, .25)) * .7;
     albedo = mix(albedo, wetGravel, gravel);
+    #endif
     #endif
     // The rise (LandRise.js) lowers what stands above the eye. Rock, snow
     // and forest above keep the full-height slopes they were placed on; the
@@ -995,7 +1032,18 @@ export const SCENE_FRAG = /* glsl */`
     }
     // Wet receivers are the same surfaces at a lower roughness: their
     // shine is the specular lobe below sharpening, not a separate layer.
-    if (waterAmount < 1.0) { albedo *= 1.0 - uStorm.w * .18 * (1.0 - waterAmount); rough = mix(rough, max(.22, rough * .4), uStorm.w * (1.0 - waterAmount)); }
+    if (waterAmount < 1.0) {
+      albedo *= 1.0 - uStorm.w * .18 * (1.0 - waterAmount);
+      #ifdef INLAND_RIVERBED
+      // Rain darkens porous soil and foliage without turning their slopes
+      // into mirrors. Exposed mineral faces can retain a coherent film.
+      float wetRock = max(bareMineral, ice.y);
+      float wetRough = max(mix(.72, .33, wetRock), rough * mix(.82, .50, wetRock));
+      #else
+      float wetRough = max(.22, rough * .4);
+      #endif
+      rough = mix(rough, wetRough, uStorm.w * (1.0 - waterAmount));
+    }
     // Canopy is matte; sub-pixel normal variation widens the lobe so the
     // detail normals cannot sparkle at distance (specular anti-aliasing).
     rough = terrainRoughness(mix(rough, .95, farCrownWeight), nShade);
@@ -1067,6 +1115,9 @@ export const SCENE_FRAG = /* glsl */`
     #ifdef INLAND_RIVER
     if (channel > 0.0) {
       vec3 shallows = vec3(.022, .108, .134);
+      #ifdef INLAND_RIVERBED
+      shallows = sediment * vec3(.48,.59,.51) + vec3(.012,.040,.042);
+      #endif
       vec3 pool = vec3(.012, .080, .111);
       vec3 day = hemi * .75 + uLightColor * (.22 + .32 * sunVis) * moonTransmission;
       // An analytic sheen preserves the water read in distant oblique views.
@@ -1080,6 +1131,21 @@ export const SCENE_FRAG = /* glsl */`
       float sheen = .095 + .035 * reach + .027 * ripple;
       vec3 stillWater = mix(shallows, pool, channelDepth) * day
         + uSkyHorizon * (.025 + sheen * grazing * grazing);
+      #ifdef INLAND_RIVERBED
+      if (bank.a > .005) {
+        // A steep or supercritical reach entrains air. Let its crests move
+        // down the drawn slope; unresolved flecks converge to their mean.
+        vec2 downhill = geologicalNormal.xz / max(.01, length(geologicalNormal.xz));
+        vec2 drift = vWorld.xz - downhill * uTime * 3.0;
+        float crests = vnoise12(drift / 5.5) + .34 * vnoise12(drift / 13.0);
+        float sheet = 1.0 - smoothstep(.72, .97, iceNormal.y);
+        float toe = .19 + .72 * smoothstep(.34, .88, crests);
+        float threads = fallThreads(vWorld, iceNormal);
+        float aeration = bank.a * mix(.48, mix(toe, .07 + .73 * threads, sheet), resolved);
+        vec3 foamLight = uSkyHorizon * .22 + day * .72;
+        stillWater = mix(stillWater, vec3(.68,.79,.80) * foamLight, clamp(aeration, 0.0, 1.0));
+      }
+      #endif
       lit = mix(lit, stillWater, channel);
     }
     #endif
@@ -1458,6 +1524,7 @@ export function createSceneMaterial(THREE, uniforms, {
   if (riverSurface) m.defines.RIVER_SURFACE = 1;
   if (inlandRiver) m.defines.INLAND_RIVER = 1;
   if (inlandRiver && inlandBankCells > 0 && uniforms.uBankDistance && uniforms.uBankPages) m.defines.INLAND_BANK_CELLS = inlandBankCells;
+  if (m.defines.INLAND_BANK_CELLS && uniforms.uBankDistance.value?.format === THREE.RGBAFormat) m.defines.INLAND_RIVERBED = 1;
   if (mappedWaterOnly) m.defines.MAPPED_WATER_ONLY = 1;
   return m;
 }

@@ -134,7 +134,8 @@ function surfaceTextures(THREE, surface, receiver, atlas) {
     tex.image = { data: null, width: surface.width, height: surface.height };
     tex.onUpdate = null;
   };
-  const bankDistance = atlas && bankTexture(THREE, atlas.data, atlas.width, atlas.height, THREE.RedFormat, THREE.LinearFilter);
+  const bankDistance = atlas && bankTexture(THREE, atlas.data, atlas.width, atlas.height,
+    atlas.version === 2 ? THREE.RGBAFormat : THREE.RedFormat, THREE.LinearFilter);
   const bankPages = atlas && bankTexture(THREE, atlas.pageTable, atlas.pagesX, atlas.pagesZ, THREE.RGFormat, THREE.NearestFilter);
   return { texture: tex, receiverTexture, bankDistance, bankPages, width: surface.width, height: surface.height,
     bytes: Math.round(surface.data.byteLength * 4 / 3) + receiver.data.byteLength + riverBankTextureBytes(atlas) };

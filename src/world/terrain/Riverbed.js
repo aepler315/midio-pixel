@@ -306,7 +306,11 @@ export function riverIslandDistance(island, x, z) {
   if (radius < 1e-9) return island.halfWidthM;
   const du = u * (1 + (u < 1 ? 2 * taper * v * v / shape : 0)) / axis;
   const gradient = Math.hypot(du, v / (island.halfWidthM * shape)) / radius;
-  return (1 - radius) / gradient;
+  // Near the edge, convert the implicit contour gradient to metres. Deep
+  // inside, tend to the minor radius without a direction-dependent jump at
+  // the crest, where the normalized radial gradient is undefined.
+  const metric = lerp(1 / island.halfWidthM, gradient, smooth(2 * radius));
+  return (1 - radius) / metric;
 }
 
 /** Height above the water datum, fading to zero at the island's shoreline. */

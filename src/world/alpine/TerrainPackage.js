@@ -82,14 +82,15 @@ export function validateTerrainManifest(manifest, byteLengths = {}) {
   if (bank) {
     const { width, height, pagesX, pagesZ, coreSize, pageColumns, byteOffset, byteLength, texelSizeM, rangeM } = bank;
     const pageM = coreSize * texelSizeM, pitch = coreSize + 1;
-    if (manifest.hydrology.riverFlow !== INLAND_RIVER_FLOW || bank.version !== 1
+    const channels = bank.version === 2 ? 4 : 1;
+    if (manifest.hydrology.riverFlow !== INLAND_RIVER_FLOW || (bank.version !== 1 && bank.version !== 2)
       || ![width, height, pagesX, pagesZ, pageColumns].every(v => Number.isSafeInteger(v) && v > 0)
       || Math.max(width, height, pagesX, pagesZ) > RIVER_BANK_MAX_TEXTURE_SIZE
-      || coreSize !== 32 || width !== pitch * pageColumns || height % pitch !== 0
+      || coreSize !== (bank.version === 2 ? 16 : 32) || width !== pitch * pageColumns || height % pitch !== 0
       || !Number.isFinite(texelSizeM) || texelSizeM <= 0 || !Number.isFinite(rangeM) || rangeM <= 0
       || pagesX !== Math.ceil((g.width - 1) * g.cellSizeM / pageM) || pagesZ !== Math.ceil((g.height - 1) * g.cellSizeM / pageM)
       || !Array.isArray(bank.originM) || bank.originM.length !== 2 || !bank.originM.every((v, i) => v === g.originM[i])
-      || byteLength !== width * height + 2 * pagesX * pagesZ || byteLength > RIVER_BANK_MAX_BYTES || !inRange(byteOffset, byteLength))
+      || byteLength !== channels * width * height + 2 * pagesX * pagesZ || byteLength > RIVER_BANK_MAX_BYTES || !inRange(byteOffset, byteLength))
       fail('river bank atlas layout or payload range');
   }
   for (const t of manifest.tiles) {
@@ -100,6 +101,10 @@ export function validateTerrainManifest(manifest, byteLengths = {}) {
     if (!(Number.isInteger(t.ix) && Number.isInteger(t.iz) && t.ix >= 0 && t.iz >= 0 && t.ix < manifest.tilesX && t.iz < manifest.tilesZ)) fail(`tile ${t.id} index`);
     if (!STRIDES.includes(t.stride) || t.stride > cells) fail(`tile ${t.id} stride ${t.stride}`);
     if (t.samples !== cells / t.stride + 1) fail(`tile ${t.id} samples ${t.samples}`);
+    if (t.fallDetail && (t.stride !== 1 || !Array.isArray(t.fallDetail) || !t.fallDetail.every(r =>
+      Array.isArray(r) && r.length === 4 && r.every(i => Number.isInteger(i) && i >= 0 && i <= cells) && r[0] <= r[2] && r[1] <= r[3]))) {
+      fail(`tile ${t.id} waterfall detail bounds`);
+    }
     const count = t.samples * t.samples;
     if (t.heights?.type !== 'uint16' || t.heights.count !== count || t.heights.byteLength !== count * 2
       || !inRange(t.heights.byteOffset, t.heights.byteLength)) fail(`tile ${t.id} heights range`);

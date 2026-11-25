@@ -103,6 +103,7 @@ test('inland terrain binds both bank textures and keeps the legacy receiver byte
     assert.equal(oldMaterial.defines.INLAND_BANK_CELLS, undefined);
     assert.equal(oldMaterial.defines.INLAND_RIVER, 1);
     assert.equal(material.defines.INLAND_BANK_CELLS, 32);
+    assert.equal(material.defines.INLAND_RIVERBED, undefined, 'distance-only packages retain their own shader');
     assert.deepEqual(surface.receiverTexture.image.data, legacy.receiverTexture.image.data);
     assert.equal(surface.bytes - legacy.bytes, bank.data.byteLength + bank.pageTable.byteLength);
     assert.deepEqual(uniforms.uBankGrid.value.toArray(), [0, 0, .1, 20]);
@@ -119,6 +120,26 @@ test('inland terrain binds both bank textures and keeps the legacy receiver byte
   } finally {
     for (const resource of [legacy.texture, legacy.receiverTexture, surface.texture, surface.receiverTexture,
       surface.bankDistance, surface.bankPages, oldMaterial, material]) resource.dispose();
+  }
+});
+
+test('version-two riverbed lanes use a single linear RGBA texture on desktop and mobile', () => {
+  const data = terrain();
+  data.manifest = { boundsM: { min: [0, 0, 0], max: [320, 500, 320] } };
+  data.riverBankAtlas = { version: 2, coreSize: 16, width: 17, height: 17, pagesX: 1, pagesZ: 1,
+    originM: [0, 0], texelSizeM: 10, rangeM: 20, data: new Uint8Array(17 * 17 * 4), pageTable: Uint8Array.of(1, 0) };
+  const surface = GL.createSurfaceTexture(THREE, data), uniforms = GL.terrainUniforms(THREE, data, surface);
+  try {
+    assert.equal(surface.bankDistance.format, THREE.RGBAFormat);
+    assert.equal(surface.bankDistance.image.data, data.riverBankAtlas.data);
+    assert.equal(GL.riverBankTextureBytes(data.riverBankAtlas), 17 * 17 * 4 + 2);
+    for (const budget of ['desktop', 'mobile']) {
+      const material = createSceneMaterial(THREE, uniforms, { budget, inlandRiver: true, inlandBankCells: 16 });
+      assert.equal(material.defines.INLAND_RIVERBED, 1);
+      material.dispose();
+    }
+  } finally {
+    for (const resource of [surface.texture, surface.receiverTexture, surface.bankDistance, surface.bankPages]) resource.dispose();
   }
 });
 

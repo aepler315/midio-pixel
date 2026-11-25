@@ -110,6 +110,7 @@ test('sediment supply grows a laterally offset bar with a blunt nose and tapered
   const distance = (along, across) => riverIslandDistance(b, b.x + along * b.tx - across * b.tz,
     b.z + along * b.tz + across * b.tx);
   near(distance(-b.noseM, 0), 0); near(distance(b.tailM, 0), 0);
+  near(distance(-.00001, 0), distance(0, .00001), .0001);
   assert.ok(distance(-.8 * b.noseM, .52 * b.halfWidthM) > 0 && distance(.8 * b.tailM, .52 * b.halfWidthM) < 0);
   const legacy = { x: 0, z: 0, tx: 1, tz: 0, halfLengthM: 60, halfWidthM: 22 };
   near(riverIslandDistance(legacy, -30, 5), riverIslandDistance(legacy, 30, 5));
