@@ -292,17 +292,45 @@ test('returning lyric families cast the same surveyed massif and the stage rende
   const data = decodeTerrain(manifest, decoded), heightAt = (x, z) => terrainHeightAt(data, x, z);
   view.songprintComposition = songprintComposition(data, view);
   const flight = compileInlandFlight(data, view, { travelMs: field.song.durationMs });
+  assertDrawnSummitsVisible(data, flight, field.song.durationMs, heightAt);
+});
+
+function assertDrawnSummitsVisible(data, flight, durationMs, heightAt) {
   for (const budget of ['desktop', 'mobile']) {
     const drawn = makeTerrainMeshHeightSampler(data, budget);
     for (const { timeMs, point: [px,,pz] } of flight.summits) for (const offset of [-1000, 0, 1000]) {
       const now = timeMs + offset, camera = inlandFlightPose({ eyeM: [0,0,0], targetM: [0,0,0] }, flight,
-        { gain: 1, timeMs: now, progress01: now / field.song.durationMs }, { heightAt });
+        { gain: 1, timeMs: now, progress01: now / durationMs }, { heightAt });
       const [x, y, z] = camera.eyeM, crown = drawn(px, pz);
       for (let i = 1; i < 500; i++) {
         const t = i / 500, ground = drawn(x + t * (px - x), z + t * (pz - z));
         assert.ok(ground <= y + t * (crown - y) + 1, `${budget} foothill hides the surveyed crown at ${now} ms`);
       }
     }
+  }
+}
+
+test('the STEPPE summit encounters leave its mid-song river shot low and looking down the valley', () => {
+  // Numeric output of the player’s analysis of the synthetic 100s STEPPE recording.
+  const songprint = JSON.parse(fs.readFileSync(new URL('fixtures/steppe-river-flight-songprint.json', import.meta.url)));
+  const plan = planSongRange(null, 0, { songprint });
+  assert.equal(plan.biome, 'STEPPE');
+  assert.deepEqual(plan.slots.map(s => s.timeMs), [13000, 65000]);
+  const { manifest, decoded } = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
+  const data = decodeTerrain(manifest, decoded), heightAt = (x, z) => terrainHeightAt(data, x, z);
+  const view = songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG });
+  view.songprintComposition = songprintComposition(data, view);
+  const durationMs = plan.inland.song.durationMs;
+  const flight = compileInlandFlight(data, view, { travelMs: durationMs });
+  assertDrawnSummitsVisible(data, flight, durationMs, heightAt);
+  for (let now = 34000; now <= 38000; now += 500) {
+    const { eyeM, targetM } = inlandFlightPose({ eyeM: [0,0,0], targetM: [0,0,0] }, flight,
+      { gain: 1, timeMs: now, progress01: now / durationMs }, { heightAt });
+    const agl = eyeM[1] - heightAt(eyeM[0], eyeM[2]);
+    assert.ok(agl > 55 && agl <= 160, `river shot at ${now} ms flies ${agl} m above ground`);
+    assert.ok(targetM[1] <= eyeM[1], 'the next lookout must not lift the river shot’s aim');
+    const lead = Math.hypot(targetM[0] - eyeM[0], targetM[2] - eyeM[2]);
+    assert.ok(lead > 800 && lead < 1250, `river shot uses its valley look-ahead (${lead} m)`);
   }
 });
 

@@ -442,16 +442,22 @@ function compileSpineFlight(data, spine, bounds, pair, view) {
     return Number.isFinite(slot.timeMs) && mark?.localM ? [{ timeMs: slot.timeMs,
       point: [mark.localM[0], mark.demGroundM, mark.localM[1]] }] : [];
   });
-  clearSummitViews(path, clock, summits, data, bounds, heightRange);
+  const valleyEye = path.eye.slice();
+  const lookout = clearSummitViews(path, clock, summits, data, bounds, heightRange, valleyEye);
   // Look along the flight's own cleared line, a little below it, so the
   // camera crests each col with the next slot in view.
   const n = path.s.length, lead = Math.round(SPINE_LOOK_M / PATH_SPACING_M);
   for (let i = 0; i < n; i++) {
     const k = Math.min(n - 1, i + lead), over = i + lead - k;
-    const dx = path.eye[(n - 1) * 3] - path.eye[(n - 2) * 3], dz = path.eye[(n - 1) * 3 + 2] - path.eye[(n - 2) * 3 + 2];
-    path.aim[i * 3] = path.eye[k * 3] + over * dx;
-    path.aim[i * 3 + 1] = path.eye[k * 3 + 1] - 45;
-    path.aim[i * 3 + 2] = path.eye[k * 3 + 2] + over * dz;
+    // A regular valley shot looks down its original course even when a
+    // future sample lies on the next summit climb.
+    for (let axis = 0; axis < 3; axis++) {
+      const at = k * 3 + axis, end = (n - 1) * 3 + axis;
+      const beyond = axis === 1 ? 0 : over;
+      const valley = valleyEye[at] + beyond * (valleyEye[end] - valleyEye[end - 3]);
+      const shoulder = path.eye[at] + beyond * (path.eye[end] - path.eye[end - 3]);
+      path.aim[i * 3 + axis] = lerp(valley, shoulder, lookout[i]) - (axis === 1 ? 45 : 0);
+    }
   }
   const riverPoints = (data.manifest.hydrology.region.rivers ?? []).flatMap(r => r.course);
   const riverLooks = course.map(([x,z]) => {
@@ -550,7 +556,7 @@ function smoothLookoutAltitude(path, times) {
   }
 }
 
-function clearSummitViews(path, clock, summits, data, bounds, heightRange) {
+function clearSummitViews(path, clock, summits, data, bounds, heightRange, valleyEye) {
   const surfaces = [(x, z) => terrainHeightAt(data, x, z)];
   if (!data.groundAt) surfaces.push(makeTerrainMeshHeightSampler(data, 'mobile'), makeTerrainMeshHeightSampler(data, 'desktop'));
   const ground = { groundAt: (x, z) => Math.max(...surfaces.map(heightAt => heightAt(x, z))) };
@@ -563,6 +569,8 @@ function clearSummitViews(path, clock, summits, data, bounds, heightRange) {
     sampleTimes[i] = lerp(clock.keyTimes[k], clock.keyTimes[k + 1], clamp01((path.s[i] - clock.keyMarks[k]) / (span || 1)));
   }
   let shifted = false;
+  const coverage = new Float32Array(path.s.length);
+  const ease = u => u ** 3 * (10 + u * (-15 + 6 * u));
   for (const [index, summit] of summits.entries()) {
     const previous = summits[index - 1], next = summits[index + 1];
     const hold = Math.min(1500, (summit.timeMs - (previous?.timeMs ?? -Infinity)) / 4,
@@ -596,17 +604,20 @@ function clearSummitViews(path, clock, summits, data, bounds, heightRange) {
     // One broad, smooth climb per reveal. The envelope has zero slope at
     // the start, the plateau and the end. No per-frame occlusion feedback.
     const rampMs = Math.max(6500, 36 * Math.min(SUMMIT_LIFT_LIMIT_M, lift), 5 * Math.hypot(dx, dz));
-    const arrive = summit.timeMs - hold, depart = summit.timeMs + hold;
-    const start = Math.max(arrive - rampMs, previous ? (previous.timeMs + summit.timeMs) / 2 : -Infinity);
-    const end = Math.min(depart + rampMs, next ? (next.timeMs + summit.timeMs) / 2 : Infinity);
+    // Reserve regular valley flight between encounters. The outer margin
+    // fades the clearance filter only after the eye has rejoined that route.
+    const nearestCueMs = Math.min(summit.timeMs - (previous?.timeMs ?? -Infinity), (next?.timeMs ?? Infinity) - summit.timeMs);
+    const outer = Math.min(18000, .42 * nearestCueMs, hold + rampMs + 3500);
+    const margin = Math.min(3500, (outer - hold) / 3), inner = outer - margin;
     for (let i = 0; i < path.s.length; i++) {
-      const time = sampleTimes[i];
-      if (time <= start || time >= end) continue;
-      const u = time < arrive ? (time - start) / (arrive - start)
-        : time > depart ? (end - time) / (end - depart) : 1;
+      const delta = Math.abs(sampleTimes[i] - summit.timeMs);
+      if (delta >= outer) continue;
+      coverage[i] = delta <= inner ? 1 : ease((outer - delta) / margin);
+      if (delta >= inner) continue;
+      const u = delta <= hold ? 1 : (inner - delta) / (inner - hold);
       // Quintic interpolation matches position, velocity and acceleration
       // to the low flight and to the brief viewing plateau.
-      const weight = u ** 3 * (10 + u * (-15 + 6 * u));
+      const weight = ease(u);
       path.eye[3 * i] += dx * weight;
       path.eye[3 * i + 1] += lift * weight;
       path.eye[3 * i + 2] += dz * weight;
@@ -615,7 +626,12 @@ function clearSummitViews(path, clock, summits, data, bounds, heightRange) {
   if (shifted) {
     clearPath(path, ground, bounds, heightRange, 120, true);
     smoothLookoutAltitude(path, sampleTimes);
+    for (let i = 0; i < path.s.length; i++) {
+      const y = 3 * i + 1;
+      path.eye[y] = lerp(valleyEye[y], path.eye[y], coverage[i]);
+    }
   }
+  return coverage;
 }
 
 function spineTravel(route, timeMs) {
