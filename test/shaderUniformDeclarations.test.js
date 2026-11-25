@@ -11,7 +11,10 @@ import { COMPILED_VERT, COMPILED_FRAG } from '../src/world/alpine/CompiledTerrai
 function duplicates(source) {
   const seen = new Map();
   // Comments may mention a uniform; only declarations count.
-  for (const m of source.replace(/\/\/[^\n]*/g, '').matchAll(/^\s*uniform\s+\w+\s+(\w+)/gm)) seen.set(m[1], (seen.get(m[1]) || 0) + 1);
+  const declarations = source.replace(/\/\/[^\n]*/g, '');
+  for (const [, name] of declarations.matchAll(/^\s*uniform\s+(?:(?:lowp|mediump|highp)\s+)?\w+\s+(\w+)/gm)) {
+    seen.set(name, (seen.get(name) || 0) + 1);
+  }
   return [...seen].filter(([, n]) => n > 1).map(([name]) => name);
 }
 

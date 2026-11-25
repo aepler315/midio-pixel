@@ -2,6 +2,8 @@
 // offline baker (tools/lib/terrain-bake.mjs) and the runtime loader. Pure:
 // no DOM, no GPU. Everything a manifest declares is checked here before any
 // buffer is read or any GPU object is constructed.
+import { RIVER_BANK_MAX_BYTES, RIVER_BANK_MAX_TEXTURE_SIZE } from '../terrain/RiverBankAtlas.js';
+
 export const TERRAIN_SCHEMA = 'midio.terrain';
 export const TERRAIN_VERSION = 1;
 export const STRIDES = Object.freeze([1, 2, 4, 8, 16, 32, 64]);
@@ -76,6 +78,20 @@ export function validateTerrainManifest(manifest, byteLengths = {}) {
   if (errors.length) return { ok: false, errors };
   const seen = new Set();
   const inRange = (o, len) => Number.isInteger(o) && Number.isInteger(len) && o >= 0 && len >= 0 && o + len <= decodedLength;
+  const bank = manifest.hydrology?.riverBankAtlas;
+  if (bank) {
+    const { width, height, pagesX, pagesZ, coreSize, pageColumns, byteOffset, byteLength, texelSizeM, rangeM } = bank;
+    const pageM = coreSize * texelSizeM, pitch = coreSize + 1;
+    if (manifest.hydrology.riverFlow !== INLAND_RIVER_FLOW || bank.version !== 1
+      || ![width, height, pagesX, pagesZ, pageColumns].every(v => Number.isSafeInteger(v) && v > 0)
+      || Math.max(width, height, pagesX, pagesZ) > RIVER_BANK_MAX_TEXTURE_SIZE
+      || coreSize !== 32 || width !== pitch * pageColumns || height % pitch !== 0
+      || !Number.isFinite(texelSizeM) || texelSizeM <= 0 || !Number.isFinite(rangeM) || rangeM <= 0
+      || pagesX !== Math.ceil((g.width - 1) * g.cellSizeM / pageM) || pagesZ !== Math.ceil((g.height - 1) * g.cellSizeM / pageM)
+      || !Array.isArray(bank.originM) || bank.originM.length !== 2 || !bank.originM.every((v, i) => v === g.originM[i])
+      || byteLength !== width * height + 2 * pagesX * pagesZ || byteLength > RIVER_BANK_MAX_BYTES || !inRange(byteOffset, byteLength))
+      fail('river bank atlas layout or payload range');
+  }
   for (const t of manifest.tiles) {
     for (const k of TILE_KEYS) if (!(k in t)) { fail(`tile missing ${k}`); break; }
     if (errors.length) break;

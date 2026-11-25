@@ -78,6 +78,10 @@ window.measure = () => {
   const variants = [
     ['scene mobile (default flags)', (u) => createSceneMaterial(THREE, u, { budget: 'mobile' }), { MATERIAL_FEATURE_CACHE: 1 }],
     ['scene mobile river surface', (u) => createSceneMaterial(THREE, u, { budget: 'mobile', riverSurface: true }), { MATERIAL_FEATURE_CACHE: 1 }],
+    ...['desktop', 'mobile'].map(budget => ['inland banks ' + budget, (u) => {
+      u.uBankDistance = { value: null }; u.uBankPages = { value: null }; u.uBankGrid = { value: new THREE.Vector4() };
+      return createSceneMaterial(THREE, u, { budget, inlandRiver: true, inlandBankCells: 32 });
+    }, { MATERIAL_FEATURE_CACHE: 1 }]),
     ['depth', (u) => createDepthMaterial(THREE, u), {}],
   ];
   for (const [label, make, defines] of variants) {
@@ -105,7 +109,8 @@ window.measure = () => {
 window.ready = true;
 </script>`;
 
-const browser = await chromium.launch({ headless: true, args: ['--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'] });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH,
+  args: ['--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'] });
 try {
   const page = await browser.newPage();
   page.on('pageerror', (e) => console.error('page error:', e.message));
@@ -125,6 +130,10 @@ try {
   for (const r of report.results) {
     const f = (s) => (s?.error ? `error: ${s.error.slice(0, 80)}` : s ? `${s.uniforms}/${s.naiveRows}/${s.samplers}` : 'n/a');
     console.log(`${r.label} | ${r.slotRise ? 'yes' : 'no'} | ${f(r.vertex)} | ${f(r.fragment)}`);
+    if (r.label.startsWith('inland banks') && !(r.fragment?.samplers <= 16 && r.fragment.naiveRows <= 224
+      && r.vertex?.samplers <= 16 && r.vertex.naiveRows <= 256)) {
+      throw new Error(`${r.label} exceeds the WebGL2 shader budget or failed to link`);
+    }
   }
   console.log(`report: ${path.relative(root, out)}`);
 } finally { await browser.close(); }

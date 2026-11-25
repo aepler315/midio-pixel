@@ -68,11 +68,17 @@ inner gorges where the river crosses high ground. The surveyed pieces stand on
 this landform in local stage metres. Assembly yields between slices. If the
 region misses the song's loading budget, the catalog view carries the play.
 
-Inland tiles store samples at the 80 m surface-atlas spacing across the
-travelled area, so rivers and hillside shading come from the atlas at full
-detail. The mesh draws 40 m samples along flown valleys (80 m on mobile), 80 m
-on core hillsides and coarser ground outward. Rivers are a surface class
-(flow byte 254) shaded in the opaque terrain pass, with no planar reflection.
+Inland tiles store hillside shading and drainage at 80 m spacing across the
+travelled area. The mesh draws 40 m samples along flown valleys (80 m on
+mobile), 80 m on core hillsides and coarser ground outward. For each
+generated reach, a sparse texture records the distance in metres to its banks
+along the routed centerline. The opaque terrain shader uses that distance
+to draw winding edges and joined tributaries. Where an inside bank would
+fold into a point, the centerline eases within the original channel. Heads,
+outlets and bed elevations stay fixed, and tributaries meet the finished
+parent course. Adjacent texture pages share their edge samples. The coarse
+flow marker (254) remains available
+for terrain deformation and older packages.
 Material bands are carried from each pack's surveyed elevation span onto the
 region's floor and crests. Woods grow in stands that the shader's mean canopy
 and the placed instances share. Instances fill the stands within about a

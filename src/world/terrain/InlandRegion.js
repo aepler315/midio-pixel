@@ -24,7 +24,7 @@
 import { clamp01, lerp } from '../../utils/math.js';
 import { INLAND_RIVER_FLOW as REGION_RIVER_FLOW, INLAND_MAX_DRY_FLOW as REGION_MAX_DRY_FLOW } from '../alpine/TerrainPackage.js';
 
-export const INLAND_REGION_VERSION = 3;
+export const INLAND_REGION_VERSION = 4;
 // Rivers this large carry the low flight and keep the finest mesh.
 const FLOWN_AREA_KM2 = 150;
 const FLOWN_TRIBUTARIES = 3;
@@ -580,6 +580,44 @@ function chaikin(points, rounds) {
   return p;
 }
 
+// An inside bank folds to a point where the bend radius drops below the
+// channel's half-width. Relax just those turns and their immediate shoulders.
+// Every moved station stays inside its original wet footprint. Both ends and
+// all bed elevations are fixed; tributaries then join the finished parent.
+export function roundChannelBends(points) {
+  const n = points.length, origin = new Float64Array(n * 2), dirty = new Uint8Array(n);
+  for (let i = 0; i < n; i++) { origin[2 * i] = points[i].x; origin[2 * i + 1] = points[i].z; }
+  for (let pass = 0; pass < 48; pass++) {
+    let changed = false;
+    for (let j = 1; j < n - 1; j++) {
+      const i = pass % 2 ? n - 1 - j : j;
+      if (dirty[i] < pass) continue;
+      const a = points[i - 1], p = points[i], b = points[i + 1];
+      const ux = p.x - a.x, uz = p.z - a.z, vx = b.x - p.x, vz = b.z - p.z;
+      const u = Math.hypot(ux, uz), v = Math.hypot(vx, vz);
+      if (u === 0 || v === 0) continue;
+      // Circumradius = |u| |v| |u+v| / (2 |u cross v|). Also unfold
+      // reaches that have reversed direction on nearly the same line.
+      const diameter = 2 * 1.4 * p.channelM;
+      const limit = diameter * Math.abs(ux * vz - uz * vx);
+      const product = u * v * Math.hypot(ux + vx, uz + vz);
+      const reversed = ux * vx + uz * vz < 0;
+      if (!reversed && product >= limit) continue;
+      const gain = .7 * (reversed ? 1 : Math.min(1, 2 * (1 - product / limit)));
+      const t = u / (u + v), x = origin[2 * i], z = origin[2 * i + 1];
+      const dx = p.x + gain * (lerp(a.x, b.x, t) - p.x) - x;
+      const dz = p.z + gain * (lerp(a.z, b.z, t) - p.z) - z;
+      const scale = Math.min(1, .95 * p.channelM / (Math.hypot(dx, dz) || 1));
+      const nextX = x + scale * dx, nextZ = z + scale * dz;
+      if (Math.hypot(nextX - p.x, nextZ - p.z) < .01) continue;
+      p.x = nextX; p.z = nextZ;
+      dirty[i - 1] = dirty[i] = dirty[i + 1] = pass + 1;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+}
+
 // Capture a larger channel only across low ground. A ridge between two
 // nearby channels keeps both basins intact. Search is bounded in metres.
 function valleyConfluence(cell, owner, { n, dx, h, area, rcv }, reliefM) {
@@ -839,6 +877,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
       dx /= len; dz /= len;
       return { ...p, x: p.x - dz * offsets[i], z: p.z + dx * offsets[i] };
     });
+    roundChannelBends(moved);
     river.points = moved;
   }
   // The camera flies low along the trunk and its largest tributaries.
@@ -848,12 +887,16 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
   yield 'index';
   const hit = {};
   const nearest = (x, z) => {
-    let best = Infinity, seg = null, tt = 0;
+    let best = Infinity, seg = null, tt = 0, wet = false;
     for (const sg of index.at(x, z)) {
       const t = clamp01(((x - sg.a.x) * sg.dx + (z - sg.a.z) * sg.dz) * sg.inv);
       const px = sg.a.x + t * sg.dx - x, pz = sg.a.z + t * sg.dz - z;
       const d2 = px * px + pz * pz;
-      if (d2 < best) { best = d2; seg = sg; tt = t; }
+      // A wide receiving channel can cover the dry shoulder of its nearer
+      // tributary. Where both are wet, retain the closer routed bed.
+      const halfWidth = lerp(sg.a.channelM, sg.b.channelM, t);
+      const inside = d2 < halfWidth * halfWidth;
+      if (inside && !wet || inside === wet && d2 < best) { best = d2; seg = sg; tt = t; wet = inside; }
     }
     hit.d = Math.sqrt(best); hit.seg = seg; hit.t = tt;
     return hit;
@@ -878,18 +921,16 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
         const channel = lerp(a.channelM, b.channelM, t), floorHalf = lerp(a.floorM, b.floorM, t);
         gorge = lerp(a.gorge, b.gorge, t);
         const broad = lerp(a.broad, b.broad, t);
-        // The floor's edge wanders; the channel follows its own course.
-        // The atlas needs half a texel on each bank to carry the channel.
-        const waterHalf = Math.max(channel, 40);
-        const bankDistance = Math.max(0, d - waterHalf);
-        const edge = Math.max(waterHalf + 1, floorHalf + (valueNoise(field.ground ^ 0x77,
+        // The bank-distance atlas resolves the course at its own width.
+        const bankDistance = Math.max(0, d - channel);
+        const edge = Math.max(channel + 1, floorHalf + (valueNoise(field.ground ^ 0x77,
           alongOf(field, x, z) / 700, acrossOf(field, x, z) / 700) - .5) * .6 * (floorHalf - channel));
         // Inland water is painted directly on this surface. Keep its
         // cross-section level and its longitudinal profile on the routed
         // bed. Ease the dry bank into the surrounding eroded floor.
-        wet = d < waterHalf;
+        wet = d < channel;
         const wallTan = lerp(lerp(.55, .22, broad), 1.7, gorge);
-        const target = d <= edge ? bed + 6 * (bankDistance / (edge - waterHalf)) ** 2
+        const target = d <= edge ? bed + 6 * (bankDistance / (edge - channel)) ** 2
           : bed + 6 + (d - edge) * wallTan;
         const k = lerp(30, 8, gorge);
         ground = lerp(target, smin(base, target, k), smooth(bankDistance / 160));

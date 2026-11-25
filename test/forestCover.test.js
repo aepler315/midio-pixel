@@ -8,6 +8,9 @@ import { bakeTerrain } from '../tools/lib/terrain-bake.mjs';
 import { decodeTerrain, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
 import { placeForest, keptInstances, forestKeepFraction, LATTICE_M } from '../src/world/alpine/ForestCover.js';
 import { sceneDeformation, rangeMusicState } from '../src/world/alpine/RangeFrame.js';
+import { bakeRiverBankAtlasSteps, riverBankDistanceAt } from '../src/world/terrain/RiverBankAtlas.js';
+import { INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
+import { finishPreparation } from '../src/world/alpine/PreparationSteps.js';
 
 const W = 257, cell = 10;
 // A valley with a lake floor (flat, low), gentle forest slopes, a cliff
@@ -56,6 +59,36 @@ test('placement is deterministic and seeded', () => {
   assert.ok(a.count > 500, `trees placed: ${a.count}`);
   const c = placeForest(data, view, rules, { seed: 6 });
   assert.notDeepEqual(c.billboard, a.billboard);
+});
+
+test('inland tree roots follow a diagonal bank through mixed flow cells', () => {
+  const points = Array.from({ length: 25 }, (_, i) => {
+    const z = (i - 12) * 100;
+    return { x: .4 * z, z, channelM: 19 };
+  });
+  const course = points.map(p => [p.x, p.z]);
+  const hydrology = { riverFlow: INLAND_RIVER_FLOW, region: { rivers: [{ flown: true, course }] } };
+  const tiles = new Map(), byIndex = new Map();
+  for (const [id, tile] of data.tiles) {
+    // Make wet flow posts extend onto dry land, as on a coarse tile.
+    const flowBytes = tile.flowBytes.slice();
+    for (let j = 0; j < tile.samples; j++) for (let i = 0; i < tile.samples; i++) {
+      const x = grid.originM[0] + (tile.ix * data.cells + i * tile.stride) * cell;
+      const z = grid.originM[1] + (tile.iz * data.cells + j * tile.stride) * cell;
+      flowBytes[j * tile.samples + i] = Math.abs(x - .4 * z) < 70 ? INLAND_RIVER_FLOW : 160;
+    }
+    const copy = { ...tile, flowBytes };
+    tiles.set(id, copy);
+    byIndex.set(`${tile.ix},${tile.iz}`, copy);
+  }
+  const legacy = { ...data, tiles, byIndex, manifest: { ...data.manifest, hydrology } };
+  const atlas = finishPreparation(bakeRiverBankAtlasSteps([{ points }], grid));
+  const nearBank = t => Math.abs(t[0] - .4 * t[2]) < 45 && Math.abs(t[2]) < 750;
+  assert.equal(all(placeForest(legacy, view, rules, { seed: 5 })).filter(nearBank).length, 0);
+  const trees = all(placeForest({ ...legacy, riverBankAtlas: atlas }, view, rules, { seed: 5 }));
+  const edgeTrees = trees.filter(nearBank);
+  assert.ok(edgeTrees.some(t => t[0] < .4 * t[2]) && edgeTrees.some(t => t[0] > .4 * t[2]));
+  assert.ok(trees.every(([x, , z]) => riverBankDistanceAt(atlas, x, z) <= -2));
 });
 
 test('no trees on water, cliffs or above the treeline; roots sit on the drawn surface', () => {

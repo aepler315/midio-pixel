@@ -79,7 +79,7 @@ const FRAG_REVIEW = /* glsl */`
 /** Upload the grid-resolution surface texture (normals/curvature/flow). */
 export function createSurfaceTexture(THREE, data, options = {}) {
   const surface = buildSurfaceTexture(data, options);
-  return surfaceTextures(THREE, surface, buildReceiverMask(surface));
+  return surfaceTextures(THREE, surface, buildReceiverMask(surface), data.riverBankAtlas);
 }
 
 /** Live surface construction preserves the synchronous bytes but yields
@@ -87,10 +87,26 @@ export function createSurfaceTexture(THREE, data, options = {}) {
 export async function createSurfaceTextureAsync(THREE, data, options = {}) {
   const surface = await buildSurfaceTextureAsync(data, options);
   const receiver = await buildReceiverMaskAsync(surface, options);
-  return surfaceTextures(THREE, surface, receiver);
+  return surfaceTextures(THREE, surface, receiver, data.riverBankAtlas);
 }
 
-function surfaceTextures(THREE, surface, receiver) {
+export function riverBankTextureBytes(atlas) {
+  return atlas ? atlas.data.byteLength + atlas.pageTable.byteLength : 0;
+}
+
+function bankTexture(THREE, data, width, height, format, filter) {
+  const texture = new THREE.DataTexture(data, width, height, format, THREE.UnsignedByteType);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = texture.magFilter = filter;
+  texture.unpackAlignment = 1;
+  texture.generateMipmaps = texture.flipY = false;
+  texture.needsUpdate = true;
+  texture.onUpdate = () => { texture.image = { data: null, width, height }; texture.onUpdate = null; };
+  return texture;
+}
+
+function surfaceTextures(THREE, surface, receiver, atlas) {
   const receiverTexture = new THREE.DataTexture(receiver.data, surface.width, surface.height, THREE.RedFormat, THREE.UnsignedByteType);
   receiverTexture.colorSpace = THREE.NoColorSpace;
   receiverTexture.wrapS = receiverTexture.wrapT = THREE.ClampToEdgeWrapping;
@@ -118,15 +134,22 @@ function surfaceTextures(THREE, surface, receiver) {
     tex.image = { data: null, width: surface.width, height: surface.height };
     tex.onUpdate = null;
   };
-  return { texture: tex, receiverTexture, width: surface.width, height: surface.height, bytes: Math.round(surface.data.byteLength * 4 / 3) + receiver.data.byteLength };
+  const bankDistance = atlas && bankTexture(THREE, atlas.data, atlas.width, atlas.height, THREE.RedFormat, THREE.LinearFilter);
+  const bankPages = atlas && bankTexture(THREE, atlas.pageTable, atlas.pagesX, atlas.pagesZ, THREE.RGFormat, THREE.NearestFilter);
+  return { texture: tex, receiverTexture, bankDistance, bankPages, width: surface.width, height: surface.height,
+    bytes: Math.round(surface.data.byteLength * 4 / 3) + receiver.data.byteLength + riverBankTextureBytes(atlas) };
 }
 
 /** Uniforms every terrain material shares. */
 export function terrainUniforms(THREE, data, surface) {
-  const g = data.grid;
+  const g = data.grid, atlas = data.riverBankAtlas;
   return {
     uSurface: { value: surface.texture },
     uReceiver: { value: surface.receiverTexture },
+    ...(atlas && surface.bankDistance && surface.bankPages ? {
+      uBankDistance: { value: surface.bankDistance }, uBankPages: { value: surface.bankPages },
+      uBankGrid: { value: new THREE.Vector4(...atlas.originM, 1 / atlas.texelSizeM, atlas.rangeM) },
+    } : {}),
     uTexel: { value: new THREE.Vector2(1 / surface.width, 1 / surface.height) },
     // Extent between the first and last sample centres.
     uGridOrigin: { value: new THREE.Vector2(g.originM[0], g.originM[1]) },

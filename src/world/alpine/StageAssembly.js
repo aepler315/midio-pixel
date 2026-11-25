@@ -27,6 +27,7 @@ import { decodeTerrain } from './TerrainMesh.js';
 import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, projectPoint, cameraRailErrors } from '../terrain/SceneTravel.js';
 import { stageFloorHeight, inStageLake, slotOrigin } from '../terrain/StageFloor.js';
 import { inlandRegionSteps, regionAnchors } from '../terrain/InlandRegion.js';
+import { bakeRiverBankAtlasSteps } from '../terrain/RiverBankAtlas.js';
 import { songRangeKey, songReliefJitter } from '../terrain/SongRangePlan.js';
 import { SLOT_RISE_SLOTS } from './LandRise.js';
 import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
@@ -421,6 +422,32 @@ function* assembleStageSteps(plan, blocks, { catalog, id = `song-range-${stageHa
     for (let a = 0; a < 3; a++) { bounds.min[a] = Math.min(bounds.min[a], box.min[a]); bounds.max[a] = Math.max(bounds.max[a], box.max[a]); }
     yield;
   }
+  let riverBankAtlas;
+  if (region) {
+    // Use the same scaled DEM relief that keeps water off each placed
+    // massif. Bank posts fall between the DEM's 20 m elevation samples.
+    const isDryGround = (x, z) => {
+      const gx = (x - originM[0]) / c, gz = (z - originM[1]) / c;
+      if (gx < 0 || gz < 0 || gx > W - 1 || gz > H - 1) return true;
+      const ix = Math.min(tilesX - 1, Math.floor(gx / cells));
+      const iz = Math.min(tilesZ - 1, Math.floor(gz / cells));
+      const own = owner[iz * tilesX + ix];
+      if (!own) return false;
+      const { width, height, relief } = own.block;
+      const u = gx - own.at[0] * cells, v = gz - own.at[1] * cells;
+      const i = Math.min(width - 2, Math.floor(u)), j = Math.min(height - 2, Math.floor(v));
+      const k = j * width + i, a = u - i, b = v - j;
+      const north = relief[k] + a * (relief[k + 1] - relief[k]);
+      const south = relief[k + width] + a * (relief[k + width + 1] - relief[k + width]);
+      return (north + b * (south - north)) * scale * own.slotScale > 1;
+    };
+    const banks = yield* bakeRiverBankAtlasSteps(region.rivers, t.grid, centre, isDryGround);
+    if (banks) {
+      const { data, pageTable, ...layout } = banks;
+      riverBankAtlas = { ...layout, version: 1, byteOffset: push(data), byteLength: data.byteLength + pageTable.byteLength };
+      push(pageTable);
+    }
+  }
   const decoded = new Uint8Array(byteOffset);
   let at = 0;
   for (const ch of chunks) { decoded.set(ch, at); at += ch.byteLength; }
@@ -455,6 +482,7 @@ function* assembleStageSteps(plan, blocks, { catalog, id = `song-range-${stageHa
       flow: 'Drainage network of the generated regional landform; rivers follow its low ground and join downhill',
       water: 'Inland channels shaded directly on the terrain', riverFlow: INLAND_RIVER_FLOW,
       region: regionAnchors(region, centre),
+      ...(riverBankAtlas ? { riverBankAtlas } : {}),
     }
       : { flow: 'each piece keeps its own package flow; floor flow 0', water: 'piece water from its own bake; floor water inside the template lake' },
     payload: { url: null, encoding: 'none', byteLength: decoded.byteLength, sha256: null, decodedByteLength: decoded.byteLength, decodedSha256: null },

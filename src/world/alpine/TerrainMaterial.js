@@ -647,6 +647,28 @@ export const SCENE_FRAG = /* glsl */`
       waterWetTexel(corner + ivec2(1, 2), size), waterWetTexel(corner + ivec2(2, 2), size), f.x);
     return clamp(waterCubic(r0, r1, r2, r3, f.y), 0.0, 1.0);
   }
+  #ifdef INLAND_BANK_CELLS
+  uniform highp sampler2D uBankDistance;
+  uniform highp sampler2D uBankPages;
+  uniform vec4 uBankGrid; // origin x/z, posts per metre, signed range in metres
+  float riverBankDistance(vec2 worldXZ) {
+    vec2 post = (worldXZ - uBankGrid.xy) * uBankGrid.z;
+    ivec2 page = ivec2(floor(post / float(INLAND_BANK_CELLS)));
+    ivec2 pages = textureSize(uBankPages, 0);
+    if (any(lessThan(page, ivec2(0))) || any(greaterThanEqual(page, pages))) return -uBankGrid.w;
+    ivec2 code = ivec2(round(texelFetch(uBankPages, page, 0).rg * 255.0));
+    int slot = code.x + 256 * code.y - 1;
+    if (slot < 0) return -uBankGrid.w;
+    const int side = INLAND_BANK_CELLS + 1;
+    ivec2 dimensions = textureSize(uBankDistance, 0);
+    int columns = dimensions.x / side;
+    ivec2 base = ivec2(slot % columns, slot / columns) * side;
+    // The final post of each page is the first post of its neighbour.
+    vec2 local = post - vec2(page * INLAND_BANK_CELLS);
+    float sampleByte = textureLod(uBankDistance, (vec2(base) + local + .5) / vec2(dimensions), 0.0).r * 255.0;
+    return (sampleByte - 128.0) * (uBankGrid.w / 127.0);
+  }
+  #endif
   // Filter only native appearance, inward from the sourced shore. Keeping
   // its support on the wet side preserves every existing texture-fetch
   // gate; classification/depth never acquire a new water fragment.
@@ -701,6 +723,15 @@ export const SCENE_FRAG = /* glsl */`
     float slopeDeg = degrees(acos(clamp(n.y, 0.0, 1.0)));
     float curv = (s.b - 0.5) * 2.0;            // + concave gully, - convex ridge
     float flow = s.a * 255.0;
+    #ifdef INLAND_BANK_CELLS
+    float waterCoverage = 0.0;
+    float bankM = riverBankDistance(vWorld.xz);
+    float edgeM = clamp(.5 * fwidth(bankM), .75, .5 * uBankGrid.w);
+    float channel = smoothstep(-edgeM, edgeM, bankM) * (1.0 - ice.y);
+    float gravelBar = smoothstep(.38, .78, vnoise12(vWorld.xz / 95.0));
+    float gravel = gravelBar * smoothstep(-8.0 - edgeM, -edgeM, bankM) * (1.0 - channel) * (1.0 - ice.y);
+    float channelDepth = smoothstep(0.0, 20.0, bankM);
+    #else
     float waterCoverage = waterCoverageAt(uv);
     #ifdef INLAND_RIVER
     // Read the network and gravel banks directly from the ground atlas.
@@ -712,7 +743,9 @@ export const SCENE_FRAG = /* glsl */`
     // ground colour up to the water on the remaining banks.
     float gravelBar = smoothstep(.38, .78, vnoise12(vWorld.xz / 95.0));
     float gravel = gravelBar * smoothstep(.33, .48, channelCoverage) * (1.0 - channel);
+    float channelDepth = smoothstep(.44, .74, channelCoverage);
     waterCoverage = 0.0;
+    #endif
     #endif
     #ifdef MAPPED_WATER_ONLY
     // A flat DEM patch is not evidence of water in a dry canyon. Only
@@ -1033,7 +1066,6 @@ export const SCENE_FRAG = /* glsl */`
     vec3 V = normalize(uCameraPos - vRenderedWorld);
     #ifdef INLAND_RIVER
     if (channel > 0.0) {
-      float deep = smoothstep(.44, .74, channelCoverage);
       vec3 shallows = vec3(.022, .108, .134);
       vec3 pool = vec3(.012, .080, .111);
       vec3 day = hemi * .75 + uLightColor * (.22 + .32 * sunVis) * moonTransmission;
@@ -1046,7 +1078,7 @@ export const SCENE_FRAG = /* glsl */`
       float ripple = (vnoise12(vWorld.xz / 22.0) - .5) * resolved;
       float reach = vnoise12(vWorld.xz / 140.0);
       float sheen = .095 + .035 * reach + .027 * ripple;
-      vec3 stillWater = mix(shallows, pool, deep) * day
+      vec3 stillWater = mix(shallows, pool, channelDepth) * day
         + uSkyHorizon * (.025 + sheen * grazing * grazing);
       lit = mix(lit, stillWater, channel);
     }
@@ -1407,7 +1439,7 @@ function materialFeatureTextureReady(THREE, uniforms) {
 
 export function createSceneMaterial(THREE, uniforms, {
   forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false,
-  riverSurface = false, inlandRiver = false, mappedWaterOnly = false, deformationGradient = 'factored',
+  riverSurface = false, inlandRiver = false, inlandBankCells = 0, mappedWaterOnly = false, deformationGradient = 'factored',
   materialFeatures = 'warp', canopySummary = true,
 } = {}) {
   const experimental = terrainShading === 'moran';
@@ -1425,6 +1457,7 @@ export function createSceneMaterial(THREE, uniforms, {
   if (forestDebug) m.defines.FOREST_DEBUG = 1;
   if (riverSurface) m.defines.RIVER_SURFACE = 1;
   if (inlandRiver) m.defines.INLAND_RIVER = 1;
+  if (inlandRiver && inlandBankCells > 0 && uniforms.uBankDistance && uniforms.uBankPages) m.defines.INLAND_BANK_CELLS = inlandBankCells;
   if (mappedWaterOnly) m.defines.MAPPED_WATER_ONLY = 1;
   return m;
 }

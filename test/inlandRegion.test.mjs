@@ -1,13 +1,38 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
-import { makeInlandRegion, regionAnchors, regionDesign, regionElevationSpan, traceRivers } from '../src/world/terrain/InlandRegion.js';
+import { makeInlandRegion, regionAnchors, regionDesign, regionElevationSpan, roundChannelBends, traceRivers } from '../src/world/terrain/InlandRegion.js';
 import { INLAND_MAX_DRY_FLOW, INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
+import { finishPreparation } from '../src/world/alpine/PreparationSteps.js';
+import { bakeRiverBankAtlasSteps, riverBankDistanceAt } from '../src/world/terrain/RiverBankAtlas.js';
 
 const printFor = values => ({ version: 1, skyline: values, passages: [] });
 const SKYLINE = [.95, .15, .08, .26, .6, .75, .4, .34, .51, .72, .62, .18, .58, .31, .7, .39];
 const field = makeInlandTerrain(printFor(SKYLINE));
 const BASE_M = 2050;
+
+test('a wide river rounds a tight turn inside its original wet footprint', () => {
+  // Local metre coordinates of the TAIGA trunk at the pointed inside bank.
+  const stations = [[0, 0], [-61, -6], [-118, -22], [-170, -50], [-214, -88], [-247, -124],
+    [-269, -151], [-287, -163], [-298, -162], [-305, -164], [-307, -171], [-308, -184],
+    [-309, -205], [-318, -242], [-336, -291], [-353, -347], [-368, -413], [-371, -481], [-360, -545]];
+  const points = stations.map(([x, z], i) => ({ x, z, bed: 400 - i, channelM: 92 }));
+  const minRadius = () => Math.min(...points.slice(1, -1).map((p, i) => {
+    const a = points[i], b = points[i + 2];
+    const ux = p.x - a.x, uz = p.z - a.z, vx = b.x - p.x, vz = b.z - p.z;
+    return Math.hypot(ux, uz) * Math.hypot(vx, vz) * Math.hypot(b.x - a.x, b.z - a.z) / (2 * Math.abs(ux * vz - uz * vx));
+  }));
+  assert.ok(minRadius() < 10);
+  roundChannelBends(points);
+  assert.ok(minRadius() > 92, 'every inside bank retains a positive bend radius');
+  for (const [i, p] of points.entries()) {
+    assert.equal(p.bed, 400 - i);
+    assert.equal(p.channelM, 92);
+    const shift = Math.hypot(p.x - stations[i][0], p.z - stations[i][1]);
+    assert.ok(shift < p.channelM);
+    if (i < 4 || i > 13) assert.equal(shift, 0, 'the approaching and departing reaches keep their course');
+  }
+});
 const massifs = [{ x: -9000, z: -12000, radiusM: 5000, weight: 1 }, { x: 8000, z: -14000, radiusM: 4200, weight: .7 }];
 const region = makeInlandRegion(field, BASE_M, { massifs });
 
@@ -76,7 +101,7 @@ test('rivers run downhill along the low ground and join into one network', () =>
     // Each tributary ends on its parent's course.
     const end = river.points.at(-1), parent = byId.get(river.joins);
     const gap = Math.min(...parent.points.map(p => Math.hypot(p.x - end.x, p.z - end.z)));
-    assert.ok(gap < 120, `river ${river.id} meets river ${river.joins} (${gap.toFixed(1)} m)`);
+    assert.ok(gap < 1e-6, `river ${river.id} meets river ${river.joins} (${gap.toFixed(1)} m)`);
     for (let k = river.joins, guard = 0; k !== null; k = byId.get(k).joins) assert.ok(++guard < 100);
   }
   // Water sits in the valley: the land rises on both sides of the flown
@@ -178,6 +203,60 @@ test('a tributary converges when it reaches the larger downhill channel on a sha
   assert.equal(rivers.length, 2);
   const tributary = rivers.find(r => r.joins !== null);
   assert.ok(tributary.points.at(-1).z < 0, 'joins near first contact instead of paralleling to the outlet');
+});
+
+test('the generated terrain carries a narrow tributary at its physical bank width', () => {
+  let checked = 0, dryBanks = 0;
+  for (const { points } of region.rivers) {
+    for (let i = 5; i < points.length - 5; i += 25) {
+      const a = points[i - 1], b = points[i], half = (a.channelM + b.channelM) / 2;
+      if (half > 28) continue;
+      const dx = b.x - a.x, dz = b.z - a.z, length = Math.hypot(dx, dz);
+      if (length < 1) continue;
+      for (const side of [-1, 1]) {
+        const sample = offset => region.sample((a.x + b.x) / 2 - dz / length * offset * side,
+          (a.z + b.z) / 2 + dx / length * offset * side);
+        assert.ok(sample(half - 3).wet);
+        if (!sample(half + 6).wet) dryBanks++;
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 50 && dryBanks > .95 * checked, `${dryBanks} dry outer banks of ${checked} sampled`);
+});
+
+test('drawn banks follow both sides of generated reaches through the full 89.6 km region', () => {
+  const grid = { width: 4481, height: 4481, cellSizeM: 20, originM: [-44800, -44800] };
+  const atlas = finishPreparation(bakeRiverBankAtlasSteps(region.rivers, grid));
+  const errors = [];
+  for (const { points } of region.rivers) for (let k = 6; k < points.length - 6; k += 71) {
+    const a = points[k - 1], b = points[k], dx = b.x - a.x, dz = b.z - a.z, length = Math.hypot(dx, dz);
+    const x = (a.x + b.x) / 2, z = (a.z + b.z) / 2, half = (a.channelM + b.channelM) / 2;
+    if (length < 1 || Math.max(Math.abs(x), Math.abs(z)) > 44600) continue;
+    assert.ok(riverBankDistanceAt(atlas, x, z) > 0, 'every sampled channel centre stays wet');
+    for (const side of [-1, 1]) {
+      const nx = -side * dz / length, nz = side * dx / length;
+      const wet = d => region.sample(x + d * nx, z + d * nz).wet;
+      const drawn = d => riverBankDistanceAt(atlas, x + d * nx, z + d * nz) > 0;
+      // A near-by channel can own the opposite bank at a confluence. Only
+      // measure perpendicular error where this reach's bank is exposed.
+      if (!wet(half - 4) || wet(half + 4) || !wet(half - 15) || wet(half + 15)) continue;
+      const bank = sample => {
+        let lo = half - 15, hi = half + 15;
+        assert.ok(sample(lo) && !sample(hi));
+        for (let i = 0; i < 10; i++) {
+          const mid = (lo + hi) / 2;
+          if (sample(mid)) lo = mid; else hi = mid;
+        }
+        return (lo + hi) / 2;
+      };
+      errors.push(Math.abs(bank(wet) - bank(drawn)));
+    }
+  }
+  errors.sort((a, b) => a - b);
+  assert.ok(errors.length > 500);
+  assert.ok(errors.at(-1) < atlas.texelSizeM, `worst physical bank error ${errors.at(-1)} m`);
+  assert.ok(errors[Math.floor(.99 * errors.length)] < 2, '99% of bank crossings are within two metres');
 });
 
 test('a ridge between adjacent drainage basins preserves the downstream confluence', () => {

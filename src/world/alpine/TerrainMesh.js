@@ -52,7 +52,18 @@ export function decodeTerrain(manifest, bytes) {
     tiles.set(t.id, tile);
     byIndex.set(`${t.ix},${t.iz}`, tile);
   }
-  return { manifest, tiles, byIndex, cells: manifest.tileCells, grid: manifest.grid };
+  const data = { manifest, tiles, byIndex, cells: manifest.tileCells, grid: manifest.grid };
+  const bank = manifest.hydrology?.riverBankAtlas;
+  if (bank) {
+    const tableAt = bank.byteOffset + bank.width * bank.height;
+    const pageTable = bytes.slice(tableAt, bank.byteOffset + bank.byteLength);
+    const slots = bank.pageColumns * (bank.height / (bank.coreSize + 1));
+    for (let i = 0; i < pageTable.length; i += 2) {
+      if (pageTable[i] + 256 * pageTable[i + 1] > slots) throw new Error('river bank page outside atlas');
+    }
+    data.riverBankAtlas = { ...bank, data: bytes.slice(bank.byteOffset, tableAt), pageTable };
+  }
+  return data;
 }
 
 /** Height of stored sample (u, v) of a tile, in stored-sample units. */

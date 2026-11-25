@@ -17,6 +17,7 @@ import { terrainHeightAt, makeTerrainMeshHeightSampler, BANDS } from './TerrainM
 import { INLAND_RIVER_FLOW, INLAND_SURFACE_STRIDE } from './TerrainPackage.js';
 import { RULE_DEFAULTS } from './MaterialPackage.js';
 import { scenePoseAt, pathStations } from '../terrain/SceneTravel.js';
+import { riverBankDistanceAt } from '../terrain/RiverBankAtlas.js';
 
 export const LATTICE_M = 13;
 export const FOREST_RINGS = Object.freeze({ detailM: 450, meshM: 1200, billboardM: 8000 });
@@ -284,6 +285,8 @@ function authoredRail(view) {
 export const INLAND_LATTICE_M = 17;
 export const INLAND_CORRIDOR_M = 820;
 const INLAND_FULL_M = 600;
+// Allow space for the root collar on bare gravel at the water's edge.
+const INLAND_ROOT_CLEARANCE_M = 2;
 // The mobile mesh draws a sparser lattice of the same stands.
 const inlandLattice = budget => budget === 'mobile' ? 21 : INLAND_LATTICE_M;
 const INLAND_TREE_CAP = Object.freeze({ desktop: 340000, mobile: 170000 });
@@ -325,8 +328,8 @@ function inlandHabitatAt(data, x, z) {
   return { wet, flow: wet < 1 ? dry / (1 - wet) : INLAND_RIVER_FLOW, band: Math.max(0, BANDS.indexOf(tile.band)) };
 }
 
-/** Keep roots out of any atlas cell a river touches: filtering can widen a
- *  channel beyond its stored samples. */
+/** Older stages describe water only at flow posts. Keep their filtered
+ *  shoreline free of trees when a signed bank field is unavailable. */
 function touchesRiverCell(data, x, z) {
   const step = data.grid.cellSizeM * INLAND_SURFACE_STRIDE;
   const [ox, oz] = data.grid.originM;
@@ -353,6 +356,7 @@ function* placeInlandForestSteps(data, view, rules, seed, budget) {
   const treeline = rules.treelineM, density = clamp01(rules.forestDensity ?? 1);
   const floor = rules.forestFloorM ?? RULE_DEFAULTS.forestFloorM;
   const corridorAt = inlandCorridor(data);
+  const banks = data.riverBankAtlas;
   const renderedHeightAt = makeTerrainMeshHeightSampler(data, budget);
   const cs = data.grid.cellSizeM, L = inlandLattice(budget);
   const cap = INLAND_TREE_CAP[budget] ?? INLAND_TREE_CAP.desktop;
@@ -374,9 +378,10 @@ function* placeInlandForestSteps(data, view, rules, seed, budget) {
     const slope = slopeDegAt(data, x, z, cs * 2);
     if (!(slope <= rules.forestMaxSlopeDeg)) return null;
     const habitat = inlandHabitatAt(data, x, z);
-    if (!habitat || habitat.wet > 0) return null;
+    if (!habitat || (!banks && habitat.wet > 0)) return null;
     const moisture = clamp01((habitat.flow - 48) / 112);
-    if (inlandStand(seed, x, z, density, moisture, slope) < .5 || touchesRiverCell(data, x, z)) return null;
+    if (inlandStand(seed, x, z, density, moisture, slope) < .5) return null;
+    if (banks ? riverBankDistanceAt(banks, x, z) >= -INLAND_ROOT_CLEARANCE_M : touchesRiverCell(data, x, z)) return null;
     return { x, z, y, slope, band: habitat.band };
   };
   // A sparse pre-pass estimates how many trees the corridor holds, so a
