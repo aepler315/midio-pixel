@@ -580,6 +580,44 @@ function chaikin(points, rounds) {
   return p;
 }
 
+// An inside bank folds to a point where the bend radius drops below the
+// channel's half-width. Relax just those turns and their immediate shoulders.
+// Every moved station stays inside its original wet footprint. Both ends and
+// all bed elevations are fixed; tributaries then join the finished parent.
+export function roundChannelBends(points) {
+  const n = points.length, origin = new Float64Array(n * 2), dirty = new Uint8Array(n);
+  for (let i = 0; i < n; i++) { origin[2 * i] = points[i].x; origin[2 * i + 1] = points[i].z; }
+  for (let pass = 0; pass < 48; pass++) {
+    let changed = false;
+    for (let j = 1; j < n - 1; j++) {
+      const i = pass % 2 ? n - 1 - j : j;
+      if (dirty[i] < pass) continue;
+      const a = points[i - 1], p = points[i], b = points[i + 1];
+      const ux = p.x - a.x, uz = p.z - a.z, vx = b.x - p.x, vz = b.z - p.z;
+      const u = Math.hypot(ux, uz), v = Math.hypot(vx, vz);
+      if (u === 0 || v === 0) continue;
+      // Circumradius = |u| |v| |u+v| / (2 |u cross v|). Also unfold
+      // reaches that have reversed direction on nearly the same line.
+      const diameter = 2 * 1.4 * p.channelM;
+      const limit = diameter * Math.abs(ux * vz - uz * vx);
+      const product = u * v * Math.hypot(ux + vx, uz + vz);
+      const reversed = ux * vx + uz * vz < 0;
+      if (!reversed && product >= limit) continue;
+      const gain = .7 * (reversed ? 1 : Math.min(1, 2 * (1 - product / limit)));
+      const t = u / (u + v), x = origin[2 * i], z = origin[2 * i + 1];
+      const dx = p.x + gain * (lerp(a.x, b.x, t) - p.x) - x;
+      const dz = p.z + gain * (lerp(a.z, b.z, t) - p.z) - z;
+      const scale = Math.min(1, .95 * p.channelM / (Math.hypot(dx, dz) || 1));
+      const nextX = x + scale * dx, nextZ = z + scale * dz;
+      if (Math.hypot(nextX - p.x, nextZ - p.z) < .01) continue;
+      p.x = nextX; p.z = nextZ;
+      dirty[i - 1] = dirty[i] = dirty[i + 1] = pass + 1;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+}
+
 // Capture a larger channel only across low ground. A ridge between two
 // nearby channels keeps both basins intact. Search is bounded in metres.
 function valleyConfluence(cell, owner, { n, dx, h, area, rcv }, reliefM) {
@@ -839,6 +877,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
       dx /= len; dz /= len;
       return { ...p, x: p.x - dz * offsets[i], z: p.z + dx * offsets[i] };
     });
+    roundChannelBends(moved);
     river.points = moved;
   }
   // The camera flies low along the trunk and its largest tributaries.

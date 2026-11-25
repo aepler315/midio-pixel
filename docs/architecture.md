@@ -73,8 +73,11 @@ travelled area. The mesh draws 40 m samples along flown valleys (80 m on
 mobile), 80 m on core hillsides and coarser ground outward. For each
 generated reach, a sparse texture records the distance in metres to its banks
 along the routed centerline. The opaque terrain shader uses that distance
-to draw winding edges and joined tributaries. Both banks share their edge
-samples across texture pages. The coarse flow marker (254) remains available
+to draw winding edges and joined tributaries. Where an inside bank would
+fold into a point, the centerline eases within the original channel. Heads,
+outlets and bed elevations stay fixed, and tributaries meet the finished
+parent course. Adjacent texture pages share their edge samples. The coarse
+flow marker (254) remains available
 for terrain deformation and older packages.
 Material bands are carried from each pack's surveyed elevation span onto the
 region's floor and crests. Woods grow in stands that the shader's mean canopy
