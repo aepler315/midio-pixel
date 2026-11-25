@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateMaterialManifest, materialGpuBytes, hexToLinear, loadMaterialPack, MATERIAL_ROLES, inlandMaterialRules } from '../src/world/alpine/MaterialPackage.js';
 import { regionElevationSpan } from '../src/world/terrain/InlandRegion.js';
+import { makeInlandTerrain } from '../src/world/terrain/InlandTerrain.js';
 import { REAL_BIOME_NAMES } from '../src/world/RealBiomes.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -90,7 +91,7 @@ test('habitat rules follow each biome\'s real vegetation and snow', () => {
 
 test('inland habitat carries each pack\'s bands onto the region\'s floor and crests', () => {
   const byId = Object.fromEntries(packs.map(({ m }) => [m.id, m.rules]));
-  const baseM = 2050, field = { seed: 17, skyline: Array.from({ length: 16 }, (_, i) => (i % 5) / 4), east: 1, north: 0 };
+  const baseM = 2050, field = makeInlandTerrain({ version: 1, skyline: Array.from({ length: 16 }, (_, i) => (i % 5) / 4) });
   const plan = family => ({ songRange: { plan: { baseM, family, inland: field } } });
   const { floorM, topM } = regionElevationSpan(field, baseM);
   const wet = Object.freeze(byId['wet-conifer']), wetIn = inlandMaterialRules(plan('wet-conifer'), wet);

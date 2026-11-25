@@ -21,7 +21,7 @@ export const RULE_DEFAULTS = Object.freeze({ forestFloorM: -100000, treeScale: 1
 const WATER_RULE_BOUNDS = Object.freeze({ waterSkyMix: 1, waterGlintGain: 3 });
 const HEX = /^#[0-9a-f]{6}$/i;
 
-const INLAND_WOODED_FRACTION = .16, INLAND_MIN_FOREST_DENSITY = .42, INLAND_SNOW_FRACTION = .5;
+const INLAND_MIN_FOREST_DENSITY = .42;
 
 /** A family's surveyed elevation span: the lower quartile of its massif
  *  bases and the upper decile of their summits. Its pack's bands were set
@@ -52,9 +52,14 @@ export function inlandMaterialRules(view, rules, catalog = MASSIF_CATALOG) {
   if (Number.isFinite(rules.forestFloorM) && rules.forestFloorM > -1e4) out.forestFloorM = map(rules.forestFloorM);
   // Valleys this far below the crests keep woods even in open country:
   // spruce in tundra valley bottoms, galleries along desert rivers.
-  out.treelineM = Math.max(out.treelineM, Math.round(floorM + INLAND_WOODED_FRACTION * (topM - floorM)));
+  const peaks = plan.inland.song?.measured;
+  const woodedFraction = peaks ? .16 : .5;
+  out.treelineM = Math.max(out.treelineM, Math.round(floorM + woodedFraction * (topM - floorM)));
   // Snow keeps to the upper crests: the region's foothills stay green.
-  if (plan.family !== 'icefield') out.snowlineM = Math.round(floorM + INLAND_SNOW_FRACTION * (topM - floorM));
+  if (plan.family !== 'icefield') {
+    const band = Math.round(floorM + (peaks ? .5 : .72) * (topM - floorM));
+    out.snowlineM = peaks ? band : Math.max(out.snowlineM, band);
+  }
   out.snowlineM = Math.max(out.snowlineM, out.treelineM + 120);
   out.snowFullM = Math.max(out.snowFullM, out.snowlineM + 300);
   out.forestDensity = Math.max(rules.forestDensity ?? 0, INLAND_MIN_FOREST_DENSITY);

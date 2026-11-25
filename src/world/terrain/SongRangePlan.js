@@ -23,7 +23,6 @@ import { planSongScenes } from './SongScenePlan.js';
 import { slotOrigin } from './StageFloor.js';
 import { compositionTarget, summitSpacing, summitCandidate, summitPairScore } from './SongprintComposition.js';
 import { makeInlandTerrain } from './InlandTerrain.js';
-import { hashSeed } from '../../utils/math.js';
 import { chooseSongBiomes } from './BiomeSet.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { sceneOdds, SCENIC_FAIR_SHARE } from './SceneCatalog.js';
@@ -31,7 +30,7 @@ import MASSIF_CATALOG from './massifCatalogData.js';
 import { settingValue } from '../../config/appSettings.js';
 
 export const SONG_RANGE_VERSION = 3;
-const SONGPRINT_RANGE_VERSION = 8;
+const SONGPRINT_RANGE_VERSION = 9;
 
 /** Biome to material family; mirrors DEFAULT_PACKS in tools/build-range-scene.mjs. */
 export const BIOME_FAMILY = Object.freeze({
@@ -103,7 +102,7 @@ function indexOf(catalog) {
 function composeFromOutline(templates, pieces, homeView, song, songprint, family, forced) {
   const target = compositionTarget(song, measuredViewOutline(homeView));
   const balance = summitSpacing(target);
-  const inland = makeInlandTerrain(hashSeed(JSON.stringify(songprint.skyline)), songprint);
+  const inland = makeInlandTerrain(songprint);
   const measured = pieces.filter(piece => massifSkylines[piece.manifestSha256]);
   let best = null;
   for (const template of templates) {
