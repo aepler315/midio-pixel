@@ -8,12 +8,18 @@
 // its setting: broad floors where the surrounding relief is low, narrow
 // inner gorges where a river crosses high ground.
 //
-// Everything is a pure function of the field (seed and Songprint outline)
-// and the stage geometry, so one recording always rebuilds the same region.
+// Everything is a pure function of the field (the Songprint outline) and the
+// stage geometry, so one recording always rebuilds the same region. No value
+// is drawn from a hash of the recording: every design choice is a continuous
+// function of the outline, and the fine noise is one fixed ground shared by
+// every song, laid out in the region's own frame. A close outline (another
+// recording of the song) therefore builds a close landform, and a small turn
+// of the region turns the same land. The erosion itself still amplifies
+// small differences, as drainage does, so close is not identical.
 import { clamp01, lerp } from '../../utils/math.js';
 import { INLAND_RIVER_FLOW as REGION_RIVER_FLOW, INLAND_MAX_DRY_FLOW as REGION_MAX_DRY_FLOW } from '../alpine/TerrainPackage.js';
 
-export const INLAND_REGION_VERSION = 1;
+export const INLAND_REGION_VERSION = 2;
 // Rivers this large carry the low flight and keep the finest mesh.
 const FLOWN_AREA_KM2 = 150;
 const FLOWN_TRIBUTARIES = 3;
@@ -69,13 +75,22 @@ function skylineAt(skyline, t) {
   return lerp(skyline[i], skyline[j], smooth(p - i));
 }
 
+/** A 0..1 trait from the outline's standardised cosine coefficients
+ *  (InlandTerrain: about -2..2 across a library). The library's typical
+ *  song sits at 0.5 and songs use most of the range. */
+const trait = z => .5 + .5 * Math.tanh(z / 1.2);
+const blend = (a, b) => (a + b) * Math.SQRT1_2;
+/** Stage coordinates in the region's frame: along the trunk and across it. */
+const alongOf = (field, x, z) => x * field.east + z * field.north;
+const acrossOf = (field, x, z) => z * field.east - x * field.north;
+
 /** Describe the region a recording builds, before any sampling. Values
  *  stay small and serialisable; the heavy lattice is built on demand.
  *  One trunk valley runs the length of the stage between two ranges,
  *  opens into a basin where the outline is lowest, then breaks through a
  *  cross range in a gorge before it leaves the stage. */
 export function regionDesign(field, massifs = [], halfM = 44800) {
-  const { seed, skyline, east, north } = field;
+  const { ground, skyline, shape, east, north } = field;
   let mean = 0, rough = 0, lo = Infinity, hi = -Infinity, loAt = 0;
   for (let i = 0; i < skyline.length; i++) {
     mean += skyline[i] / skyline.length;
@@ -84,26 +99,32 @@ export function regionDesign(field, massifs = [], halfM = 44800) {
     hi = Math.max(hi, skyline[i]);
   }
   const busy = clamp01((rough - .15) / .4);
-  const flow = unit(seed, 71) < .5 ? -1 : 1;
-  const amplitude = lerp(.07, .16, unit(seed, 74)) * halfM;
-  const waves = [lerp(.7, 1.3, unit(seed, 75)), lerp(1.6, 2.6, unit(seed, 76))];
-  const phases = [unit(seed, 77) * 2 * Math.PI, unit(seed, 78) * 2 * Math.PI];
+  // Which way the trunk drains is carried by the region's turn (a half turn
+  // reverses it), so no switch decides it.
+  const flow = 1;
+  // Each choice the seed used to draw now follows one standardised outline
+  // coefficient, or an even blend of two. c8 moves most between recordings
+  // of one song (InlandTerrain OUTLINE_CAL), so it carries nothing.
+  const [c1, c2, c3, c4, c5, c6, c7] = shape;
+  const amplitude = lerp(.07, .16, trait(c7)) * halfM;
+  const waves = [lerp(.7, 1.3, trait(c1)), lerp(1.6, 2.6, trait(c3))];
+  const phases = [trait(c5) * 2 * Math.PI, trait(c2) * 2 * Math.PI];
   const design = {
-    seed, east, north, flow, amplitude, waves, phases, axisOffsetM: 0,
+    ground, east, north, flow, amplitude, waves, phases, axisOffsetM: 0,
     // Upstream 0 .. downstream 1 along the trunk.
     basinAt: lerp(.18, .52, loAt), basinHalfM: lerp(5200, 8200, 1 - mean),
-    gorgeAt: lerp(.66, .82, unit(seed, 79)), gorgeHalfM: lerp(380, 620, unit(seed, 80)),
+    gorgeAt: lerp(.66, .82, trait(c4)), gorgeHalfM: lerp(380, 620, trait(c6)),
     valleyHalfM: lerp(2600, 1700, busy),
     rangeOffsetM: lerp(15500, 11500, busy), rangeHalfM: lerp(5600, 4200, busy),
     crossHalfM: lerp(3600, 2600, busy),
-    erodibility: lerp(.85, 1.2, unit(seed, 73)),
+    erodibility: lerp(.85, 1.2, trait(blend(c7, -c1))),
     // Character: how rugged the hillsides stand over the rivers, how
     // concave the valley profiles are, how rounded the crests, how many
     // channels carry visible water.
-    handGain: lerp(1.6, 2.35, clamp01(.6 * busy + .5 * unit(seed, 82))),
-    concavity: lerp(.38, .52, unit(seed, 83)),
+    handGain: lerp(1.6, 2.35, clamp01(.6 * busy + .5 * trait(blend(c2, c5)))),
+    concavity: lerp(.38, .52, trait(blend(c3, -c6))),
     creep: lerp(.018, .05, 1 - busy),
-    riverAreaKm2: lerp(24, 48, unit(seed, 84)),
+    riverAreaKm2: lerp(24, 48, trait(blend(c4, -c1))),
     reliefM: lerp(1500, 2600, clamp01(.55 * (hi - lo) + .45 * mean)),
     roughness: rough, mean,
   };
@@ -142,7 +163,7 @@ function trunkStation(design, along, halfM) {
 }
 
 function upliftAt(field, design, massifs, halfM, x, z) {
-  const { seed, skyline, east, north } = field;
+  const { ground, skyline, east, north } = field;
   const along = x * east + z * north, across = z * east - x * north;
   const s = trunkStation(design, along, halfM);
   const d = across - axisAcross(design, along, halfM);
@@ -156,17 +177,17 @@ function upliftAt(field, design, massifs, halfM, x, z) {
   const vq = d / halfWidth;
   const valley = Math.exp(-vq * vq) * headFade;
   // Two flanking ranges; the outline sets their crests, low notes leave passes.
-  const warp = (fbm(seed ^ 0x51ed27, along / 21000, across / 21000, 3) - .5) * 5200;
+  const warp = (fbm(ground ^ 0x51ed27, along / 21000, across / 21000, 3) - .5) * 5200;
   let range = 0;
   for (const side of [-1, 1]) {
     const r = (d + warp - side * design.rangeOffsetM) / design.rangeHalfM;
     const crest = .4 + .6 * skylineAt(skyline, side < 0 ? s : 1 - s);
-    const saddle = smooth((fbm(seed ^ (side < 0 ? 0x7a3 : 0x9c1), along / 8000, across / 8000, 2) - .25) / .5);
+    const saddle = smooth((fbm(ground ^ (side < 0 ? 0x7a3 : 0x9c1), along / 8000, across / 8000, 2) - .25) / .5);
     range = Math.max(range, Math.exp(-r * r) * crest * (.6 + .4 * saddle));
   }
   // The cross range the trunk breaks through, highest beside the gorge.
   const cross = gorge * (.75 + .25 * skylineAt(skyline, .5 + .5 * Math.tanh(d / 9000)));
-  let u = .5 + .62 * Math.max(range, cross) + .2 * (fbm(seed ^ 0x2c1b, x / 6000, z / 6000, 3) - .5);
+  let u = .5 + .62 * Math.max(range, cross) + .2 * (fbm(ground ^ 0x2c1b, along / 6000, across / 6000, 3) - .5);
   u -= (.46 + .1 * basin) * valley;
   for (const m of massifs) {
     const q = Math.hypot(x - m.x, z - m.z) / m.radiusM;
@@ -223,12 +244,14 @@ export function* coarseLandformSteps(field, design, massifs, { halfM, n = COARSE
   for (let i = 0; i < N; i++) {
     const x = xAt(i), z = zAt(i);
     U[i] = upliftAt(field, design, massifs, halfM, x, z);
-    // Cell-scale roughness seeds a branching network instead of parallel rills.
-    h[i] = 4 * U[i] + 2.5 * unit(field.seed, 4000 + (i % n), Math.floor(i / n));
-    Kmap[i] = .4 + .9 * fbm(field.seed ^ 0x6b1, x / 2600, z / 2600, 3);
+    // Cell-scale roughness seeds a branching network instead of parallel
+    // rills. It is the same fixed ground for every song. Erodibility lies in
+    // the region's frame, like the uplift, so it turns with the region.
+    const along = alongOf(field, x, z), across = acrossOf(field, x, z);
+    h[i] = 4 * U[i] + 2.5 * unit(field.ground, 4000 + (i % n), Math.floor(i / n));
+    Kmap[i] = .4 + .9 * fbm(field.ground ^ 0x6b1, along / 2600, across / 2600, 3);
     const gx = i % n, gz = Math.floor(i / n);
     if (gx === 0 || gz === 0 || gx === n - 1 || gz === n - 1) {
-      const along = x * field.east + z * field.north, across = z * field.east - x * field.north;
       const d = Math.abs(across - axisAcross(design, along, halfM));
       if (trunkStation(design, along, halfM) > .9 && d < 2600) { outlet[i] = 1; h[i] = 0; }
     }
@@ -281,7 +304,7 @@ export function* coarseLandformSteps(field, design, massifs, { halfM, n = COARSE
     }
     // Stochastic steepest descent: a hashed draw among the downhill
     // neighbours, weighted by slope, breaks the lattice's straight rills.
-    const salt = field.seed ^ Math.imul(it + 1, 0x632be5ab);
+    const salt = field.ground ^ Math.imul(it + 1, 0x632be5ab);
     const o0 = offsets[0], o1 = offsets[1], o2 = offsets[2], o3 = offsets[3];
     const o4 = offsets[4], o5 = offsets[5], o6 = offsets[6], o7 = offsets[7];
     for (let i = 0; i < N; i++) {
@@ -463,7 +486,7 @@ function segmentIndex(rivers, halfM) {
 
 /**
  * Build the sampled region.
- *   field    makeInlandTerrain result (seed, skyline, direction, relief)
+ *   field    makeInlandTerrain result (outline, its shape, direction, relief)
  *   baseM    the stage datum (valley mouth sits a little above it)
  *   options  { halfM, massifs: [{ x, z, radiusM, weight }] }
  * Returns a generator; its value is the region with heightAt/sample.
@@ -521,7 +544,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
   // Reach character. A river between high walls keeps a narrow floor and
   // cuts an inner gorge; in open country, and above all in the basin, big
   // rivers spread across a broad floor.
-  const { seed, east, north } = field;
+  const { ground, east, north } = field;
   for (const river of rivers) for (const p of river.points) {
     p.relief = localRelief(p.x, p.z);
     const along = p.x * east + p.z * north;
@@ -563,8 +586,12 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
     }
     const arc = new Float64Array(n);
     for (let i = 1; i < n; i++) arc[i] = arc[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
-    const total = arc[n - 1], wave = lerp(1300, 2300, unit(seed, 300 + river.id));
-    const phase = unit(seed, 400 + river.id) * 50;
+    // Wavelength and phase follow where the river rises, in the region's
+    // frame, not its index: a river that appears or drops out elsewhere
+    // leaves every other river's meanders where they were.
+    const headAlong = alongOf(field, pts[0].x, pts[0].z) / 9000, headAcross = acrossOf(field, pts[0].x, pts[0].z) / 9000;
+    const total = arc[n - 1], wave = lerp(1300, 2300, valueNoise(ground ^ 0x300, headAlong, headAcross));
+    const phase = valueNoise(ground ^ 0x400, headAlong, headAcross) * 50;
     const offsets = pts.map((p, i) => {
       const a = pts[Math.max(0, i - 3)], b = pts[Math.min(n - 1, i + 3)];
       const dropPerKm = (a.bed - b.bed) / Math.max(1, (arc[Math.min(n - 1, i + 3)] - arc[Math.max(0, i - 3)]) / 1000);
@@ -621,7 +648,7 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
         gorge = lerp(a.gorge, b.gorge, t);
         const broad = lerp(a.broad, b.broad, t);
         // The floor's edge wanders; the channel follows its own course.
-        const edge = Math.max(channel, floorHalf + (valueNoise(seed ^ 0x77, x / 700, z / 700) - .5) * .6 * (floorHalf - channel));
+        const edge = Math.max(channel, floorHalf + (valueNoise(ground ^ 0x77, alongOf(field, x, z) / 700, acrossOf(field, x, z) / 700) - .5) * .6 * (floorHalf - channel));
         const across = d;
         // Walls: gentle benches in open reaches, steep in a gorge.
         const wallTan = lerp(lerp(.55, .22, broad), 1.7, gorge);
@@ -648,8 +675,9 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
         const c = g > 1e-4 ? gx / Math.hypot(gx, gz) : 1, sn = g > 1e-4 ? gz / Math.hypot(gx, gz) : 0;
         const u = (x * c + z * sn) / 1500, v = (z * c - x * sn) / 430;
         const rough = clamp01(hand / 260) * (1 - floorMask) * clamp01(g * 2.5 + .25);
-        detail = rough * (62 * (ridged(seed ^ 0x3d, u, v, 2) - .4) + 48 * (fbm(seed ^ 0x5e, x / 1100, z / 1100, 3) - .5)
-          + 14 * (valueNoise(seed ^ 0x9a, x / 260, z / 260) - .5));
+        const along = alongOf(field, x, z), across = acrossOf(field, x, z);
+        detail = rough * (62 * (ridged(ground ^ 0x3d, u, v, 2) - .4) + 48 * (fbm(ground ^ 0x5e, along / 1100, across / 1100, 3) - .5)
+          + 14 * (valueNoise(ground ^ 0x9a, along / 260, across / 260) - .5));
         detail = Math.max(-MAX_DETAIL_M, Math.min(MAX_DETAIL_M, detail));
       }
       out.bedM = bed;
