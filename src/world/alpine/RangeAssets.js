@@ -108,7 +108,8 @@ export async function loadTerrainPackage(manifestUrl, { signal = null, fetchImpl
 export function terrainCpuBytes(manifest) {
   let samples = 0;
   for (const t of manifest.tiles) samples += t.samples * t.samples;
-  return manifest.payload.byteLength + manifest.payload.decodedByteLength + samples * (4 + 1 + 1);
+  return manifest.payload.byteLength + manifest.payload.decodedByteLength + samples * (4 + 1 + 1)
+    + (manifest.hydrology?.riverBankAtlas?.byteLength ?? 0);
 }
 
 // Acquisition owns the hold before its Promise can yield to a consumer.
@@ -213,7 +214,7 @@ export async function prepareTerrainAssets(view, {
     }
     if (view.tourManifestUrl && reservation) {
       const liveBytes = [...pkg.data.tiles.values()].reduce((n, t) => n + t.heightsM.byteLength + t.flowBytes.byteLength + (t.validMask?.byteLength || 0), 0);
-      residency.shrink(key, liveBytes);
+      residency.shrink(key, liveBytes + (pkg.data.riverBankAtlas?.byteLength ?? 0));
     }
     return retainTerrain(prepared, residency, owner);
   } catch (err) {

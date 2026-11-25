@@ -24,7 +24,7 @@
 import { clamp01, lerp } from '../../utils/math.js';
 import { INLAND_RIVER_FLOW as REGION_RIVER_FLOW, INLAND_MAX_DRY_FLOW as REGION_MAX_DRY_FLOW } from '../alpine/TerrainPackage.js';
 
-export const INLAND_REGION_VERSION = 3;
+export const INLAND_REGION_VERSION = 4;
 // Rivers this large carry the low flight and keep the finest mesh.
 const FLOWN_AREA_KM2 = 150;
 const FLOWN_TRIBUTARIES = 3;
@@ -848,12 +848,16 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
   yield 'index';
   const hit = {};
   const nearest = (x, z) => {
-    let best = Infinity, seg = null, tt = 0;
+    let best = Infinity, seg = null, tt = 0, wet = false;
     for (const sg of index.at(x, z)) {
       const t = clamp01(((x - sg.a.x) * sg.dx + (z - sg.a.z) * sg.dz) * sg.inv);
       const px = sg.a.x + t * sg.dx - x, pz = sg.a.z + t * sg.dz - z;
       const d2 = px * px + pz * pz;
-      if (d2 < best) { best = d2; seg = sg; tt = t; }
+      // A wide receiving channel can cover the dry shoulder of its nearer
+      // tributary. Where both are wet, retain the closer routed bed.
+      const halfWidth = lerp(sg.a.channelM, sg.b.channelM, t);
+      const inside = d2 < halfWidth * halfWidth;
+      if (inside && !wet || inside === wet && d2 < best) { best = d2; seg = sg; tt = t; wet = inside; }
     }
     hit.d = Math.sqrt(best); hit.seg = seg; hit.t = tt;
     return hit;
@@ -878,18 +882,16 @@ export function* inlandRegionSteps(field, baseM, { halfM = 44800, massifs = [], 
         const channel = lerp(a.channelM, b.channelM, t), floorHalf = lerp(a.floorM, b.floorM, t);
         gorge = lerp(a.gorge, b.gorge, t);
         const broad = lerp(a.broad, b.broad, t);
-        // The floor's edge wanders; the channel follows its own course.
-        // The atlas needs half a texel on each bank to carry the channel.
-        const waterHalf = Math.max(channel, 40);
-        const bankDistance = Math.max(0, d - waterHalf);
-        const edge = Math.max(waterHalf + 1, floorHalf + (valueNoise(field.ground ^ 0x77,
+        // The bank-distance atlas resolves the course at its own width.
+        const bankDistance = Math.max(0, d - channel);
+        const edge = Math.max(channel + 1, floorHalf + (valueNoise(field.ground ^ 0x77,
           alongOf(field, x, z) / 700, acrossOf(field, x, z) / 700) - .5) * .6 * (floorHalf - channel));
         // Inland water is painted directly on this surface. Keep its
         // cross-section level and its longitudinal profile on the routed
         // bed. Ease the dry bank into the surrounding eroded floor.
-        wet = d < waterHalf;
+        wet = d < channel;
         const wallTan = lerp(lerp(.55, .22, broad), 1.7, gorge);
-        const target = d <= edge ? bed + 6 * (bankDistance / (edge - waterHalf)) ** 2
+        const target = d <= edge ? bed + 6 * (bankDistance / (edge - channel)) ** 2
           : bed + 6 + (d - edge) * wallTan;
         const k = lerp(30, 8, gorge);
         ground = lerp(target, smin(base, target, k), smooth(bankDistance / 160));

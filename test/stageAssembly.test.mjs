@@ -7,6 +7,7 @@ import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHas
   INLAND_SURFACE_STRIDE, stageRiseSlots, stageTemplate } from '../src/world/alpine/StageAssembly.js';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { INLAND_RIVER_FLOW, WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
+import { RIVER_BANK_MAX_BYTES, riverBankDistanceAt } from '../src/world/terrain/RiverBankAtlas.js';
 import { planSongRange, songRangeKey, songReliefJitter } from '../src/world/terrain/SongRangePlan.js';
 import { planDualSummitsScene } from '../src/world/terrain/DualSummitsScene.js';
 import { terrainLyricCue } from '../src/world/alpine/RangeFrame.js';
@@ -126,7 +127,11 @@ test('an inland song stage doubles the existing axes and carries the region and 
   const stage = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG });
   const data = decodeTerrain(stage.manifest, stage.decoded);
   assert.equal(data.tiles.size, 70 * 70);
-  assert.ok(stage.decoded.byteLength < 3.5 * 1024 * 1024);
+  const banks = data.riverBankAtlas;
+  assert.ok(banks && banks.data.byteLength && banks.pageTable.byteLength);
+  assert.equal(banks.byteLength, banks.data.byteLength + banks.pageTable.byteLength);
+  assert.ok(banks.byteLength <= RIVER_BANK_MAX_BYTES);
+  assert.ok(stage.decoded.byteLength - banks.byteLength < 3.5 * 1024 * 1024, 'heights and flow stay within the terrain payload budget');
   assert.ok(stage.manifest.estimatedBytes.mobile.meshBytes < 8 * 1024 * 1024, 'mobile mesh stays within the inland allowance');
   assert.equal(stage.manifest.estimatedBytes.mobile.surfaceTextureBytes,
     Math.round(((grid.width - 1) / INLAND_SURFACE_STRIDE + 1) ** 2 * 16 / 3));
@@ -134,6 +139,14 @@ test('an inland song stage doubles the existing axes and carries the region and 
   const { hydrology } = stage.manifest;
   assert.equal(hydrology.riverFlow, INLAND_RIVER_FLOW);
   assert.ok(hydrology.region.rivers.some(r => r.trunk && r.flown));
+  const trunk = hydrology.region.rivers.find(r => r.trunk);
+  assert.ok(trunk.course.some(([x, z]) => riverBankDistanceAt(banks, x, z) > 10), 'decoded banks follow the flown river');
+  for (const piece of stage.placed) {
+    const [x, z] = piece.peakLocalM;
+    assert.ok(riverBankDistanceAt(banks, x, z) <= 0, 'measured summits stay dry');
+  }
+  const bad = { ...hydrology.riverBankAtlas, byteOffset: stage.decoded.byteLength };
+  assert.throws(() => decodeTerrain({ ...stage.manifest, hydrology: { ...hydrology, riverBankAtlas: bad } }, stage.decoded), /river bank atlas/);
   let wet = 0;
   for (const tile of data.tiles.values()) for (const f of tile.flowBytes) if (f === INLAND_RIVER_FLOW) wet++;
   assert.ok(wet > 500);

@@ -5,6 +5,7 @@ import { bakeTerrain } from '../tools/lib/terrain-bake.mjs';
 import * as Mesh from '../src/world/alpine/TerrainMesh.js';
 import * as Features from '../src/world/alpine/TerrainFeatures.js';
 import * as GL from '../src/world/alpine/TerrainGL.js';
+import { createSceneMaterial } from '../src/world/alpine/TerrainMaterial.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
 import { INLAND_MAX_DRY_FLOW, INLAND_RIVER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { wetTexelMask } from '../src/world/alpine/WaterSubset.js';
@@ -84,6 +85,41 @@ test('async GPU surface retains the same textures, ownership cost and CPU releas
       actual[key].onUpdate();assert.equal(actual[key].image.data,null);
     }
   } finally {for(const v of [expected,actual]){v.texture.dispose();v.receiverTexture.dispose();}}
+});
+
+test('inland terrain binds both bank textures and keeps the legacy receiver bytes', async () => {
+  const data = terrain();
+  data.manifest = { boundsM: { min: [0, -500, 0], max: [320, 500, 320] }, hydrology: { riverFlow: INLAND_RIVER_FLOW } };
+  const legacy = GL.createSurfaceTexture(THREE, data);
+  const bank = { coreSize: 32, width: 33, height: 33, pagesX: 1, pagesZ: 1, originM: [0, 0],
+    texelSizeM: 10, rangeM: 20, data: new Uint8Array(33 * 33), pageTable: Uint8Array.of(1, 0) };
+  const options = { inlandRiver: true, inlandBankCells: bank.coreSize };
+  const oldMaterial = createSceneMaterial(THREE, GL.terrainUniforms(THREE, data, legacy), options);
+  data.riverBankAtlas = bank;
+  const surface = await GL.createSurfaceTextureAsync(THREE, data);
+  const uniforms = GL.terrainUniforms(THREE, data, surface);
+  const material = createSceneMaterial(THREE, uniforms, options);
+  try {
+    assert.equal(oldMaterial.defines.INLAND_BANK_CELLS, undefined);
+    assert.equal(oldMaterial.defines.INLAND_RIVER, 1);
+    assert.equal(material.defines.INLAND_BANK_CELLS, 32);
+    assert.deepEqual(surface.receiverTexture.image.data, legacy.receiverTexture.image.data);
+    assert.equal(surface.bytes - legacy.bytes, bank.data.byteLength + bank.pageTable.byteLength);
+    assert.deepEqual(uniforms.uBankGrid.value.toArray(), [0, 0, .1, 20]);
+    for (const [texture, lane, format, filter] of [
+      [uniforms.uBankDistance.value, bank.data, THREE.RedFormat, THREE.LinearFilter],
+      [uniforms.uBankPages.value, bank.pageTable, THREE.RGFormat, THREE.NearestFilter],
+    ]) {
+      assert.equal(texture.image.data, lane);
+      assert.equal(texture.format, format);
+      assert.equal(texture.minFilter, filter); assert.equal(texture.magFilter, filter);
+      assert.equal(texture.generateMipmaps, false); assert.equal(texture.unpackAlignment, 1);
+      texture.onUpdate(); assert.equal(texture.image.data, null);
+    }
+  } finally {
+    for (const resource of [legacy.texture, legacy.receiverTexture, surface.texture, surface.receiverTexture,
+      surface.bankDistance, surface.bankPages, oldMaterial, material]) resource.dispose();
+  }
 });
 
 test('tour geometry finalization yields between bands while preserving every buffer and bounds', async () => {

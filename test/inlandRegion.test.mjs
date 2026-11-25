@@ -180,6 +180,26 @@ test('a tributary converges when it reaches the larger downhill channel on a sha
   assert.ok(tributary.points.at(-1).z < 0, 'joins near first contact instead of paralleling to the outlet');
 });
 
+test('the generated terrain carries a narrow tributary at its physical bank width', () => {
+  let checked = 0, dryBanks = 0;
+  for (const { points } of region.rivers) {
+    for (let i = 5; i < points.length - 5; i += 25) {
+      const a = points[i - 1], b = points[i], half = (a.channelM + b.channelM) / 2;
+      if (half > 28) continue;
+      const dx = b.x - a.x, dz = b.z - a.z, length = Math.hypot(dx, dz);
+      if (length < 1) continue;
+      for (const side of [-1, 1]) {
+        const sample = offset => region.sample((a.x + b.x) / 2 - dz / length * offset * side,
+          (a.z + b.z) / 2 + dx / length * offset * side);
+        assert.ok(sample(half - 3).wet);
+        if (!sample(half + 6).wet) dryBanks++;
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 50 && dryBanks > .95 * checked, `${dryBanks} dry outer banks of ${checked} sampled`);
+});
+
 test('a ridge between adjacent drainage basins preserves the downstream confluence', () => {
   const n = 31, h = new Float64Array(n*n).fill(2), area = new Int32Array(n*n);
   const rcv = Int32Array.from({ length: n*n }, (_, i) => i);

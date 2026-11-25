@@ -26,7 +26,7 @@ import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, si
 // GraphicsResidency; GPU meshes, the surface texture and render targets are
 // reserved here before creation and released through dispose().
 import { prepareTerrainAssets, RangeAssetError } from './RangeAssets.js';
-import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, createBandGeometriesAsync } from './TerrainGL.js';
+import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, createBandGeometriesAsync, riverBankTextureBytes } from './TerrainGL.js';
 import { syncGustUniforms, syncWaterMusicUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG, useSlotRise } from './TerrainMaterial.js';
 import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
 import { CrestProbe, FINE_FRAG } from './CrestProbe.js';
@@ -127,7 +127,7 @@ export function staticViewBytes(data, est, trees, { budget = 'desktop', landDanc
   const hierarchyCost = grid && landDance ? modes * samples * samples * 4 : 0;
   const mistFlowCost = grid ? modes * MIST_FLOW_MAX_SAMPLES ** 2 * 8 : 0;
   const gridPx = grid ? surfacePixels(grid, staticSurfaceStride(data)) : 0;
-  return 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx
+  return 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + riverBankTextureBytes(data.riverBankAtlas)
     + modes * 2 * 3 * 768 * 6 * 4 + horizonCost + hierarchyCost + mistFlowCost
     + (grid ? riseGroundBytes() + openingCoverageBytes(data) : 0) + forestSpanBytes(trees);
 }
@@ -1235,7 +1235,7 @@ export class RangeScene {
     if (cpu.railOnly || (cpu.owners?.size ?? 1) > 1) return;
     cpu.data = railGroundData(cpu.data);
     cpu.railOnly = true;
-    let bytes = 0;
+    let bytes = riverBankTextureBytes(cpu.data.riverBankAtlas);
     for (const t of cpu.data.tiles.values()) bytes += t.heightsM.byteLength + t.flowBytes.byteLength + (t.validMask?.byteLength || 0);
     this.residency?.shrink(cpu.key, bytes);
   }
@@ -1649,7 +1649,7 @@ export class RangeScene {
         // drainage hierarchy texture, static views only for now.
         const hierarchySamples = HIERARCHY_MAX_SAMPLES[this.budget === 'mobile' ? 'mobile' : 'desktop'];
         const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : modes * hierarchySamples * hierarchySamples * 4;
-        const baseBytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + riseGroundBytes() + MIST_FLOW_MAX_SAMPLES ** 2 * 8
+        const baseBytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + riverBankTextureBytes(data.riverBankAtlas) + featureBudgetBytes + riseGroundBytes() + MIST_FLOW_MAX_SAMPLES ** 2 * 8
           : staticViewBytes(data, est, placed.count, { budget: this.budget, landDance: requestedLandDance() });
         // A static view's build entry still holds its forest construction
         // allowance, which createForest uses only after the surface scratch
@@ -1735,6 +1735,8 @@ export class RangeScene {
             mappedOnly: mappedWaterOnly, stale: () => stale() || signal?.aborted });
           this.renderer?.initTexture?.(surface.texture);
           this.renderer?.initTexture?.(surface.receiverTexture);
+          if (surface.bankDistance) this.renderer?.initTexture?.(surface.bankDistance);
+          if (surface.bankPages) this.renderer?.initTexture?.(surface.bankPages);
           // Reuse the surface build allowance; extra hydrology scratch is
           // optional and cannot evict an active view to make fog fit.
           const flowScratchKey = `range:mist-scratch:${view.id}`;
@@ -1839,6 +1841,7 @@ export class RangeScene {
           canopySummary: this.canopySummary,
           pixelated: this.pixelated ?? opts.pixelated ?? false,
           mappedWaterOnly, inlandRiver: data.manifest.hydrology?.riverFlow === INLAND_RIVER_FLOW,
+          inlandBankCells: data.riverBankAtlas?.coreSize,
           terrainShading: terrainShadingForView(this.terrainShading, view.id) });
         withSlotRise(material, slotRise);
         if (Object.keys(riverGeometries).length) {
@@ -2099,6 +2102,8 @@ export class RangeScene {
           for (const g of waterSubsets?.values() || []) g.dispose();
           surface?.texture?.dispose();
           surface?.receiverTexture?.dispose();
+          surface?.bankDistance?.dispose();
+          surface?.bankPages?.dispose();
           if (!initialWindow) for (const g of Object.values(geos?.geometries || {})) g.dispose();
           if (!initialWindow) for (const g of Object.values(geos?.fringes || {})) g.dispose();
           this.residency?.releaseReservation(buildEntry?.reservation);
@@ -2429,6 +2434,8 @@ export class RangeScene {
     for (const g of p.waterSubsets?.values() || []) g.dispose();
     p.surface?.texture?.dispose();
     p.surface?.receiverTexture?.dispose();
+    p.surface?.bankDistance?.dispose();
+    p.surface?.bankPages?.dispose();
     p.material?.dispose();
     p.riverMaterial?.dispose();
     p.riverDepthMaterial?.dispose();

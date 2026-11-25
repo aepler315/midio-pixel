@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { RangeScene } from '../src/world/alpine/RangeScene.js';
+import { RangeScene, staticViewBytes } from '../src/world/alpine/RangeScene.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 import { shareTerrainLanes } from '../src/world/alpine/TerrainWindowWorkerClient.js';
 import { buildTerrainGeometry } from '../src/world/alpine/TerrainMesh.js';
@@ -20,6 +20,21 @@ function fixture(budgetBytes = 1e9) {
 function raw(data) {
   return { built: buildTerrainGeometry(data, { strides: new Map([['0', 1]]) }), placed: { meshDetail: new Float32Array(), mesh: new Float32Array(), billboard: new Float32Array(), stride: 8, count: 0 }, plan: {} };
 }
+
+test('an inland rail admits both bank textures and retains their decoded CPU bytes', () => {
+  const { scene, data, tile } = fixture();
+  const estimate = { meshBytes: 32, surfaceTextureBytes: 24 };
+  const before = staticViewBytes(data, estimate, 0);
+  const banks = { data: new Uint8Array(33 * 33), pageTable: Uint8Array.of(1, 0) };
+  data.riverBankAtlas = banks;
+  const bytes = banks.data.byteLength + banks.pageTable.byteLength;
+  assert.equal(staticViewBytes(data, estimate, 0) - before, bytes);
+  const cpu = { key: 'inland', data };
+  const entry = scene.residency.reserve({ key: cpu.key, bytes: 65536, owner: 'terrain-cpu' });
+  scene.residency.commit(entry, cpu);
+  scene._keepRailGround(cpu);
+  assert.equal(scene.residency.entries.get(cpu.key).bytes, bytes + tile.heightsM.byteLength + tile.flowBytes.byteLength + tile.validMask.byteLength);
+});
 test('shared lane conversion denies before replacing the first source backing', async () => {
   const { scene, data, tile } = fixture(1); const original = tile.heightsM;
   await assert.rejects(shareTerrainLanes(data, { residency: scene.residency }), /room|budget/i);
