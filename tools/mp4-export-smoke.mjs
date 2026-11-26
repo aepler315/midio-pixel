@@ -86,8 +86,9 @@ export async function runMp4ExportSmoke({ outDir, quick = false, channel = 'chro
   await fs.mkdir(path.dirname(out), { recursive: true });
   await fs.mkdir(out); // Evidence directories are new; never overwrite a run.
   const files = new Map([['/index.html', Buffer.from('<!doctype html><title>MP4 encoder smoke</title><canvas></canvas>')]]);
-  for (const name of ['src/render/Mp4Export.js', 'src/vendor/export/mediabunny.module.js']) {
-    files.set('/' + name, await fs.readFile(path.join(root, name)));
+  // Include transitive browser modules without loading the landscape asset packs.
+  for await (const name of fs.glob('src/**/*.js', { cwd: root })) {
+    files.set('/' + name.split(path.sep).join('/'), await fs.readFile(path.join(root, name)));
   }
   const server = await serveSnapshot({ files });
   let browser;
