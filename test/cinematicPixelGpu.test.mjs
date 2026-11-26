@@ -55,6 +55,21 @@ test('Cinematic WebGL cells preserve pixels through suspension and context resto
             [(x + .5) / 10 - cx - .5, .5 - ((y + .5) / 10 - cy)]).map(value => Math.round(value * 255));
           return { x, y, expected, actual: pixel(outputContext, x, y) };
         });
+        const contours = [];
+        for (const center of [77, 178]) {
+          fill(Array.from({ length: 25 }, (_, i) => {
+            const x=i%5, y=Math.floor(i/5);
+            const level=x<2?0:x>2?255:center;
+            return y<2 ? [level,level,level,255] : [180,80,40,x===2?255-center:level];
+          }));
+          for (const enabled of [true,false]) {
+            outputContext.clearRect(0,0,50,50);
+            if (!pass.draw(outputContext,source,fit,1,enabled)) throw new Error(pass.reason);
+            // Row 0 is antialiased intensity; row 3 is an oppositely moving alpha edge.
+            contours.push({ center, enabled, rgb: Array.from({length:10},(_,x)=>pixel(outputContext,20+x,5)[0]),
+              alpha:Array.from({length:10},(_,x)=>pixel(outputContext,20+x,35)[3]) });
+          }
+        }
         fill(Array.from({ length: 25 }, (_, i) => i === 12 ? [180, 80, 40, 128] : [0, 255, 0, 0]));
         outputContext.clearRect(0, 0, 50, 50);
         if (!pass.draw(outputContext, source, fit)) throw new Error(pass.reason);
@@ -105,13 +120,24 @@ test('Cinematic WebGL cells preserve pixels through suspension and context resto
           pressure = { denied, reason: pressurePass.reason, bytes: pressurePass.bytes, ledger: pressureResidency.usedBytes,
             textureLive: pressurePass.gl.isTexture(texture), programLive: pressurePass.gl.isProgram(program), bufferLive: pressurePass.gl.isBuffer(buffer) };
         } finally { pressurePass.dispose(); }
-        return { gpu, orientation, ramp, alpha, suspension, suspendedLosses, disposalLosses,
+        return { gpu, orientation, ramp, contours, alpha, suspension, suspendedLosses, disposalLosses,
           lostDraw, restoredDraw, restoredReason, restoredPixel, pressure, finalBytes: residency.usedBytes };
       } finally { pass.dispose(); }
     });
     t.diagnostic(`Actual renderer: ${result.gpu}`);
     assert.deepEqual(result.orientation, [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]]);
     for (const point of result.ramp) assert.ok(point.actual.every((value, i) => Math.abs(value - point.expected[i]) <= 1), JSON.stringify(point));
+    for (const {center,enabled,rgb,alpha} of result.contours) {
+      for (const [values,area] of [[rgb,center],[alpha,255-center]]) {
+        assert.ok(Math.abs(values.reduce((a,b)=>a+b,0)/values.length-area)<=1);
+        if (enabled) assert.ok(values.filter(n=>n>1 && n<254).length<=1 && values.includes(0) && values.includes(255));
+        else assert.ok(values.every(n=>Math.abs(n-area)<=1));
+      }
+      if (enabled) {
+        const rgbEdge=rgb.findIndex(n=>n>=128),alphaEdge=alpha.findIndex(n=>n>=128);
+        assert.deepEqual([rgbEdge,alphaEdge],center===77?[7,3]:[3,7]);
+      }
+    }
     assert.deepEqual(result.alpha.left, result.alpha.source);
     assert.deepEqual(result.alpha.right, result.alpha.source);
     assert.deepEqual(result.alpha.transparent, [0, 0, 0, 0]);

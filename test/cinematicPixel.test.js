@@ -24,13 +24,53 @@ test('the slope gain holds the validated boundary residual at every cell width',
   }
   assert.ok(module.cellStrength(6) > module.cellStrength(3) && module.cellStrength(2) < module.CINEMATIC_CELLS.strength, 'wider cells take more slope');
 });
-test('contrasting boundaries, isolated detail and partial coverage retain their nearest color', () => {
+test('hard boundaries, isolated details and unsupported partial coverage retain their nearest color', () => {
   assert.equal(typeof module.cinematicCellColor, 'function');
   const c = [.08,.12,.16,1], bright = [.9,.95,1,1];
   assert.deepEqual(module.cinematicCellColor(c, c, bright, c, c, [.5,0]), c);
   const alpha = [...c.slice(0,3),.5];
   assert.deepEqual(module.cinematicCellColor(alpha, c, bright, c, c, [.5,.5]), alpha);
   assert.deepEqual(module.cinematicCellColor(bright, c, c, c, c, [.5,.5]), bright);
+});
+test('independent opaque and alpha contours move in opposite directions inside their native cells', () => {
+  const color = value => [value, value, value, 1];
+  const alpha = value => [.8, .45, .1, value];
+  const pixels = 16, footprint = [1/pixels, 1/pixels];
+  function row(make, lane, area) {
+    const c = make(area);
+    return Array.from({ length: pixels }, (_, x) => module.cinematicCellColor(
+      c, make(0), make(1), c, c, [(x+.5)/pixels-.5, 0], .8, footprint)[lane]);
+  }
+  for (const [make, lane] of [[color, 0], [alpha, 3]]) {
+    const left = row(make, lane, .7), right = row(make, lane, .3);
+    assert.equal(left.findIndex(v => v > .5), 5);
+    assert.equal(right.findIndex(v => v > .5), 11);
+    for (const [values, fraction] of [[left, .7], [right, .3]]) {
+      const mean = values.reduce((sum, value) => sum+value, 0)/pixels;
+      assert.ok(Math.abs(mean-fraction) < 1e-8);
+      assert.ok(values.filter(value => value > 1e-8 && value < 1-1e-8).length <= 1);
+    }
+    const c=make(.3);
+    assert.deepEqual(module.cinematicCellColor(c,make(0),make(1),c,c,[-.4,0],.8,footprint,false),c);
+  }
+});
+test('oblique contour coverage integrates to its source on rectangular output pixels', () => {
+  const alpha = value => [.9,.3,.2,value];
+  const nx=11, ny=6;
+  for (const area of [.03, .16, .5, .67, .97]) {
+    let sum=0;
+    for (let y=0; y<ny; y++) for (let x=0; x<nx; x++) {
+      const out=module.cinematicCellColor(alpha(area),alpha(0),alpha(1),alpha(.2),alpha(.8),
+        [(x+.5)/nx-.5,(y+.5)/ny-.5],.8,[1/nx,1/ny]);
+      assert.deepEqual(out.slice(0,3),[.9,.3,.2]);
+      assert.ok(out[3]>=0 && out[3]<=1);
+      sum+=out[3];
+    }
+    assert.ok(Math.abs(sum/(nx*ny)-area)<1e-8);
+  }
+  // A third color crossing the edge is an independent mark, not a blend of its neighbors.
+  const green=[0,1,0,1], black=[0,0,0,1], white=[1,1,1,1];
+  assert.deepEqual(module.cinematicCellColor(green,black,white,green,green,[.45,0]),green);
 });
 test('optional gradient pass refuses allocation before making a context, and failure releases its charge', () => {
   assert.equal(typeof module.CinematicPixelRenderer, 'function');
