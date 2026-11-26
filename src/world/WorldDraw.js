@@ -30,7 +30,7 @@ export function particleBlendAlphas(t, openingGain = 1, sameField = false, calle
   return { outgoing: scale * (1 - u), incoming: scale * u };
 }
 
-export function drawParticleBlend(mgr, frame, multiplier = 1, lights) {
+export function drawParticleBlend(mgr, frame, multiplier = 1, lights, cellPx = 0) {
   const { ctx, A, B, t, worldX, originX, particleMul } = frame;
   const { from, to } = mgr.currentBlend || { from: A.name, to: B.name };
   const openA = mgr.openingGain;
@@ -49,7 +49,7 @@ export function drawParticleBlend(mgr, frame, multiplier = 1, lights) {
     if (!(alpha > 0.001)) return;
     ctx.save();
     ctx.globalAlpha = alpha;
-    mgr.fields.get(name)?.draw(ctx, particleMul * multiplier, color, unravel, resolved);
+    mgr.fields.get(name)?.draw(ctx, particleMul * multiplier, color, unravel, resolved, cellPx);
     ctx.restore();
   };
   drawField(from, outgoing);

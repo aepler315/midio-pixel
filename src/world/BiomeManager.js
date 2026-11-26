@@ -2933,7 +2933,7 @@ export class BiomeManager {
     // procedural and on world parallax. View width is the canvas being
     // drawn, not the construction-time stage, so the fit matches the frame.
     const terrain = paint => {
-      if (!(this.directFullResolution && this.rangePresentation?.drawLegacyTerrain?.(ctx, paint))) paint(ctx);
+      if (!(this.directFullResolution && this.rangePresentation?.drawLegacyTerrain?.(ctx, paint, canvas))) paint(ctx);
     };
     const viewW = canvas.width;
     const scrollX0 = this._terrainScroll('L2', worldX, viewW);
@@ -3100,7 +3100,8 @@ export class BiomeManager {
     // opening gain. The geographic seam stays on the ridges.
     ctx.save();
     ctx.globalAlpha = this._rangeSky?.decorativeAlpha ?? 1;
-    drawParticleBlend(this, frame, 1, particleLights);
+    const cellPx = this.directFullResolution && this.freePixelMotion !== false ? this.freePixelCellPx : 0;
+    drawParticleBlend(this, frame, 1, particleLights, cellPx);
     ctx.restore();
     // Music-reactive weather, same mid-depth as the ambient field above --
     // density (and thus fever's boost) comes free from `particleMul`, hue
@@ -3110,7 +3111,7 @@ export class BiomeManager {
       if (weatherField) {
         ctx.save();
         ctx.globalAlpha = openA;
-        weatherField.draw(ctx, this._activeWeatherIntensity * particleMul, mandalaColor, this.unravel, particleLights);
+        weatherField.draw(ctx, this._activeWeatherIntensity * particleMul, mandalaColor, this.unravel, particleLights, cellPx);
         ctx.restore();
       }
     }
