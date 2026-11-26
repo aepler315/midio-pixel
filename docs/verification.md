@@ -48,6 +48,11 @@ weather/mist and graphics diagnostics. Camera position comes from the fixed
 production heard-time schedule; it is not a fabricated screenshot pose.
 
 The fixed corpus disables Building detail so Classic and Detailed remain distinct.
+Both grid sizes use Classic pixel motion. Version-1 visual manifests that
+specify a presentation profile and omit `pixelMotion` replay the original
+Classic placement. Set `pixelMotion` to `free` to capture Free motion.
+The player and the landscape review CLI use Free by default. The Songprint
+upload smoke checks the Free terrain shader on the composed player frames.
 Run existing live/quality-transition tests and `review:landscape --live-seconds N`
 for dynamic grid transitions. Use `review:landscape --grid both --no-mp4` for
 consecutive motion/audio evidence. The fixed corpus does not certify the intended

@@ -14,6 +14,15 @@ const frame = (atMs, over = {}) => ({
   moment: { songSeed: 7, worldId: 'range', displayPrefs: prefs, qualityLevel: 0, atMs, sceneStartMs: 0, continued: false, analysis: 'full' }, ...over,
 });
 
+test('highlight redraw retains the pixel motion of each moment, including older classic captures', () => {
+  const old = frame(1000), free = frame(2000), classic = frame(3000);
+  free.moment.displayPrefs = { ...prefs, pixelMotion: 'free' };
+  classic.moment.displayPrefs = { ...prefs, pixelMotion: 'classic' };
+  const plan = planReelRenders([old, free, classic]);
+  assert.deepEqual(plan.groups.map(g => [g.displayPrefs.pixelMotion, g.items.map(i => i.index)]),
+    [['classic', [0, 2]], ['free', [1]]]);
+});
+
 test('highlight redraw groups retain the camera studio configuration of each moment', () => {
   const a = frame(1000), b = frame(2000), c = frame(3000);
   a.moment.cameraStudioSettings = { enabled: true, preset: 'orbit', distance: .7 };
@@ -50,7 +59,7 @@ test('file names carry the song, the regime, the moment and the size actually dr
 });
 
 test('a frame is reproducible only with its heard time, seed, world and display preferences', () => {
-  assert.deepEqual(reelMoment(frame(9000)), { atMs: 9000, songSeed: 7, worldId: 'range', displayPrefs: prefs, qualityLevel: 0,
+  assert.deepEqual(reelMoment(frame(9000)), { atMs: 9000, songSeed: 7, worldId: 'range', displayPrefs: { ...prefs, pixelMotion: 'classic' }, qualityLevel: 0,
     sceneStartMs: 0, continued: false, analysis: 'full' });
   assert.equal(reelMoment(frame(9000, { moment: null })), null);
   assert.equal(reelMoment(frame(9000, { moment: { ...frame(9000).moment, songSeed: null } })), null);

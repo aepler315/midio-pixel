@@ -290,7 +290,7 @@ export class ParticleField {
    *  Unraveling (Movement V) -- as the song ends, particle hues converge
    *  toward the biome's own halo color. Blended once per draw call, not
    *  per particle. */
-  draw(ctx, mul = 1, haloColor = null, hueBlend = 0, lights = null) {
+  draw(ctx, mul = 1, haloColor = null, hueBlend = 0, lights = null, cellPx = 0) {
     // An empty field has nothing to draw. Without this the Math.max below
     // floors the count at 1, `particles[0]` is undefined, and the first
     // property read off it throws -- which aborts the REST of the frame,
@@ -319,11 +319,30 @@ export class ParticleField {
     const color = haloColor && hueBlend > 0.001 ? hexLerpHsl(this.color, haloColor, clamp01(hueBlend)) : this.color;
     const lighting = !!(lights && lights.length);
     ctx.save();
+    // Discrete grains live in the simulation's continuous coordinates. Give
+    // them the current terrain's cell size but place the solid footprint on
+    // the output raster, so each grain can move between terrain cell centres.
+    const isWind = this.kind === 'wind';
+    const fixedAlpha = isWind ? .4 : this.kind === 'sand' ? .45 : this.kind === 'snow' ? .85 : null;
+    const grain = this.kind === 'snow' || this.kind === 'sand' || this.kind === 'pollen' || this.kind === 'fireflies';
+    const matrix = cellPx > 0 && (grain || isWind) ? ctx.getTransform?.() : null;
+    if (matrix) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = color; }
+    const units = matrix ? Math.hypot(matrix.a, matrix.b) / cellPx : 0;
+    const cellHeight = Math.max(1, Math.round(cellPx));
     const n = Math.max(1, Math.ceil(this.particles.length * density));
     for (let idx = 0; idx < n; idx++) {
       const p = this.particles[idx];
       const boost = lighting ? particleLightAmount(lights, p.x, p.y) : 0;
       const setAlpha = (a) => { ctx.globalAlpha = inherited * (boost ? clamp01(a + boost) : a); };
+      if (matrix) {
+        const x = matrix.a * p.x + matrix.c * p.y + matrix.e, y = matrix.b * p.x + matrix.d * p.y + matrix.f;
+        const cells = isWind ? Math.min(3, Math.max(1, Math.round(Math.abs(p.vx) * .05 * units)))
+          : Math.min(2, Math.max(1, Math.round(p.size * units)));
+        const width = Math.max(1, Math.round(cells * cellPx)), height = isWind ? cellHeight : width;
+        setAlpha(fixedAlpha ?? p.alpha ?? 1);
+        ctx.fillRect(Math.round(x - width / 2), Math.round(y - height / 2), width, height);
+        continue;
+      }
       switch (this.kind) {
         case 'fireflies':
         case 'pollen':
@@ -344,7 +363,7 @@ export class ParticleField {
         }
         case 'snow':
         case 'sand':
-          setAlpha(this.kind === 'sand' ? 0.45 : 0.85);
+          setAlpha(fixedAlpha);
           ctx.fillStyle = color;
           ctx.beginPath();
           ctx.arc(p.x, p.y, p.size * (this.kind === 'sand' ? 0.55 : 0.7), 0, Math.PI * 2);
@@ -453,7 +472,7 @@ export class ParticleField {
           break;
         }
         case 'wind':
-          setAlpha(0.4);
+          setAlpha(fixedAlpha);
           ctx.strokeStyle = color;
           ctx.lineWidth = 1;
           ctx.beginPath();

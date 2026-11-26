@@ -160,7 +160,7 @@ test('paired missing provenance cannot masquerade as compatible evidence', () =>
 
 // Cinematic is the only look: a manifest's presentation normalizes through
 // DisplayProfile to the Cinematic record, which carries no palette or dither.
-const cinematicRecord = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', scaling: 'fit', pixelScale: 'original', buildPixelDetail: false };
+const cinematicRecord = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', pixelMotion: 'classic', scaling: 'fit', pixelScale: 'original', buildPixelDetail: false };
 test('visual manifests accept independent presentation profiles and reject invalid values', () => {
   const presentation = { version: 1, look: 'palette', quality: 'auto', palette: 'range32', dither: .35, scaling: 'integer' };
   const m = normalizeManifest({ ...manifest(), settings: { presentation } });
@@ -179,7 +179,7 @@ test('visual v2 profiles validate any recorded palette and dither and strictly r
   for (const change of [{ arbitrary: true }, { pixelGrid: 'arbitrary' }, { ditherMode: 'animated' }, { palette: 'custom' }, { dither: 2 }]) assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }));
 });
 test('Cinematic capture profiles retain the selected v2 look and grid without extending v1', () => {
-  const presentation = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'classicPlus', pixelScale: 'original', buildPixelDetail: false, scaling: 'fit' };
+  const presentation = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'classicPlus', pixelMotion: 'classic', pixelScale: 'original', buildPixelDetail: false, scaling: 'fit' };
   assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, presentation);
   // A record from before the Palette look's removal still names a palette and dither.
   assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, palette: 'world', dither: .35, ditherMode: 'selective' } } })
@@ -187,6 +187,7 @@ test('Cinematic capture profiles retain the selected v2 look and grid without ex
   const v1 = { version: 1, look: 'cinematic', quality: 'auto', palette: 'range32', dither: .35, scaling: 'fit' };
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: v1 } }), /look/);
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, look: 'cinematics' } } }), /look/);
+  assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelMotion: 'snap' } } }), /pixelMotion/);
 });
 test('Cinematic and Pixel requests remain incompatible in matched revision comparisons', () => {
   const a = report(), b = report();
@@ -205,6 +206,18 @@ test('historical visual manifests retain recorded Depth metadata and reject unsu
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation } }), /retired/);
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelScale: 'random' } } }), /pixelScale/);
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelScale: 'random' } } }, { historical: true }), /pixelScale/);
+});
+test('historical captures predating free motion match only the classic pixel mode', () => {
+  const before = report(), after = report();
+  before.settings.presentation = { ...cinematicRecord };
+  delete before.settings.presentation.pixelMotion;
+  const replay = presentation => normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation;
+  assert.equal(replay(before.settings.presentation).pixelMotion, 'classic');
+  after.settings.presentation = { ...cinematicRecord, pixelMotion: 'classic' };
+  assert.equal(compareReports(before, after).frames.length, 1);
+  after.settings.presentation.pixelMotion = 'free';
+  assert.equal(replay(after.settings.presentation).pixelMotion, 'free');
+  assert.throws(() => compareReports(before, after), /incompatible.*settings/);
 });
 
 test('comparison normalizes valid v1 presentation choices without weakening value validation', () => {

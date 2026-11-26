@@ -28,6 +28,7 @@ import { FOREST_HASH_GLSL, FOREST_TRAITS_GLSL, INLAND_STAND_GLSL } from './Fores
 import { CROWN_GLSL } from './ForestProfile.js';
 import { HORIZON_GLSL } from './TerrainOcclusion.js';
 import { TERRAIN_LIGHTING_GLSL } from './TerrainLighting.js';
+import { TERRAIN_SURFACE_PIXELS_GLSL } from './TerrainSurfacePixels.js';
 import { INLAND_RIVER_FLOW } from './TerrainPackage.js';
 import { ROCK_SHORE_M, SAND_SHORE_M } from '../terrain/RiverBankAtlas.js';
 
@@ -476,6 +477,16 @@ export const SCENE_FRAG = /* glsl */`
   // geometric normal; returns the world-space normal offset in .xyz via
   // whiteout blending and the blended B/A in .ba of the second output.
   struct Tri { vec3 dn; float b; float h; };
+  #ifdef FREE_TERRAIN_PIXELS
+  uniform float uPixelMotionScale;
+  ${TERRAIN_SURFACE_PIXELS_GLSL}
+  vec3 surfacePixelShift;
+  // Change the sample position while keeping the continuous surface's
+  // texture gradients. Cell interiors must not force the finest mip.
+  vec4 surfacePixelTexture(sampler2D t, vec2 uv, vec2 shift) {
+    return textureGrad(t, uv + shift, dFdx(uv), dFdy(uv));
+  }
+  #endif
   // rib < 1 stretches side projections vertically: cliff faces get
   // fluting and gully ribs rather than isotropic blotches.
   Tri triplanarRib(sampler2D t, vec3 p, vec3 n, float scale, float rot, float rib) {
@@ -483,9 +494,16 @@ export const SCENE_FRAG = /* glsl */`
     w /= (w.x + w.y + w.z);
     float c = cos(rot), s = sin(rot);
     mat2 R = mat2(c, -s, s, c);
+    #ifdef FREE_TERRAIN_PIXELS
+    vec3 shift = surfacePixelShift / scale;
+    vec4 tx = surfacePixelTexture(t, R * (vec2(p.z, p.y * rib) / scale), R * vec2(shift.z, shift.y * rib));
+    vec4 ty = surfacePixelTexture(t, R * (p.xz / scale), R * shift.xz);
+    vec4 tz = surfacePixelTexture(t, R * (vec2(p.x, p.y * rib) / scale), R * vec2(shift.x, shift.y * rib));
+    #else
     vec4 tx = texture(t, R * (vec2(p.z, p.y * rib) / scale));
     vec4 ty = texture(t, R * (p.xz / scale));
     vec4 tz = texture(t, R * (vec2(p.x, p.y * rib) / scale));
+    #endif
     vec2 nx = tx.rg * 2.0 - 1.0, ny = ty.rg * 2.0 - 1.0, nz = tz.rg * 2.0 - 1.0;
     // Tangent offsets swizzled into world axes per projection.
     vec3 dn = w.x * vec3(0.0, nx.y, nx.x) + w.y * vec3(ny.x, 0.0, ny.y) + w.z * vec3(nz.x, nz.y, 0.0);
@@ -510,6 +528,12 @@ export const SCENE_FRAG = /* glsl */`
     vec2 dxY = dFdx(uvY), dyY = dFdy(uvY);
     vec2 dxZ = dFdx(uvZ), dyZ = dFdy(uvZ);
     if (!visible) return Tri(vec3(0.0), 0.0, 0.5);
+    #ifdef FREE_TERRAIN_PIXELS
+    vec3 shift = surfacePixelShift / scale;
+    uvX += R * shift.zy;
+    uvY += R * shift.xz;
+    uvZ += R * shift.xy;
+    #endif
     vec4 tx = textureGrad(t, uvX, dxX, dyX);
     vec4 ty = textureGrad(t, uvY, dxY, dyY);
     vec4 tz = textureGrad(t, uvZ, dxZ, dyZ);
@@ -843,9 +867,33 @@ export const SCENE_FRAG = /* glsl */`
     bool paintWater = water && (uWaterOnly > .5 || uSeparateWater < .5);
     float paintWaterAmount = (uWaterOnly > .5 || uSeparateWater < .5) ? waterAmount : 0.0;
     float flowN = clamp(flow / 254.0, 0.0, 1.0);
+    #ifdef FREE_TERRAIN_PIXELS
+    surfacePixelShift = vec3(0.);
+    vec3 pixelNormalDelta = vec3(0.);
+    // Water, exposed shingle, glacier facets and diagnostic/clip passes
+    // keep their own independently filtered surfaces.
+    float pixelLand = (1. - ice.y) * (1. - smoothstep(0., .45, waterCoverage));
+    #ifdef INLAND_RIVER
+    pixelLand *= 1. - max(channel, gravel);
+    #endif
+    if (pixelLand > .001 && uWaterOnly < .5 && uDebugMask == 0 && uDiag < .5 && uClipBelow < -1e8) {
+      vec2 shift = terrainPixelOffset(vWorld.xz, waterDx, waterDy, uPixelMotionScale) * pixelLand;
+      // Follow the local relief on cliff-side projections. The normal map
+      // moves only the visible shading; habitat, occlusion and depth
+      // continue to read the source at the actual fragment.
+      surfacePixelShift = vec3(shift.x, -dot(sourceNormal.xz, shift) / max(.25, sourceNormal.y), shift.y);
+      vec2 uvPerM = (1. - uTexel) / uGridExtent;
+      vec2 nxzPixel = textureGrad(uSurface, uv + shift * uvPerM, waterDx * uvPerM, waterDy * uvPerM).rg * 2. - 1.;
+      vec3 sampleNormal = normalize(vec3(nxzPixel.x, sqrt(max(0., 1. - dot(nxzPixel, nxzPixel))), nxzPixel.y));
+      pixelNormalDelta = sampleNormal - sourceNormal;
+    }
+    #endif
     float h = vWorld.y;
     vec3 albedo;
     vec3 nShade = n;
+    #ifdef FREE_TERRAIN_PIXELS
+    nShade = normalize(nShade + pixelNormalDelta);
+    #endif
     float rough = 0.85;
     #ifdef INLAND_RIVERBED
     float bareMineral = 0.0;
@@ -1015,6 +1063,9 @@ export const SCENE_FRAG = /* glsl */`
         detail *= mix(1.0, .68, smoothstep(6.0, 40.0, footprint));
       }
       nShade = normalize(n + detail);
+      #ifdef FREE_TERRAIN_PIXELS
+      nShade = normalize(n + detail + pixelNormalDelta);
+      #endif
       // The ground's normal lowers with the rise; the painted crowns keep
       // the complete range's, as the mesh trees do.
       nShade = gradNormal(nShade, vRiseGrad.xyz);
@@ -1446,6 +1497,7 @@ export function sceneUniforms(THREE, base) {
     uMistColor: { value: new THREE.Color(0.4, 0.43, 0.48) },
     uCameraPos: { value: new THREE.Vector3() },
     uDiag: { value: 0 },
+    uPixelMotionScale: { value: 1 },
     uHasMaterial: { value: 0 },
     uStorm: { value: new THREE.Vector4() }, uRainSeed: { value: 0 },
     // Forest sway gain and downwind lean (ForestWind), still until set.
@@ -1568,7 +1620,7 @@ function materialFeatureTextureReady(THREE, uniforms) {
 }
 
 export function createSceneMaterial(THREE, uniforms, {
-  forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false,
+  forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false, freePixelMotion = false,
   riverSurface = false, inlandRiver = false, inlandBankCells = 0, mappedWaterOnly = false, deformationGradient = 'factored',
   materialFeatures = 'warp', canopySummary = true,
 } = {}) {
@@ -1584,6 +1636,7 @@ export function createSceneMaterial(THREE, uniforms, {
   if (m.userData.canopySummary) m.defines.CANOPY_SUMMARY = 1;
   m.defines.FAR_FOREST_KMAX = budget === 'mobile' ? 4 : 8;
   if (pixelated) m.defines.PIXEL_MATERIAL_SKIP = 1;
+  if (pixelated && freePixelMotion && !riverSurface) m.defines.FREE_TERRAIN_PIXELS = 1;
   if (forestDebug) m.defines.FOREST_DEBUG = 1;
   if (riverSurface) m.defines.RIVER_SURFACE = 1;
   if (inlandRiver) m.defines.INLAND_RIVER = 1;

@@ -73,6 +73,7 @@ test('anything that is not this frame\'s plain single-sampled depth is redrawn',
     // A live target that is not this side's: it has its own depth texture,
     // so only the identity check stops the copy.
     ['a reallocated target', h => h.record({ target: { width: 320, height: 180, samples: 0, texture: {}, depthTexture: depthTexture() } })],
+    ['offset terrain rays', h => { h.record(); h.scene.depthCache.A.phaseX = .00025; }],
     // The trees' detail moved after the pre-pass (a mirror drawn first in
     // renderWater switches it to the mirror camera).
     ['moved forest detail', h => { h.record({ detail: { key: 'main' } }); h.p.forestDetailState = { key: 'mirror' }; }],

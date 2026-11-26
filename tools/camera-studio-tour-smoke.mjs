@@ -32,7 +32,7 @@ browser.newContext = async options => {
   return context;
 };
 const settings = normalizeManifest({ version: 1, settings: { width: 640, height: 360, seed: 315, quality: 0,
-  tour: 'tetons', pace: 3, view: null, presentation: { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'classic', pixelScale: 'original', scaling: 'fit', buildPixelDetail: false } },
+  tour: 'tetons', pace: 3, view: null, presentation: { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'classic', pixelScale: 'original', pixelMotion: 'free', scaling: 'fit', buildPixelDetail: false } },
   songs: [{ id: 'fixture', fixture: 'contrast' }] }).settings;
 const diagnostics = { errors: [], warnings: [], events: [], loadedFiles: new Set() };
 let loaded;

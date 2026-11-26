@@ -58,7 +58,7 @@ async function exercise(browser, base, scenario) {
   await check('the menu shows the basic controls and both Landscape experiments', async () => {
     for (const id of ['appearance', 'camera', 'landscape', 'playback']) assert.ok(await page.locator(`#settings-${id}`).count(), id);
     for (const id of ['performance', 'experiments']) assert.equal(await page.locator(`#settings-${id}`).count(), 0, id);
-    for (const id of ['display-pixelGrid', 'display-buildPixelDetail', 'display-scaling', 'range-pace', 'range-tour-toggle', 'lyricGroundingBtn', 'camera-studio-toggle', 'songprintLandscape', 'songprintAtmosphere']) {
+    for (const id of ['display-pixelGrid', 'display-buildPixelDetail', 'display-pixelMotion', 'display-scaling', 'range-pace', 'range-tour-toggle', 'lyricGroundingBtn', 'camera-studio-toggle', 'songprintLandscape', 'songprintAtmosphere']) {
       assert.ok(await page.locator(`#${id}`).isVisible(), `${id} visible`);
     }
     assert.equal(await page.locator('#settingsPanel [data-setting]:not([data-tier="basic"])').count(), 0);
@@ -77,7 +77,7 @@ async function exercise(browser, base, scenario) {
         hidden: SETTINGS.filter(d => !isMenuSetting(d)).map(d => ({ id: d.id, rows: rows(d.id) })),
       };
     });
-    assert.equal(placement.total, 62);
+    assert.equal(placement.total, 63);
     assert.ok(placement.menu.length >= 10);
     assert.deepEqual(placement.menu.filter(d => d.rows !== 1), [], JSON.stringify(placement.menu));
     assert.deepEqual(placement.hidden.filter(d => d.rows !== 0), [], JSON.stringify(placement.hidden));
@@ -150,15 +150,28 @@ async function exercise(browser, base, scenario) {
     await page.locator('[data-setting="pixelGrid"] .settingReset').click();
     assert.equal(await page.locator('#display-pixelGrid').inputValue(), 'detailed');
   });
+  await check('Pixel motion persists across reloads and honours a visit-only override', async () => {
+    const control = page.locator('#display-pixelMotion');
+    await control.selectOption('classic');
+    assert.equal(await page.evaluate(() => window.__SMW.displayPrefs.pixelMotion), 'classic');
+    await page.goto(base + '/?pixelMotion=free'); await openSettings();
+    assert.equal(await control.inputValue(), 'free');
+    assert.equal(await page.evaluate(() => window.__SMW.displayPrefs.pixelMotion), 'free');
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('midio-pixel:display:v1')).pixelMotion), 'classic');
+    await page.goto(base + '/'); await openSettings();
+    assert.equal(await control.inputValue(), 'classic');
+    await page.locator('[data-setting="pixelMotion"] .settingReset').click();
+    assert.equal(await control.inputValue(), 'free');
+  });
   await check('Save as my settings keeps URL overrides and clears them from the address', async () => {
-    await page.goto(base + '/?rangePace=4');
+    await page.goto(base + '/?rangePace=2&pixelMotion=classic');
     await openSettings();
     await page.locator('.settingsOverrides button').click();
-    assert.equal(await page.evaluate(() => localStorage.getItem('range-pace')), '4');
+    assert.equal(await page.evaluate(() => localStorage.getItem('range-pace')), '2');
     assert.equal(new URL(page.url()).searchParams.has('rangePace'), false);
     await page.goto(base + '/');
     await openSettings();
-    assert.equal(await page.locator('#range-pace').inputValue(), '4');
+    assert.equal(await page.locator('#range-pace').inputValue(), '2');
   });
   await check('share link carries only non-default settings', async () => {
     await page.locator('#graphicsTroubleshooting > summary').click();
@@ -170,7 +183,8 @@ async function exercise(browser, base, scenario) {
     await page.locator('#copySettingsLink').click();
     const href = await page.locator('.settingsLink').inputValue();
     const params = new URL(href).searchParams;
-    assert.equal(params.get('rangePace'), '4');
+    assert.equal(params.get('rangePace'), '2');
+    assert.equal(params.get('pixelMotion'), 'classic');
     // Every parameter is a setting whose effective value is not its default
     // (choosing a fixed grid earlier turned Build pixel detail off).
     const nonDefault = await page.evaluate(() => window.__SMW.settings.settings.filter(s => s.value !== s.default).map(s => s.id));
@@ -208,7 +222,9 @@ async function exercise(browser, base, scenario) {
     await openSettings();
     await page.locator('.settingsOverrides button').click();
     await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = true; });
-    assert.match(await page.locator('.settingsTable').innerText(), /Camera distance.*1.4/s);
+    const distanceRow = page.locator('[data-diagnostic-setting="cameraStudioDistance"]');
+    await distanceRow.waitFor({ state: 'visible' });
+    assert.match(await distanceRow.innerText(), /Camera distance.*1.4/s);
     await page.locator('#copySettingsLink').click();
     const params = new URL(await page.locator('.settingsLink').inputValue()).searchParams;
     assert.equal(params.get('cameraStudioDistance'), '1.4');
@@ -228,9 +244,9 @@ async function exercise(browser, base, scenario) {
     await page.goto(base + '/');
     await openSettings();
     assert.equal(await page.locator('#camera-studio-toggle').isChecked(), true);
-    const studio = await page.evaluate(() => window.__SMW.cameraStudioSettings);
-    assert.equal(studio.preset, 'sweep');
-    assert.equal(studio.distance, 0.8);
+    const cameraSetting = id => page.evaluate(key => window.__SMW.settings.settings.find(s => s.id === key).value, id);
+    assert.equal(await cameraSetting('cameraStudioPreset'), 'sweep');
+    assert.equal(await cameraSetting('cameraStudioDistance'), 0.8);
     await page.locator('#setting-control-mp4Export').click();
     assert.equal(await page.locator('#videoExportResolution').inputValue(), '2160p');
     assert.equal(await page.locator('#videoExportFps').inputValue(), '60');
@@ -243,8 +259,8 @@ async function exercise(browser, base, scenario) {
     await page.locator('#resetAllSettings').click();
     await page.locator('#resetAllSettings').click();
     assert.equal(await page.locator('#camera-studio-toggle').isChecked(), false);
-    assert.equal(await page.evaluate(() => window.__SMW.cameraStudioSettings.distance), 1);
-    assert.equal(await page.evaluate(() => window.__SMW.cameraStudioSettings.preset), 'rail');
+    assert.equal(await cameraSetting('cameraStudioDistance'), 1);
+    assert.equal(await cameraSetting('cameraStudioPreset'), 'rail');
     await page.locator('#setting-control-mp4Export').click();
     assert.equal(await page.locator('#videoExportResolution').inputValue(), '1080p');
     assert.equal(await page.locator('#videoExportFps').inputValue(), '30');

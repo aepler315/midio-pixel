@@ -97,7 +97,8 @@ export function reelMoment(frame) {
     ...(m.cameraStudioSettings ? { cameraStudioSettings: normalizeCameraStudioSettings(m.cameraStudioSettings) } : {}),
     songSeed: m.songSeed,
     worldId: m.worldId,
-    displayPrefs: { ...m.displayPrefs },
+    // Highlights saved before the motion setting were drawn on the classic grid.
+    displayPrefs: { pixelMotion: 'classic', ...m.displayPrefs },
     qualityLevel: Number.isInteger(m.qualityLevel) && m.qualityLevel >= 0 ? m.qualityLevel : null,
     sceneStartMs: Number.isFinite(m.sceneStartMs) && m.sceneStartMs > 0 ? m.sceneStartMs : 0,
     continued: m.continued === true,

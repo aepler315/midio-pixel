@@ -6,7 +6,7 @@ import { DISPLAY_PREFS_KEY } from '../src/render/DisplayProfile.js';
 
 // Cinematic is the only look. Records saved under the removed Pixel, Palette
 // and Natural looks still migrate; their palette and dither choices drop out.
-const defaults = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', scaling: 'fit', pixelScale: 'original', buildPixelDetail: true };
+const defaults = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', pixelMotion: 'free', scaling: 'fit', pixelScale: 'original', buildPixelDetail: true };
 const v1 = { version: 1, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, scaling: 'integer' };
 test('new and numeric legacy defaults use Cinematic Detailed Uniform with independent Auto quality', () => {
   assert.deepEqual(resolveDisplayPrefs({}), defaults);
@@ -27,7 +27,7 @@ test('validated saved settings take precedence; malformed input has usable defau
   assert.deepEqual(resolveDisplayPrefs({ saved: { ...saved, pixelGrid: 'unknown' } }), { ...saved, pixelGrid: 'detailed' });
 });
 test('the Cinematic presentation keeps pixel grid and quality independent and carries no palette or dither', () => {
-  assert.deepEqual(resolvePresentation(defaults), { pixelated: true, cinematicPixel: true, buildPixelDetail: true,
+  assert.deepEqual(resolvePresentation(defaults), { pixelated: true, cinematicPixel: true, freePixelMotion: true, buildPixelDetail: true,
     grid: { id: 'detailed', width: 640, height: 360, pixels: 230400 }, quality: 'auto', scaling: 'fit', pixelScale: 'original' });
   const economy = resolvePresentation({ ...defaults, pixelGrid: 'classic', quality: 'economy' });
   assert.equal(economy.grid.id, 'classic');
@@ -37,6 +37,13 @@ test('the Cinematic presentation keeps pixel grid and quality independent and ca
     const presentation = resolvePresentation({ ...defaults, look, palette: 'chroma32', dither: 1, ditherMode: 'ordered' });
     assert.equal(presentation.cinematicPixel, true, look);
     for (const removed of ['paletteId', 'dither', 'ditherMode']) assert.equal(removed in presentation, false, `${look}: ${removed}`);
+  }
+});
+test('motion defaults to free and keeps a valid classic choice in the live presentation', () => {
+  for (const pixelMotion of [undefined, 'invalid', 'free', 'classic']) {
+    const resolved = resolveDisplayPrefs({ saved: { ...defaults, pixelMotion } });
+    assert.equal(resolved.pixelMotion, pixelMotion === 'classic' ? 'classic' : 'free');
+    assert.equal(resolvePresentation(resolved).freePixelMotion, pixelMotion !== 'classic');
   }
 });
 test('blocked storage never prevents boot or a settings change', () => {
@@ -105,7 +112,7 @@ test('legacy v2 migration preserves every surviving display option and leaves so
   const records = new Map([['smw:display:v2', JSON.stringify(legacy)], ['smw:display:v1', JSON.stringify(v1)]]);
   const storage = { getItem: k => records.get(k), setItem: (k, v) => records.set(k, v) };
   const migrated = readDisplayPrefs(storage);
-  assert.deepEqual(migrated, { version: 2, look: 'cinematic', quality: 'economy', pixelGrid: 'medium', scaling: 'integer', pixelScale: 'original', buildPixelDetail: false });
+  assert.deepEqual(migrated, { version: 2, look: 'cinematic', quality: 'economy', pixelGrid: 'medium', pixelMotion: 'free', scaling: 'integer', pixelScale: 'original', buildPixelDetail: false });
   writeDisplayPrefs(storage, migrated);
   assert.equal(records.get('smw:display:v2'), JSON.stringify(legacy));
   records.set('smw:display:v2', JSON.stringify({ ...legacy, look: 'pixel', pixelGrid: 'classic' }));

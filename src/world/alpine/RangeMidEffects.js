@@ -25,15 +25,16 @@ export function captureRangeParticles(manager, frame, { mandalaColor, worldX, or
   const weather = manager._activeWeatherIntensity > .01
     ? snapshotField(manager.weatherFields.get(manager.drawnWeatherKind())) : null;
   const intensity = manager._activeWeatherIntensity, mul = frame.particleMul, unravel = manager.unravel;
+  const free = manager.freePixelMotion !== false;
   const rim = manager._perf ? manager._perf.rimLightEnabled : true;
   const lights = rim ? [manager.light, ...groundGlowLights(
     manager.groundField ? manager.groundField.activeGlowScreenLights(worldX, originX) : [], mandalaColor,
   )].filter(Boolean).map(light => ({ ...light })) : null;
-  return ({ ctx }) => {
+  return ({ ctx, cellPx }) => {
     const draw = (field, alpha, density) => {
       if (!field || !(alpha > .001)) return;
       ctx.save(); ctx.globalAlpha = alpha;
-      field.draw(ctx, density, mandalaColor, unravel, lights);
+      field.draw(ctx, density, mandalaColor, unravel, lights, free ? cellPx : 0);
       ctx.restore();
     };
     draw(first, outgoing, mul);
@@ -76,7 +77,7 @@ export class RangeMidEffects {
     c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
     c.clearRect(0, 0, target.width, target.height);
     c.setTransform(s * m[0], s * m[1], s * m[2], s * m[3], fit.x + s * m[4], fit.y + s * m[5]);
-    f.paint({ ...f.frame, ctx: c });
+    f.paint({ ...f.frame, ctx: c, cellPx: s });
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.globalAlpha = 1; c.globalCompositeOperation = 'destination-out';
     c.imageSmoothingEnabled = false;

@@ -225,7 +225,9 @@ test('stepExportClock takes the same whole steps every frame across a long rende
 
 test('bulk display overrides are explicit and validated', () => {
   const opts = parseBulkArgs(['--look', 'cinematic', '--quality', 'economy', '--scaling', 'integer', 'song.wav']);
-  assert.deepEqual(opts.presentation, { version: 2, look: 'cinematic', quality: 'economy', pixelGrid: 'detailed', scaling: 'integer', pixelScale: 'original', buildPixelDetail: false });
+  assert.deepEqual(opts.presentation, { version: 2, look: 'cinematic', quality: 'economy', pixelGrid: 'detailed', pixelMotion: 'free', scaling: 'integer', pixelScale: 'original', buildPixelDetail: false });
+  assert.equal(parseBulkArgs(['--pixel-motion=classic', 'song.wav']).presentation.pixelMotion, 'classic');
+  assert.throws(() => parseBulkArgs(['--pixel-motion', 'snap', 'song.wav']), /--pixel-motion must be free, classic/);
   assert.equal(parseBulkArgs(['song.wav']).presentation, null);
   assert.throws(() => parseBulkArgs(['--look', 'bad']), /look/);
   // --look stays for older scripts, but Cinematic is the only look.
@@ -240,7 +242,7 @@ test('bulk export rejects the removed palette, dither and dither-style options w
 });
 test('bulk export round trips every explicit grid with the v2 Cinematic profile', () => {
   for (const pixelGrid of ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed']) {
-    const expected = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid, scaling: 'integer', pixelScale: 'original', buildPixelDetail: false };
+    const expected = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid, pixelMotion: 'free', scaling: 'integer', pixelScale: 'original', buildPixelDetail: false };
     assert.deepEqual(parseBulkArgs(['song.wav', '--look', 'cinematic', '--quality', 'auto', '--pixel-grid', pixelGrid, '--scaling', 'integer']).presentation, expected);
     assert.deepEqual(parseBulkArgs(['song.wav', `--pixel-grid=${pixelGrid}`, '--scaling=integer']).presentation, expected, 'without --look');
   }

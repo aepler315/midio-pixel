@@ -375,13 +375,13 @@ export function parseBulkArgs(argv) {
       i = got.next;
       continue;
     }
-    const displayKey = ['look', 'quality', 'pixel-grid', 'scaling'].find(key => token === `--${key}` || token.startsWith(`--${key}=`));
+    const displayKey = ['look', 'quality', 'pixel-grid', 'pixel-motion', 'scaling'].find(key => token === `--${key}` || token.startsWith(`--${key}=`));
     if (displayKey) {
       const got = takeOption(args, i, `--${displayKey}`);
-      const choices = { look: ['cinematic'], quality: ['auto', 'economy'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
+      const choices = { look: ['cinematic'], quality: ['auto', 'economy'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], 'pixel-motion': ['free', 'classic'], scaling: ['fit', 'integer'] };
       if (!choices[displayKey].includes(got.value)) throw new Error(`--${displayKey} must be ${choices[displayKey].join(', ')}`);
       opts.presentation ??= { ...DEFAULT_DISPLAY_PREFS, buildPixelDetail: false };
-      const key = { 'pixel-grid': 'pixelGrid' }[displayKey] || displayKey;
+      const key = { 'pixel-grid': 'pixelGrid', 'pixel-motion': 'pixelMotion' }[displayKey] || displayKey;
       opts.presentation[key] = got.value;
       if (key === 'pixelGrid') gridChosen = true;
       i = got.next;
@@ -427,6 +427,7 @@ Options
   --quality <mode>     auto or economy
   --pixel-grid <grid>  classic (320×180), classicPlus (400×225, 1.56× the pixel work), medium (480×270, 2.25× the pixel work), mediumPlus (560×315, 3.06×) or detailed (640×360, four times); default detailed
   --scaling <mode>     fit or integer
+  --pixel-motion <mode> free (default) or classic
   --help
 
 Needs ffmpeg on PATH with libx264. Audio is re-encoded to AAC at 192 kbps.

@@ -20,6 +20,7 @@ test('review defaults are bounded, Uniform, continuous and headless only', () =>
   assert.equal(manifest.settings.startMs, 12000);
   assert.equal(manifest.settings.presentation.look, 'cinematic');
   assert.equal(manifest.settings.presentation.pixelGrid, 'detailed');
+  assert.equal(manifest.settings.presentation.pixelMotion, 'free');
   assert.equal(manifest.settings.presentation.pixelScale, 'original');
   assert.deepEqual(manifest.songs[0].clips, [{ startMs: 12000, durationMs: 2000 }]);
   assert.equal(args.liveSeconds, 0);assert.equal(parseReviewArgs(['--out','x','--ablate-aurora']).ablateAurora,true);

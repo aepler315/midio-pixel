@@ -22,6 +22,32 @@ function fixture({ ink = 0, shafts = false } = {}) {
 }
 const frame = { frameId: 1, qualityLevel: 0, light: { celestial: { body: 'sun', visibility: 1, intensity: 1, xFrac: .5, yFrac: .2 } } };
 
+test('direct terrain depth and shaft occlusion share the terrain phase while water and travel keep nominal rays', () => {
+  const { s }=fixture({shafts:true});
+  s.directTerrainMode=s.freePixelMotion=true;
+  s.pixelMotionScale=1.5;
+  s.target.depthTexture={};
+  const view=s.prepared.get('probe').view;
+  view.camera={targetStartM:[-3.2,86,-1800]};
+  s.camera.position.set(81,150,15); s.camera.lookAt(0,100,-4000); s.camera.updateMatrixWorld();
+  const nominal=s.camera.projectionMatrix.clone(), sampled=[];
+  s.renderer.render=(_scene,cam)=>{ if (cam===s.camera) sampled.push([...cam.projectionMatrix.elements]); };
+  let light;
+  s.shafts.render=(_renderer,_side,sun)=>{ light=sun;return false; };
+  const current={...frame,scenicViewport:{logicalWidth:960,logicalHeight:960,overscanPx:16}};
+  s.renderPartition(current,'far','probe',{pixelPhase:true});
+  const shift=s.partitionPixelOffset;
+  assert.ok(shift && (shift.x || shift.y));
+  assert.equal(light.xFrac,frame.light.celestial.xFrac-shift.x);
+  assert.equal(light.yFrac,frame.light.celestial.yFrac-shift.y);
+  assert.ok(sampled.some(m=>m[8]===nominal.elements[8]+2*shift.x && m[9]===nominal.elements[9]-2*shift.y));
+  assert.deepEqual(s.camera.projectionMatrix.elements,nominal.elements);
+  assert.equal(s._sharedDepth('A',current,'probe'),null);
+  s.renderPartition(current,'mid','probe',{pixelPhase:false});
+  assert.equal(s.partitionPixelOffset,null);
+  assert.ok(s._sharedDepth('A',current,'probe'));
+});
+
 function snapshotFixture({ budgetBytes = 1024 ** 2, ...options } = {}) {
   // Visible ink: every partition draws the hard forest (crown cut) pass.
   const f = fixture({ ink: .02, ...options }), { s } = f;

@@ -65,7 +65,7 @@ import { createRenderReadyPlayback, waitForScenicReady } from './render/RenderRe
 import { stageOutputSize } from './render/RenderOutputSize.js';
 import { PixelPresentation, fitPixelRect } from './render/PixelPresentation.js';
 import { FrameCadence } from './render/FrameCadence.js';
-import { readDisplayPrefs, writeDisplayPrefs, resolvePresentation, resolveDisplayPrefs } from './render/DisplayProfile.js';
+import { readDisplayPrefs, writeDisplayPrefs, resolvePresentation } from './render/DisplayProfile.js';
 import { emaFps, resolveFpsHudVisible, PresentedFpsMeter } from './render/FpsMeter.js';
 import { LoadingShow } from './ui/LoadingShow.js';
 import { TitleBackdrop } from './ui/TitleBackdrop.js';
@@ -420,7 +420,7 @@ writeDisplayPrefs(displayStorage(), displayPrefs);
 // The effective preferences: a URL override applies to this visit only, so
 // it is merged after the saved record is migrated and written back.
 generalQuality = settings.get('maxQuality');
-displayPrefs = { ...displayPrefs, pixelGrid: settings.get('pixelGrid'), scaling: settings.get('scaling'),
+displayPrefs = { ...displayPrefs, pixelGrid: settings.get('pixelGrid'), pixelMotion: settings.get('pixelMotion'), scaling: settings.get('scaling'),
   buildPixelDetail: settings.get('buildPixelDetail') };
 let presentation = resolvePresentation(displayPrefs);
 const displayControls = Object.fromEntries(['pixelGrid', 'scaling', 'buildPixelDetail'].map(key => [key, document.getElementById(`display-${key}`)]));
@@ -671,7 +671,7 @@ function applyGeneralQuality(quality) {
 function syncDisplayControls() {
   // The generated controls show the store's values; a snapshot's temporary
   // level is never displayed or saved as the player's.
-  for (const id of ['pixelGrid', 'buildPixelDetail', 'scaling']) settingsPanel.syncRow(id);
+  for (const id of ['pixelGrid', 'buildPixelDetail', 'pixelMotion', 'scaling']) settingsPanel.syncRow(id);
   const grid = document.getElementById('pixelGridHint');
   const selectedGrid = presentation.grid;
   if (grid) { grid.hidden = false; grid.textContent = displayPrefs.buildPixelDetail
@@ -891,6 +891,7 @@ const SETTING_APPLIERS = {
   mp4Resolution: () => syncVideoOutputSettings(),
   mp4Fps: () => syncVideoOutputSettings(),
   pixelGrid: value => applyDisplayPref('pixelGrid', value),
+  pixelMotion: value => applyDisplayPref('pixelMotion', value),
   buildPixelDetail: value => { if (displayPrefs.buildPixelDetail !== value) applyDisplayPref('buildPixelDetail', value); },
   scaling: value => applyDisplayPref('scaling', value),
   maxQuality: value => applyGeneralQuality(value),
@@ -963,7 +964,7 @@ function setSettingValue(id, value) {
 /** Why a control cannot change right now, or null. */
 function settingBlockedReason(id) {
   try {
-    if ((id === 'pixelGrid' || id === 'buildPixelDetail' || id === 'scaling') && snapshotBusy) return 'Unavailable while snapshots are being saved.';
+    if ((id === 'pixelGrid' || id === 'buildPixelDetail' || id === 'pixelMotion' || id === 'scaling') && snapshotBusy) return 'Unavailable while snapshots are being saved.';
     if (id === 'rangePace' && (bulkExportArmed || reelSaver.busy)) return 'Unavailable while frames are being exported or saved.';
     if (videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return 'Unavailable while video or snapshots are being saved.';
     return null;
@@ -1713,7 +1714,7 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
     cameraTourMode: cameraTourMode ?? currentCameraTourMode(),
     cameraStudioSettings: normalizeCameraStudioSettings(cameraStudio),
     exportSize: size,
-    exportPresentation: override ? resolvePresentation(resolveDisplayPrefs({ saved: override })) : { ...effectivePresentation() },
+    exportPresentation: override ? resolvePresentation(override) : { ...effectivePresentation() },
     exportQualityLevel: Number.isInteger(qualityLevel) && qualityLevel >= 0 ? qualityLevel : perfGovernor?.level ?? perfStartLevel,
     startAtMs: 0,
     fitDiagnostic: lastFitDiagnostic,
@@ -5571,7 +5572,7 @@ async function renderSongMp4() {
   const data = lastTimelineData, audioBuffer = lastAudioBuffer, generation = loadGen;
   const settings = videoOutputSettings();
   const studio = normalizeCameraStudioSettings(cameraStudioSettings);
-  const display = { ...effectivePresentation() }, qualityLevel = renderQualityLevel(generalQuality);
+  const display = { ...displayPrefs }, qualityLevel = renderQualityLevel(generalQuality);
   const filename = mp4ExportFileName({ songName: sessionSongName(data, lastSongName), settings });
   // Invoke the picker during the click's user activation. The writable itself
   // is opened after codec/analysis readiness, and aborted on unsuccessful work.

@@ -78,14 +78,14 @@ for (const [width, height] of [[2560, 1080], [800, 600]]) {
         'terrain must extend through the bottom-right screen edge');
     } };
     const renderer = createPresentingRenderer({ canvas: out,
-      presentation: { ...presentation, scaling: 'cover' }, rendererFactory: () => inner });
+      presentation: { ...presentation, freePixelMotion: false, scaling: 'cover' }, rendererFactory: () => inner });
     assert.equal(renderer.draw({ biomes: { world: { kind: 'alpine' } } }, 0).presented, true);
     renderer.dispose();
   });
 }
 
 
-test('terrain grid is aligned to output despite camera rotation and translation', () => {
+test('Classic motion aligns terrain cells to the output under rotation and translation', () => {
   const out = canvas(), scene = {}, range = { enabled: true };
   const inner = { canvasRenderer: scene, rangePresentation: range, dispose() {}, draw() {
     scene.ctx.getTransform = () => ({ a: 1.8, b: .3, c: -.3, d: 1.8, e: 23, f: 42 });
@@ -95,8 +95,27 @@ test('terrain grid is aligned to output despite camera rotation and translation'
     assert.deepEqual(scene.canvas.transforms.at(-1), [1, 0, 0, 1, 0, 0]);
     assert.deepEqual(scene.canvas.calls.at(-1).args.slice(1), [0, 0, 1280, 720]);
   } };
-  const renderer = createPresentingRenderer({ canvas: out, presentation, rendererFactory: () => inner });
+  const renderer = createPresentingRenderer({ canvas: out, presentation: { ...presentation, freePixelMotion: false }, rendererFactory: () => inner });
   renderer.draw({ biomes: { world: { kind: 'alpine' } } }, 0);
+  renderer.dispose();
+});
+
+test('free terrain carries fractional translation and roll through the final layer copy', () => {
+  const out = canvas(), scene = {}, range = { enabled: true };
+  const angle = .08, cos = Math.cos(angle), sin = Math.sin(angle);
+  const stage = { width: 1408, height: 848 };
+  let phase = .25;
+  const inner = { canvasRenderer: scene, rangePresentation: range, dispose() {}, draw() {
+    scene.ctx.getTransform = () => ({ a: cos, b: sin, c: -sin, d: cos, e: -64 + phase, f: -64.5 });
+    range.drawTerrainImage(scene.ctx, { width: 352, height: 212 }, stage);
+    const [source, x, y, width, height] = scene.canvas.calls.at(-1).args;
+    assert.deepEqual([x, y, width, height], [0, 0, stage.width, stage.height]);
+    assert.deepEqual([source.width, source.height], [352, 212]);
+    assert.deepEqual(source.transforms.at(-2), [.25, 0, 0, .25, 0, 0]);
+    assert.deepEqual(scene.canvas.transforms.at(-1), [cos, sin, -sin, cos, -64 + phase, -64.5]);
+  } };
+  const renderer = createPresentingRenderer({ canvas: out, presentation: { ...presentation, freePixelMotion: true }, rendererFactory: () => inner });
+  for (phase of [.25, .5, .75]) assert.equal(renderer.draw({ biomes: { world: { kind: 'alpine' } }, perf: { level: 2 } }, 1).presented, true);
   renderer.dispose();
 });
 
