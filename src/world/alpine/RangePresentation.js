@@ -56,6 +56,11 @@ function coverageScale(native, displayScale, quality, budget) {
     Math.sqrt(maxPixels / (native.backingWidth * native.backingHeight))));
 }
 
+function hybridWaterScale(output, grid) {
+  return Math.min(output.width / grid.width, output.height / grid.height,
+    1920 / grid.width, 1080 / grid.height);
+}
+
 export const RANGE_RENDERER_MODES = Object.freeze(['legacy', 'v2']);
 export const RANGE_DEFAULT_MODE = 'v2';
 const ASSET_BASE = new URL('../../assets/range/v2/', import.meta.url).href;
@@ -1039,7 +1044,8 @@ export class RangePresentation {
     const scratchVp = this.directTerrainMode && this.outputSize ? { ...vp,
       backingWidth: Math.max(vp.backingWidth, this.outputSize.width),
       backingHeight: Math.max(vp.backingHeight, this.outputSize.height) } : vp;
-    const wetA = this.directTerrainMode && (!this.scene.hasWater || this.scene.hasWater(view.id));
+    const needsWater = this.directTerrainMode || (this.waterOutputSize && !incoming);
+    const wetA = needsWater && (!this.scene.hasWater || this.scene.hasWater(view.id));
     const wetB = this.directTerrainMode && incoming && (!this.scene.hasWater || this.scene.hasWater(incoming.id));
     const frameViews = incoming ? [view.id, incoming.id] : view.id;
     const previousTarget = this.scene.target;
@@ -1172,11 +1178,19 @@ export class RangePresentation {
       let extra = deficit('range:render-target', sceneTargetBytes(w, h));
       if (travel) extra += deficit('range:render-target-B', sideTargetBytes(w, h))
         + deficit(TRAVEL_SCRATCH_KEY, travel.backingWidth * travel.backingHeight * 4);
-      if (wet && this.outputSize) {
+      if (wet && this.directTerrainMode && this.outputSize) {
         const waterW = Math.round(w * displayScale / scale), waterH = Math.round(h * displayScale / scale);
         const waterKey = waterW === w && waterH === h ? 'range:water-native-mask' : 'range:water-output';
         extra += deficit(waterKey, sceneTargetBytes(waterW, waterH))
           + deficit(WATER_LAYER_KEY, this.outputSize.width * this.outputSize.height * 4);
+      } else if (wet && this.waterOutputSize && grid) {
+        const waterScale = hybridWaterScale(this.waterOutputSize, grid);
+        const waterW = Math.round(w * waterScale / scale), waterH = Math.round(h * waterScale / scale);
+        extra += deficit('range:water-native-mask', sceneTargetBytes(w, h))
+          + deficit(WATER_LAYER_KEY, Math.round(grid.width * waterScale) * Math.round(grid.height * waterScale) * 4)
+          + deficit(WATER_EFFECT_MASK_KEY, grid.width * grid.height * 4)
+          + deficit(WATER_SHORE_MASK_KEY, grid.width * grid.height * 4);
+        if (waterW !== w || waterH !== h) extra += deficit('range:water-output', sceneTargetBytes(waterW, waterH));
       }
       if (extra > 0 && extra > this.residency.budgetBytes - this.residency.usedBytes) {
         this._deniedCoverage = key;
@@ -1709,8 +1723,7 @@ export class RangePresentation {
     this.waterLayer = null;
     if (openingOcean01(this.frame?.rise01) >= 1) { this._releaseWater(); return; }
     if (!this.waterOutputSize || !this.waterEffectMask || this.incomingViewId || this.arrival < .999 || !this.scene?.renderWater) return;
-    const scale = Math.min(this.waterOutputSize.width / ctx.canvas.width, this.waterOutputSize.height / ctx.canvas.height,
-      1920 / ctx.canvas.width, 1080 / ctx.canvas.height);
+    const scale = hybridWaterScale(this.waterOutputSize, ctx.canvas);
     const w = Math.max(2, Math.round(ctx.canvas.width * scale)), h = Math.max(2, Math.round(ctx.canvas.height * scale));
     let c = this._waterCanvas;
     if (!c || c.width !== w || c.height !== h || this.residency && this.residency.get(WATER_LAYER_KEY) !== c) {

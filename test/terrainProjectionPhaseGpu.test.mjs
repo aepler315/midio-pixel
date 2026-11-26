@@ -22,7 +22,7 @@ test('direct pixel camera pan advances two visible cliff edges without reversing
     await page.goto('http://terrain-pan.test/');
     const traces = await page.evaluate(async () => {
       const T = await import('/src/vendor/range/three-range.module.js');
-      const { terrainProjectionPhase, applyPartitionPixelOffset } = await import('/src/world/alpine/TerrainProjectionPhase.js');
+      const { RangeScene } = await import('/src/world/alpine/RangeScene.js');
       const { PresentingRenderer } = await import('/src/render/PresentingRenderer.js');
       const { GraphicsResidency } = await import('/src/render/GraphicsResidency.js');
       const out = document.createElement('canvas');
@@ -36,6 +36,7 @@ test('direct pixel camera pan advances two visible cliff edges without reversing
         output:{ presentation, grid:{ width:out.width/4, height:out.height/4 }, residency:new GraphicsResidency() } });
       const renderer = new T.WebGLRenderer({ alpha:true, antialias:false, preserveDrawingBuffer:true });
       renderer.setSize(width,height,false);
+      renderer.autoClear = false;
       const camera = new T.PerspectiveCamera(45,stage.width/stage.height,.1,2000);
       const reference = { eyeStartM:[0,0,0], targetStartM:[4,0,-200] };
       function cliff(x,z,top,color) {
@@ -48,6 +49,16 @@ test('direct pixel camera pan advances two visible cliff edges without reversing
       }
       const far = cliff(45,-600,800,0xff0000), near = cliff(4,-200,0,0x00ff00);
       far.background = new T.Color(0x0000ff);
+      const prepared = { view:{camera:reference}, depthScene:new T.Scene(), scenes:{far,near},
+        uniforms:{uNarrativeInk:{value:0},uBackdropAmount:{value:0},uDiag:{value:0}} };
+      const range = Object.assign(Object.create(RangeScene.prototype), {
+        THREE:T, renderer, canvas:renderer.domElement, camera, size:{width,height}, stats:{depthPasses:0,partitions:0},
+        prepared:new Map([['cliffs',prepared]]), depthCache:{A:{frame:-1}}, directTerrainMode:true, pixelated:true,
+        _setCamera:()=>{camera.updateProjectionMatrix();camera.updateMatrixWorld(true);},
+        _setUniforms(){}, _prepareMirror(){}, _updateForestDetail(){}, _shaftSource(){return null;},
+      });
+      range._copy=range._createCopy();
+      range.target=range._scenicTarget(width,height);
       function edge(y,channel) {
         const row = ctx.getImageData(0,y,out.width,1).data;
         let last = -1;
@@ -67,22 +78,24 @@ test('direct pixel camera pan advances two visible cliff edges without reversing
         for (let i=0;i<25;i++) {
           camera.position.set(yaw?0:i*.48,0,0);
           camera.rotation.set(0,yaw?-i*quarterCell:0,0);
-          camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
-          const phase=free?terrainProjectionPhase(camera,reference,width,height,viewport):null;
-          if (phase) applyPartitionPixelOffset(camera,phase);
+          range.freePixelMotion=free;
           presentation.freePixelMotion=free;
           ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,out.width,out.height);
           ctx.translate(-margin,-margin);
-          if (phase) ctx.translate(phase.x*stage.width,phase.y*stage.height);
-          for (const scene of [far,near]) {
-            renderer.render(scene,camera);
-            presenter._drawDirectTerrain(ctx,renderer.domElement,stage,{width,height},2);
+          const frame={frameId:i+1,qualityLevel:2,scenicViewport:viewport};
+          for (const pass of ['far','near']) {
+            const image=range.renderPartition(frame,pass,'cliffs',{pixelPhase:free});
+            const phase=range.partitionPixelOffset;
+            ctx.save();
+            if (phase) ctx.translate(phase.x*stage.width,phase.y*stage.height);
+            presenter._drawDirectTerrain(ctx,image,stage,{width,height},2);
+            ctx.restore();
           }
           rows.push([edge(30,0),edge(142,1)]);
         }
         traces.push({cropped,yaw,free,rows});
       }
-      presenter._releaseDirect(); renderer.dispose();
+      range.target.dispose(); presenter._releaseDirect(); renderer.dispose();
       return traces;
     });
     for (const trace of traces) for (const band of [0,1]) {
