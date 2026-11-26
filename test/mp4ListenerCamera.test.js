@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { RangeUserCamera } from '../src/world/alpine/RangeCamera.js';
+import { DEFAULT_DISPLAY_PREFS, resolvePresentation } from '../src/render/DisplayProfile.js';
 import { normalizeCameraStudioSettings } from '../src/world/alpine/CameraStudio.js';
 import { VideoExportSession, waitForExport } from '../src/ui/VideoExportSession.js';
 
@@ -33,7 +34,7 @@ for (const outcome of ['complete', 'cancelled', 'error']) {
       videoStatus: {}, videoDownload: element(), videoDownloadUrl: null,
       videoOutputSettings: () => ({ width: 640, height: 360, fps: 30 }),
       cameraStudioSettings: normalizeCameraStudioSettings({ enabled: true }), normalizeCameraStudioSettings,
-      effectivePresentation: () => ({}), renderQualityLevel: () => 0, generalQuality: 'high',
+      displayPrefs: { ...DEFAULT_DISPLAY_PREFS, pixelMotion: 'classic', pixelGrid: 'medium' }, renderQualityLevel: () => 0, generalQuality: 'high',
       mp4ExportFileName: () => 'test.mp4', sessionSongName: () => 'test', lastSongName: 'test',
       window: {}, continuousPlayback: { cancel() {} }, waitForExport, DOMException,
       estimateMp4ExportBytes: () => 1, MAX_MP4_BUFFER_BYTES: 512 * 1024 * 1024,
@@ -44,7 +45,7 @@ for (const outcome of ['complete', 'cancelled', 'error']) {
       loaderEl: element(), hudEl: element(), rangeNavigationEl: element(), renderer: { hudInFrame: false },
       rangePresentation: null, renderReadyPromise: Promise.resolve(), syncKeepAwake() {}, syncCameraStudio() {}, updatePauseButtonUI() {},
       cameraScheduleKey: () => 'test', evenExportSize: ({ w, h }) => ({ w, h }),
-      resolvePresentation: value => value, resolveDisplayPrefs: ({ saved }) => saved,
+      resolvePresentation,
       perfGovernor: null, perfStartLevel: 0, lastFitDiagnostic: null, canvas: { width: 1280, height: 720 },
       conductor: { durationMs: 12000 }, sim: {}, rangeUserCamera: camera,
       startTimeline(data, options) {
@@ -52,8 +53,11 @@ for (const outcome of ['complete', 'cancelled', 'error']) {
         if (!options.keepUserCamera) camera.reset();
         context.bulkExportArmed = !!options.exportMode;
         context.sim = { songSeed: 315, worldId: data.worldId };
-        if (options.exportMode) Object.assign(context.canvas, { width: options.exportSize.w, height: options.exportSize.h });
-        else restored = true;
+        if (options.exportMode) {
+          assert.equal(options.exportPresentation.freePixelMotion, false, 'MP4 honours the selected motion mode');
+          assert.equal(options.exportPresentation.grid.id, 'medium', 'MP4 honours the live grid choice');
+          Object.assign(context.canvas, { width: options.exportSize.w, height: options.exportSize.h });
+        } else restored = true;
       },
       endReelRender() { context.bulkExportArmed = false; },
       exportMp4: async (options) => {

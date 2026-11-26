@@ -12,7 +12,7 @@ export const CINEMATIC_PIXEL_GRID = 'detailed';
 /** Cinematic is the only look: the Pixel and Palette looks (and with them
  *  palettes and dither) were removed. `look` stays in the record so older
  *  builds and saved records keep reading it. */
-export const DEFAULT_DISPLAY_PREFS = Object.freeze({ version: 2, look: 'cinematic', quality: 'auto', pixelGrid: CINEMATIC_PIXEL_GRID, scaling: 'fit', pixelScale: 'original', buildPixelDetail: true });
+export const DEFAULT_DISPLAY_PREFS = Object.freeze({ version: 2, look: 'cinematic', quality: 'auto', pixelGrid: CINEMATIC_PIXEL_GRID, pixelMotion: 'free', scaling: 'fit', pixelScale: 'original', buildPixelDetail: true });
 /** The detail level used when none was chosen. */
 export const defaultGridFor = () => CINEMATIC_PIXEL_GRID;
 const PIXEL_GRIDS = ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'];
@@ -27,7 +27,7 @@ export function resolveDisplayPrefs({ saved, legacyStagePreset } = {}) {
   const defaults = { ...DEFAULT_DISPLAY_PREFS };
   if (validRecord(prefs)) {
     const old = prefs.version === 1;
-    const choices = { quality: ['auto', 'economy'], pixelGrid: PIXEL_GRIDS, scaling: ['fit', 'integer'] };
+    const choices = { quality: ['auto', 'economy'], pixelGrid: PIXEL_GRIDS, pixelMotion: ['free', 'classic'], scaling: ['fit', 'integer'] };
     for (const [key, values] of Object.entries(choices)) if (values.includes(prefs[key]) && !(old && key === 'pixelGrid')) defaults[key] = prefs[key];
     // A detail level saved under the removed Pixel and Palette looks was
     // nearly always their Classic default, so those records start at
@@ -55,6 +55,6 @@ export function writeDisplayPrefs(storage, prefs) {
 }
 export function resolvePresentation(prefs) {
   const p = resolveDisplayPrefs({ saved: prefs });
-  return { pixelated: true, cinematicPixel: true, buildPixelDetail: p.buildPixelDetail, grid: pixelGrid(p.pixelGrid),
+  return { pixelated: true, cinematicPixel: true, freePixelMotion: p.pixelMotion === 'free', buildPixelDetail: p.buildPixelDetail, grid: pixelGrid(p.pixelGrid),
     quality: p.quality, scaling: p.scaling, pixelScale: p.pixelScale };
 }

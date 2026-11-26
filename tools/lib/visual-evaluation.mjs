@@ -41,7 +41,7 @@ export function normalizeManifest(value, { historical = false } = {}) {
   if (settings.presentation != null) {
     const p = settings.presentation;
     const old = p.version === 1;
-    keys(p, ['version', 'look', 'quality', 'palette', 'dither', 'scaling', ...(old ? [] : ['ditherMode', 'pixelGrid', 'pixelScale', 'buildPixelDetail'])], 'presentation');
+    keys(p, ['version', 'look', 'quality', 'palette', 'dither', 'scaling', ...(old ? [] : ['ditherMode', 'pixelGrid', 'pixelScale', 'pixelMotion', 'buildPixelDetail'])], 'presentation');
     assert.ok([1, 2].includes(p.version), 'invalid presentation version');
     assert.ok((old ? ['pixel', 'palette'] : ['pixel', 'palette', 'cinematic']).includes(p.look), 'invalid pixel-only look');
     assert.ok(['auto', 'economy'].includes(p.quality), 'invalid quality');
@@ -56,6 +56,7 @@ export function normalizeManifest(value, { historical = false } = {}) {
       if (p.ditherMode != null) assert.ok(['ordered', 'selective'].includes(p.ditherMode), 'invalid ditherMode');
       assert.ok(['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'].includes(p.pixelGrid), 'invalid pixelGrid');
       if (p.pixelScale != null) assert.ok(['original', 'depth'].includes(p.pixelScale), 'invalid pixelScale');
+      if (p.pixelMotion != null) assert.ok(['free', 'classic'].includes(p.pixelMotion), 'invalid pixelMotion');
       // The product renders a Depth request as Uniform ('original'), so a
       // new capture labelled Depth would record a mode it never drew.
       assert.ok(historical || p.pixelScale !== 'depth', 'pixelScale "depth" is retired; new captures use "original"');
@@ -66,6 +67,7 @@ export function normalizeManifest(value, { historical = false } = {}) {
     // Current product presentation still normalizes a stale Depth request to
     // Uniform; readers must not relabel an old capture as Uniform retroactively.
     if (p.pixelScale === 'depth') settings.presentation.pixelScale = 'depth';
+    if (historical && p.pixelMotion == null) settings.presentation.pixelMotion = 'classic';
   }
   if (settings.debug != null) {
     // Diagnostic renders (Natural-rendering Task 0): existing developer URL

@@ -38,7 +38,7 @@ test("control: an explicit display change clears the perf ladder's recovery hist
   vm.runInContext([slice('function applyDisplayPref('), slice('let landscapeRendererDirty = false;', '\n};\n'), slice('function applySettingChange(')].join('\n'), context);
   const store = new SettingsStore({ storage: null });
   store.subscribe(context.applySettingChange);
-  for (const [id, value] of [['pixelGrid', 'medium'], ['scaling', 'integer'], ['buildPixelDetail', true]]) {
+  for (const [id, value] of [['pixelGrid', 'medium'], ['scaling', 'integer'], ['pixelMotion', 'classic'], ['buildPixelDetail', true]]) {
     const before = { resets, fits };
     assert.equal(store.set(id, value).changed, true, id);
     assert.equal(resets, before.resets + 1, `${id} must clear old workload evidence exactly once`);

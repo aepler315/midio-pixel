@@ -43,14 +43,14 @@ test('every definition is well formed', () => {
 test('the Settings menu offers basic presentation settings, including both Songprint controls', () => {
   const menu = SETTINGS.filter(isMenuSetting);
   assert.deepEqual(menu.map(def => def.id), [
-    'pixelGrid', 'buildPixelDetail', 'scaling', 'cameraStudioEnabled', 'mp4Resolution', 'mp4Fps',
+    'pixelGrid', 'buildPixelDetail', 'pixelMotion', 'scaling', 'cameraStudioEnabled', 'mp4Resolution', 'mp4Fps',
     'rangeTour', 'rangePace', 'songprintLandscape', 'songprintAtmosphere', 'shuffle', 'continuous', 'lyrics', 'btLatency',
   ]);
   assert.equal(SETTINGS.length - menu.length, 48, 'every other definition stays registered but hidden');
   for (const def of menu) {
     assert.equal(def.tier, 'basic', def.id);
     const songprint = ['songprintLandscape', 'songprintAtmosphere'].includes(def.id);
-    assert.equal(def.maturity, songprint ? 'experimental' : 'stable', def.id);
+    assert.equal(def.maturity, songprint || def.id === 'pixelMotion' ? 'experimental' : 'stable', def.id);
     if (songprint) {
       assert.equal(def.section, 'landscape');
       assert.equal(def.lifecycle, 'next-song');
@@ -187,6 +187,8 @@ test('dependencies disable settings with a reason', () => {
   assert.match(disabledReason(settingDefinition('rangeMsaa'), flat), /3D landscape renderer/);
   assert.equal(disabledReason(settingDefinition('pixelGrid'), flat), null);
   assert.match(disabledReason(settingDefinition('buildPixelDetail'), { ...flat, directTerrain: true }), /terrain-only/);
+  assert.equal(disabledReason(settingDefinition('pixelMotion'), { ...flat, directTerrain: true }), null);
+  assert.match(disabledReason(settingDefinition('pixelMotion'), { ...flat, voxelRange: true }), /voxel/);
   assert.match(disabledReason(settingDefinition('rangeView'), { ...flat, rangeRenderer: 'v2', rangeTour: 'tetons' }), /Teton/);
   assert.match(disabledReason(settingDefinition('performance'), { ...flat, rangeRenderer: 'v2', rangeView: 'x' }), /forced view/);
 });

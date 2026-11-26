@@ -314,6 +314,14 @@ export const SETTINGS = Object.freeze([
     ],
   },
   {
+    id: 'pixelMotion', url: 'pixelMotion', section: 'appearance', group: 'Presentation', tier: 'basic', maturity: 'experimental',
+    label: 'Pixel motion', type: 'enum', default: 'free',
+    description: 'Free motion places moving details between grid cells. Classic keeps their positions on the terrain pixel grid.',
+    options: [{ value: 'free', label: 'Free motion' }, { value: 'classic', label: 'Classic grid' }],
+    persist: 'saved', storage: displayField('pixelMotion'), lifecycle: 'live', controlId: 'display-pixelMotion',
+    requires: [{ id: 'voxelRange', is: false, reason: 'The standalone voxel pilot uses its own pixel renderer.' }],
+  },
+  {
     id: 'scaling', url: 'scaling', section: 'appearance', group: 'Presentation', tier: 'basic', maturity: 'stable',
     label: 'Scaling', type: 'enum', default: 'fit',
     description: 'Fit fills the window and keeps the aspect. Integer uses evenly sized screen pixels, with borders when needed. Fullscreen always covers.',
