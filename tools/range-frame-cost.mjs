@@ -328,7 +328,7 @@ async function main() {
   const debug = { ...(args.songRange ? { songRange: args.songRange } : {}), ...(args.songRangeLayout ? { songRangeLayout: args.songRangeLayout } : {}) };
   const { settings } = normalizeManifest({ version: 1, settings: { width: 1280, height: 720, seed: 315, quality: 0, fps: 12, mode: 'sparse',
     experience: 'landscape', pace: 3, tour: 'shots',
-    presentation: { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', pixelScale: 'original', scaling: 'fit' },
+    presentation: { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', pixelScale: 'original', pixelMotion: 'free', scaling: 'fit' },
     ...(args.view ? { view: args.view } : { view: null, biome: null, debug }) },
   songs: [{ id: 'cost', fixture: 'contrast', seconds: args.seconds, timesMs: args.times, clips: [] }] });
   const report = { label, dry: args.dry, sampleRate: args.sampleRate, settings,

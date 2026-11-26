@@ -160,7 +160,7 @@ test('paired missing provenance cannot masquerade as compatible evidence', () =>
 
 // Cinematic is the only look: a manifest's presentation normalizes through
 // DisplayProfile to the Cinematic record, which carries no palette or dither.
-const cinematicRecord = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', pixelMotion: 'free', scaling: 'fit', pixelScale: 'original', buildPixelDetail: false };
+const cinematicRecord = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', pixelMotion: 'classic', scaling: 'fit', pixelScale: 'original', buildPixelDetail: false };
 test('visual manifests accept independent presentation profiles and reject invalid values', () => {
   const presentation = { version: 1, look: 'palette', quality: 'auto', palette: 'range32', dither: .35, scaling: 'integer' };
   const m = normalizeManifest({ ...manifest(), settings: { presentation } });
@@ -211,9 +211,12 @@ test('historical captures predating free motion match only the classic pixel mod
   const before = report(), after = report();
   before.settings.presentation = { ...cinematicRecord };
   delete before.settings.presentation.pixelMotion;
+  const replay = presentation => normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation;
+  assert.equal(replay(before.settings.presentation).pixelMotion, 'classic');
   after.settings.presentation = { ...cinematicRecord, pixelMotion: 'classic' };
   assert.equal(compareReports(before, after).frames.length, 1);
   after.settings.presentation.pixelMotion = 'free';
+  assert.equal(replay(after.settings.presentation).pixelMotion, 'free');
   assert.throws(() => compareReports(before, after), /incompatible.*settings/);
 });
 

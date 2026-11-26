@@ -99,6 +99,7 @@ test('every committed scenario normalizes against the current production export 
       ...(s.debug ? { debug: s.debug } : {}), presentation: { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: s.grid,
         pixelScale: 'original', scaling: 'fit', buildPixelDetail: false } }, songs: [{ id: 'fixture', fixture: 'contrast', seconds: corpus.fixture.seconds, timesMs: s.timesMs }] });
     assert.equal(manifest.settings.presentation.pixelGrid, s.grid);
+    assert.equal(manifest.settings.presentation.pixelMotion, 'classic');
   }
 });
 

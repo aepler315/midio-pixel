@@ -89,7 +89,7 @@ export function makeReviewManifest(a, grid) {
     ...(a.rise != null || a.songRange != null || a.songRangeLayout != null || a.performance != null ? { debug: { ...(a.rise != null ? { rangeRise: a.rise } : {}), ...(a.songRange != null ? { songRange: a.songRange } : {}), ...(a.songRangeLayout != null ? { songRangeLayout: a.songRangeLayout } : {}), ...(a.performance != null ? { performance: a.performance } : {}) } } : {}),
     fps: a.fps, mode: stills ? 'sparse' : 'continuous', startMs: stills ? 0 : a.startMs,
     presentation: { version: 2, look: a.look, quality: 'auto', palette: 'world', dither: .35,
-      ditherMode: 'selective', pixelGrid: grid, pixelScale: 'original', scaling: 'fit' } },
+      ditherMode: 'selective', pixelGrid: grid, pixelScale: 'original', pixelMotion: 'free', scaling: 'fit' } },
   songs: [{ id: 'review-audio', fixture: 'contrast', seconds: Math.max(90, a.liveSeconds + 15, Math.ceil(Math.max(...timesMs) / 1000 + 1)),
     timesMs, clips: stills ? [] : [{ startMs: a.startMs, durationMs: a.seconds * 1000 }] }] });
 }

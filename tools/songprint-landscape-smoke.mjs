@@ -84,9 +84,11 @@ async function captureComposedSequence(page, file) {
         principal: plan?.principal?.slotId, companion: plan?.companionSlot, composition, slotRise: range.frame.slotRise01,
         inland: !!plan?.inland, regionWidthM: grid ? (grid.width - 1) * grid.cellSizeM : null,
         riverFlow: prepared?.data?.manifest?.hydrology?.riverFlow, inlandRiverMaterial: prepared?.material?.defines?.INLAND_RIVER != null,
+        freePixels: range.scene.freePixelMotion && prepared?.material?.defines?.FREE_TERRAIN_PIXELS === 1,
         water: range.scene.hasWater(range.viewId), eyeM, targetM, fovYDeg, viewOffset, songprintOrbit };
     });
     assert.ok(evidence.key && evidence.tiles > 0, 'the draw used the prepared, composed terrain');
+    assert.ok(evidence.freePixels, 'the default player draws the composed terrain with Free pixel motion');
     assert.ok(evidence.principal && evidence.companion && evidence.principal !== evidence.companion,
       'the rendered composition establishes an identifiable pair');
     assert.equal(evidence.composition?.principal.slotId, evidence.principal);

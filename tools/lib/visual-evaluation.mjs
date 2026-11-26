@@ -67,7 +67,9 @@ export function normalizeManifest(value, { historical = false } = {}) {
     // Current product presentation still normalizes a stale Depth request to
     // Uniform; readers must not relabel an old capture as Uniform retroactively.
     if (p.pixelScale === 'depth') settings.presentation.pixelScale = 'depth';
-    if (historical && p.pixelMotion == null) settings.presentation.pixelMotion = 'classic';
+    // Authored v1 profiles predate Free motion. Replaying them must use the
+    // same rendering controls as comparing their archived reports.
+    if (p.pixelMotion == null) settings.presentation.pixelMotion = 'classic';
   }
   if (settings.debug != null) {
     // Diagnostic renders (Natural-rendering Task 0): existing developer URL
