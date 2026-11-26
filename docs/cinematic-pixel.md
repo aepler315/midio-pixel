@@ -5,7 +5,7 @@ rendering architecture are a baseline for further work, not a permanent
 preservation list. Task-authorized look, renderer, terrain and camera experiments
 follow the [experimental development policy](experimental-development.md).
 
-Select **Display → Look → Cinematic Pixel (experimental)**. It runs at **Detailed — 640×360** unless another level is chosen; [choosing its detail level](cinematic-grid-harmony.md) records why. Pixel detail stays adjustable: select **Classic+ — 400×225** for a direct comparison with Pixel at Classic+. The saved default remains Pixel at Classic. Cinematic Pixel uses continuous color rather than palette quantization; choose Palette to retain the existing fixed-palette workflow.
+Cinematic is the landscape look. In **Settings → Appearance**, **Pixel detail** selects the terrain resolution and **Pixel motion** chooses Free motion or Classic grid. The default fixed detail level is Detailed (640×360). The hybrid compositor also supports building detail as the song progresses.
 
 The implementation uses real geometry and live procedural shading. It retains the existing terrain packages, forest placement, camera/tours, music clock, water, weather, material LOD and scene ownership. No reference bitmap is used in rendering.
 
@@ -28,7 +28,7 @@ flowchart LR
     O --> X[Shared live / recording / export compositor]
 ```
 
-`DisplayProfile.js` carries an opt-in `look: 'cinematic'` in the version-2 record. It resolves to `cinematicPixel: true`, retaining grid/quality/scaling. `PresentingRenderer` passes the gate before each draw to the terrain scene and sky snapshot. `RangeScene.resize` stores the gate even when render-target dimensions do not change. Every frame refreshes shared `uCinematic` and `uCinematicAir` vectors; resident forest windows, river surfaces and mirrors use the same profile. Switching back resets it without regenerating terrain or forest assets.
+`DisplayProfile.js` resolves the saved grid, motion and scaling choices. `PresentingRenderer` passes them to the scene and compositor at draw time. Switching motion while paused redraws the current frame and preserves the terrain assets.
 
 Terrain and trees use a narrower wrap key, lower directional-light residual inside terrain-horizon shadow, restrained cool fill and warm key, and one shared highlight-preserving grade. Individual trees now consult the same baked geographic horizon as far canopy. Crown detail still fades according to projected footprint; materials reduce unresolved normal detail rather than adding screen noise. Forest gust accents use the same cinematic ambient response.
 
@@ -36,11 +36,11 @@ The existing exponential height-layer mist is integrated along the real camera-t
 
 The independent sky painter retains its original projection and density fields. Cinematic clouds blend pale cool volume with warm directional variants using continuous weights derived from the projected sun. The existing 48-bank cache owns these variants and one small mixing buffer. Variants are generated on first use, released with their density identity, on switching off or under quality shedding, and skipped when their reservation is denied. The sky also reduces faint stellar activity and aurora gain, and restrains the solar halo.
 
-## Gradients inside pixel geometry
+## Pixel motion and coverage
 
-`CinematicPixel.js` uploads the completed native foreground once, samples the nearest cell and its four axial neighbors, and reconstructs a limited monotone color slope inside the cell. Partial alpha retains its exact nearest value. Missing coverage, contrasting colors, isolated extrema and nonmonotone detail reject a slope. Stepped silhouettes therefore retain their native ownership, while compatible low-frequency color can vary within a cell. The sky remains a separate smooth layer.
+`CinematicPixel.js` reads each cell and its four axial neighbors. In **Free motion**, a mixed cell bracketed by two contrasting colours can represent an edge crossing that cell. The mix determines how much of the cell the edge covers. Its orientation and the output pixel's footprint determine the colour on screen. Unsupported or isolated marks keep their source coverage. **Classic grid** uses the earlier nearest coverage and limited gradients. Both use the same five texture samples.
 
-This is **color reconstruction**, not an independently sampled irradiance buffer or a depth-aware final filter. The forward shaders still evaluate lighting on the native grid. Similar-colored geometric boundaries can pass the color test; the reconstruction has no material/depth buffer with which to distinguish them. It uses no temporal accumulation, reprojected history or stochastic jitter, so it introduces no history ghosting or disocclusion trails.
+The terrain shader samples dry materials in cells fixed to the surface. As the camera moves or the land rises, those cells follow the land. Foreground weather grains can travel independently at output resolution. The final colour pass uses the current frame alone. Similar-coloured features can remain indistinguishable to the reconstruction.
 
 The optional pass reserves its source texture and estimated drawing buffers in `GraphicsResidency` before allocating. The estimate is `12 × bufferPixels + 4 × sourcePixels + 4096` bytes, where the drawing buffer is the union of the output sizes drawn (see below). Output reconstruction is capped at 3840×2160; scene geometry remains at the selected grid. Context loss, shader failure and budget refusal fall back to nearest presentation. The first restored frame recreates context-owned objects. A denied growth deletes and unbinds old GPU resources and releases their charge; for the next 120 draws a request at least that large falls back at once, so the smaller buffer re-admitted for the display is not released again every frame. A denied shrink keeps the held buffer, which still covers the draw. Quality rungs **2–6** shed reconstruction (reason `quality`) and cached cloud tint variants before terrain admission; cinematic scene lighting, atmospheric color and sky composition remain active. The legacy title illustration does not retain a cinematic output buffer. Driver/context overhead is not included in the ledger's ownership estimates.
 

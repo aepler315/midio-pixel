@@ -12,6 +12,38 @@ test('direct terrain grid follows fitted output including overscan', () => {
   assert.equal(directTerrainViewport(vp, grid, null), vp);
 });
 
+test('extra terrain coverage respects the output, quality and memory budget without growing water', () => {
+  const sizes = [];
+  const vp = { backingWidth: 1408, backingHeight: 848 };
+  const pres = Object.assign(Object.create(RangePresentation.prototype), {
+    directTerrainMode: true, freePixelMotion: true, pixelated: true, budget: 'desktop',
+    outputSize: { width: 1280, height: 720 }, pixelPolicy: { grid: { width: 320, height: 180 } },
+    scene: { resize(options) { sizes.push(options); } },
+  });
+  pres._resizeTerrain(vp, 0);
+  assert.equal(sizes.at(-1).widthPx, 528);
+  assert.equal(sizes.at(-1).pixelMotionScale, 1.5);
+  assert.equal(sizes.at(-1).widthPx * pres.scene.waterOutputScale, 1408);
+  pres._resizeTerrain(vp, 2);
+  assert.equal(sizes.at(-1).widthPx, 352);
+  pres.budget = 'mobile';
+  pres._resizeTerrain(vp, 0);
+  assert.equal(sizes.at(-1).widthPx, 352);
+  assert.equal(sizes.at(-1).freePixelMotion, true);
+
+  pres.budget = 'desktop';
+  let refusals = 0;
+  pres.scene.resize = options => {
+    if (options.pixelMotionScale > 1) { refusals++; throw Object.assign(Error(), { reason: 'budget' }); }
+    sizes.push(options);
+  };
+  pres._resizeTerrain(vp, 0);
+  pres._resizeTerrain(vp, 0);
+  assert.equal(refusals, 1);
+  assert.equal(sizes.at(-1).widthPx, 352);
+  assert.equal(pres.scene.waterOutputScale, 4);
+});
+
 test('direct composition draws nearest terrain before its band water', () => {
   const order = [];
   const img = { width: 352, height: 212 };

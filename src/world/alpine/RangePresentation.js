@@ -33,6 +33,7 @@ import { AUTO_TOUR_GATE, autoGateEnabled } from './CameraChoice.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
 import { RangeCrest, crestBuildOpacity, CREST_GRID_SCAN_LEVEL } from './RangeCrest.js';
 import { openingOcean01 } from './BuildOcean.js';
+import { sceneTargetBytes, sideTargetBytes } from './RangeRenderPolicy.js';
 import { appSettings } from '../../config/appSettings.js';
 import { resolveSettings } from '../../config/settingsRegistry.js';
 
@@ -43,6 +44,16 @@ export function directTerrainViewport(viewport, grid, outputSize) {
   const scale = Math.max(grid.width / outputSize.width, grid.height / outputSize.height);
   return { ...viewport, backingWidth: Math.max(2, Math.round(viewport.backingWidth * scale)),
     backingHeight: Math.max(2, Math.round(viewport.backingHeight * scale)) };
+}
+
+// The material grid sets the size of a virtual pixel. A modestly finer
+// visibility raster can measure partial coverage of a forest or rock edge.
+// Keep output-sized water independent of this optional terrain work.
+function coverageScale(native, displayScale, quality, budget) {
+  if (quality >= 2 || budget === 'mobile') return 1;
+  const maxPixels = 960 * 540;
+  return Math.max(1, Math.min(quality === 0 ? 1.5 : 1.25, displayScale,
+    Math.sqrt(maxPixels / (native.backingWidth * native.backingHeight))));
 }
 
 export const RANGE_RENDERER_MODES = Object.freeze(['legacy', 'v2']);
@@ -1025,19 +1036,16 @@ export class RangePresentation {
     // What this frame draws stays resident (never evicted mid-use) -- pinned
     // before any reservation below, which may evict unpinned entries.
     const vp = inputs.scenicViewport;
-    this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id, [TRAVEL_SCRATCH_KEY]);
+    const scratchVp = this.directTerrainMode && this.outputSize ? { ...vp,
+      backingWidth: Math.max(vp.backingWidth, this.outputSize.width),
+      backingHeight: Math.max(vp.backingHeight, this.outputSize.height) } : vp;
+    const wetA = this.directTerrainMode && (!this.scene.hasWater || this.scene.hasWater(view.id));
+    const wetB = this.directTerrainMode && incoming && (!this.scene.hasWater || this.scene.hasWater(incoming.id));
+    const frameViews = incoming ? [view.id, incoming.id] : view.id;
+    const previousTarget = this.scene.target;
+    this.scene.pinView?.(frameViews, [TRAVEL_SCRATCH_KEY]);
     try {
-      // Quality rung and look decide the target's multisampling
-      // (RangeRenderPolicy); Pixel/Palette never smooth their grid.
-      const terrainVp = this.directTerrainMode ? directTerrainViewport(vp, this.pixelPolicy?.grid, this.outputSize) : vp;
-      this.scene.resize({ widthPx: terrainVp.backingWidth, heightPx: terrainVp.backingHeight, pixelRatio: vp.pixelRatio || 1,
-        quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated, cinematicPixel: !!this.cinematicPixel, pixelScale: 'original',
-        pixelHeightPx: this.detailHeightPx ?? this.pixelPolicy?.grid?.height ?? null });
-      this.scene.waterOutputScale = this.directTerrainMode
-        ? Math.max(1, vp.backingWidth / terrainVp.backingWidth, vp.backingHeight / terrainVp.backingHeight)
-        : this.waterOutputSize && this.pixelPolicy?.grid
-        ? Math.min(4, this.waterOutputSize.width / this.pixelPolicy.grid.width, this.waterOutputSize.height / this.pixelPolicy.grid.height)
-        : 1;
+      this._resizeTerrain(vp, inputs.sim.perf?.level ?? 0, incoming && scratchVp, wetA || wetB);
     } catch (err) {
       this.resolutionRefused = true;
       this.reason = `budget: ${err.message}`;
@@ -1049,9 +1057,9 @@ export class RangePresentation {
     // The incoming side needs its own target and a composition buffer,
     // reserved before they exist; without room the outgoing view carries on
     // alone.
-    const scratchVp = this.directTerrainMode && this.outputSize ? { ...vp,
-      backingWidth: Math.max(vp.backingWidth, this.outputSize.width),
-      backingHeight: Math.max(vp.backingHeight, this.outputSize.height) } : vp;
+    // Replacing the scenic target releases its old residency pin. Protect
+    // its replacement before reserving the travel canvas and side B.
+    if (this.scene.target !== previousTarget) this.scene.pinView?.(frameViews, [TRAVEL_SCRATCH_KEY]);
     if (incoming && !(this.scene.ensureSide?.('B') && this._ensureScratch(scratchVp))) {
       // A frame drew the outgoing view alone: if room appears later in this
       // travel, the incoming view joins late and fades in.
@@ -1073,7 +1081,7 @@ export class RangePresentation {
     // unpinned (evictable) rather than released, so wet/dry travel does not
     // churn it.
     this.directWaterTargetAvailable = false;
-    const wet = !this.scene.hasWater || [view.id, incoming?.id].filter(Boolean).some((id) => this.scene.hasWater(id));
+    const wet = wetA || (incoming && wetB);
     if (this.directTerrainMode && wet && this.scene._waterRenderTarget && this.scene.size) {
       const scale = this.scene.waterOutputScale || 1;
       try { this.directWaterTargetAvailable = !!this.scene._waterRenderTarget(
@@ -1130,9 +1138,9 @@ export class RangePresentation {
     this.crest.economy = !!inputs.sim?.perf?.economy;
     this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
     const crestGrid = this.pixelPolicy?.grid;
-    this.scene.crestOutputScale = crestOn && crestGrid ? Math.max(1,
+    this.scene.crestOutputScale = crestOn && crestGrid ? Math.max(1, Math.max(
       (this.crestOutputSize?.width || crestGrid.width) / crestGrid.width,
-      (this.crestOutputSize?.height || crestGrid.height) / crestGrid.height) : 1;
+      (this.crestOutputSize?.height || crestGrid.height) / crestGrid.height) / this._coverageScale) : 1;
     this._crestScan = crestOn && this.crest.mode === 'grid';
     if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
     this.scene.skyPan = this.skyPan; // rain curtains and lightning stand where the sky draws them
@@ -1145,6 +1153,51 @@ export class RangePresentation {
       noteViewShown(view);
     }
     return true;
+  }
+
+  _resizeTerrain(vp, quality, travel = null, wet = false) {
+    const grid = this.pixelPolicy?.grid;
+    const native = this.directTerrainMode ? directTerrainViewport(vp, grid, this.outputSize) : vp;
+    const displayScale = this.directTerrainMode
+      ? Math.max(1, vp.backingWidth / native.backingWidth, vp.backingHeight / native.backingHeight)
+      : this.waterOutputSize && grid ? Math.min(4, this.waterOutputSize.width / grid.width, this.waterOutputSize.height / grid.height) : 1;
+    const requested = this.freePixelMotion ? coverageScale(native, displayScale, quality, this.budget) : 1;
+    const key = `${this.generation}/${this.scene.contextEpoch}/${native.backingWidth}/${native.backingHeight}/${requested}`;
+    let scale = this._deniedCoverage === key ? 1 : requested;
+    if (scale > 1 && this.residency?.entries) {
+      // The finer raster is optional. Use spare space only, after the
+      // current views, travel blend and full-resolution water have room.
+      const deficit = (id, bytes) => Math.max(0, bytes - (this.residency.entries.get(id)?.bytes || 0));
+      const w = Math.round(native.backingWidth * scale), h = Math.round(native.backingHeight * scale);
+      let extra = deficit('range:render-target', sceneTargetBytes(w, h));
+      if (travel) extra += deficit('range:render-target-B', sideTargetBytes(w, h))
+        + deficit(TRAVEL_SCRATCH_KEY, travel.backingWidth * travel.backingHeight * 4);
+      if (wet && this.outputSize) {
+        const waterW = Math.round(w * displayScale / scale), waterH = Math.round(h * displayScale / scale);
+        const waterKey = waterW === w && waterH === h ? 'range:water-native-mask' : 'range:water-output';
+        extra += deficit(waterKey, sceneTargetBytes(waterW, waterH))
+          + deficit(WATER_LAYER_KEY, this.outputSize.width * this.outputSize.height * 4);
+      }
+      if (extra > 0 && extra > this.residency.budgetBytes - this.residency.usedBytes) {
+        this._deniedCoverage = key;
+        scale = 1;
+      }
+    }
+    const resize = () => this.scene.resize({
+      widthPx: Math.round(native.backingWidth * scale), heightPx: Math.round(native.backingHeight * scale),
+      pixelRatio: vp.pixelRatio || 1, quality, pixelated: !!this.pixelated, cinematicPixel: !!this.cinematicPixel,
+      pixelScale: 'original', pixelHeightPx: this.detailHeightPx ?? grid?.height ?? null,
+      freePixelMotion: !!this.freePixelMotion, pixelMotionScale: scale,
+    });
+    try { resize(); }
+    catch (error) {
+      if (scale <= 1 || error.reason !== 'budget') throw error;
+      this._deniedCoverage = key;
+      scale = 1;
+      resize();
+    }
+    this._coverageScale = scale;
+    this.scene.waterOutputScale = Math.max(1, displayScale / scale);
   }
 
   /** How far the camera's section move has swung and tilted the sky, in
@@ -1318,13 +1371,17 @@ export class RangePresentation {
       }
       return drawn;
     }
-    const img = this.scene.renderPartition(this._sideFrame(), pass, this.viewId);
+    const pixelPhase = this.directTerrainMode && this.freePixelMotion && this.arrival >= .999
+      && this.frame.scenicViewport?.overscanPx > 0 && typeof this.drawTerrainImage === 'function';
+    const img = this.scene.renderPartition(this._sideFrame(), pass, this.viewId, { pixelPhase });
     const t1 = performance.now();
     if (!img) return false;
     const rect = sceneRect(this.scene, img);
     const assembled = this.directTerrainMode && this.arrival < .999 && this._drawDirectArrival(ctx, stage, pass, img);
     if (!assembled) {
       ctx.save();
+      const shift = pixelPhase && this.scene.partitionPixelOffset;
+      if (shift) ctx.translate(shift.x * stage.width, shift.y * stage.height);
       ctx.globalAlpha = this.arrival;
       ctx.globalCompositeOperation = 'source-over';
       if (!this.directTerrainMode || !this.drawTerrainImage?.(ctx, img, stage, { width: rect.width, height: rect.height })) {
@@ -1541,6 +1598,8 @@ export class RangePresentation {
     const image = render('A');
     if (!image) return false;
     ctx.save(); ctx.globalAlpha = this.arrival; ctx.globalCompositeOperation = 'source-over';
+    const shift = this.scene.partitionPixelOffset;
+    if (shift) ctx.translate(shift.x * stage.width, shift.y * stage.height);
     ctx.imageSmoothingEnabled = true; drawScene(ctx, this.scene, image, 0, 0, stage.width, stage.height); ctx.restore();
     return true;
   }
@@ -1681,7 +1740,8 @@ export class RangePresentation {
     maskCtx.imageSmoothingEnabled = false;
     maskCtx.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
     drawScene(maskCtx, this.scene, low, 0, 0, stage.width, stage.height);
-    const img = this.scene.renderWater(this._sideFrame(), this.viewId, this.scene.size.width * scale, this.scene.size.height * scale);
+    const sampling = this._coverageScale || 1;
+    const img = this.scene.renderWater(this._sideFrame(), this.viewId, this.scene.size.width * scale / sampling, this.scene.size.height * scale / sampling);
     if (!img) return;
     const out = c.getContext('2d');
     out.setTransform(1, 0, 0, 1, 0, 0); out.clearRect(0, 0, w, h);
@@ -1702,7 +1762,7 @@ export class RangePresentation {
     this.waterLayer = c;
     this.waterRecipe = { frame: this.frame, sideFrame: this._sideFrame(), viewId: this.viewId, nativeWidth, nativeHeight,
       stageWidth: stage.width, stageHeight: stage.height, matrix: [t.a, t.b, t.c, t.d, t.e, t.f],
-      shoreMask: fullShore ? null : mask, effectMask: this.waterEffectMask, sceneWidth: this.scene.size.width, sceneHeight: this.scene.size.height };
+      shoreMask: fullShore ? null : mask, effectMask: this.waterEffectMask, sceneWidth: this.scene.size.width / sampling, sceneHeight: this.scene.size.height / sampling };
   }
 
   /** Captures can exceed the live window. Re-run the same frame and camera

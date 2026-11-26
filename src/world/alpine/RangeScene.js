@@ -73,6 +73,7 @@ import { LAND_RISE_START, SLOT_RISE_SLOTS, riseFromUniforms, risenHeight } from 
 import { INLAND_SURFACE_STRIDE, stageSlotOwners } from './StageAssembly.js';
 import MASSIF_CATALOG from '../terrain/massifCatalogData.js';
 import { landRiseBase, landRiseCamera, landRiseFov } from './LandRiseCamera.js';
+import { terrainProjectionPhase, applyPartitionPixelOffset } from './TerrainProjectionPhase.js';
 import { dualSummitsPose } from './DualSummitsPerformance.js';
 import { RiseGround, riseGroundBytes } from './RiseGround.js';
 import { buildOpeningCoverageAsync, createOpeningCoverage, openingCoverageBytes } from './OpeningCoverage.js';
@@ -180,12 +181,34 @@ const COPY_FRAG = /* glsl */`
   precision highp float;
   uniform sampler2D uColor;
   uniform sampler2D uOwn;
+  uniform sampler2D uDepth;
+  uniform bool uResolvePixels;
   uniform vec3 uNearer;
   uniform float uUseOwn;
   in vec2 vUv;
   out vec4 outColor;
+  // A transparent texel with scene depth belongs to another partition.
+  // Filtering those alphas independently would reveal sky between two
+  // opaque ridges. At that boundary every band uses the same nearest owner.
+  bool occupiedElsewhere(ivec2 pos, vec4 color) {
+    return color.a < 1. && texelFetch(uDepth, pos, 0).r < 1.;
+  }
+  vec4 resolveSurface(vec4 nearest) {
+    ivec2 size = textureSize(uColor, 0);
+    vec2 p = vUv * vec2(size) - .5;
+    ivec2 lo = ivec2(floor(p)), hi = clamp(lo + ivec2(1), ivec2(0), size - 1);
+    lo = clamp(lo, ivec2(0), size - 1);
+    ivec2 lr = ivec2(hi.x, lo.y), ul = ivec2(lo.x, hi.y);
+    vec4 a = texelFetch(uColor, lo, 0), b = texelFetch(uColor, lr, 0);
+    vec4 c = texelFetch(uColor, ul, 0), d = texelFetch(uColor, hi, 0);
+    if (max(max(a.a,b.a),max(c.a,d.a)) == 0.) return vec4(0.);
+    if (occupiedElsewhere(lo, a) || occupiedElsewhere(lr, b) || occupiedElsewhere(ul, c) || occupiedElsewhere(hi, d)) return nearest;
+    vec2 f = fract(p);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
   void main() {
     vec4 c = texture(uColor, vUv);
+    if (uResolvePixels) c = resolveSurface(c);
     if (uUseOwn > 0.5 && c.a > 0.0) {
       float nearer = dot(texture(uOwn, vUv).rgb, uNearer);
       if (nearer > 0.0) c *= min(1.0 / max(1.0 - nearer, 1.0 / 255.0), 1.0 / c.a);
@@ -411,7 +434,8 @@ export class RangeScene {
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     const mat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: COPY_VERT, fragmentShader: COPY_FRAG,
-      uniforms: { uColor: { value: null }, uOwn: { value: null }, uNearer: { value: new THREE.Vector3() }, uUseOwn: { value: 0 } },
+      uniforms: { uColor: { value: null }, uOwn: { value: null }, uDepth: { value: null }, uResolvePixels: { value: false },
+        uNearer: { value: new THREE.Vector3() }, uUseOwn: { value: 0 } },
       depthTest: false, depthWrite: false, blending: THREE.NoBlending,
     });
     const mesh = new THREE.Mesh(geo, mat);
@@ -423,16 +447,24 @@ export class RangeScene {
 
   /** Physical backing size of the partition images. `pixelRatio` is
    *  evidence/LOD context only; widthPx/heightPx are already physical. */
-  resize({ widthPx, heightPx, pixelRatio = 1, quality = 0, pixelated = false, pixelHeightPx = null, cinematicPixel = false }) {
+  resize({ widthPx, heightPx, pixelRatio = 1, quality = 0, pixelated = false, pixelHeightPx = null,
+    cinematicPixel = false, freePixelMotion = false, pixelMotionScale = 1 }) {
     const w = Math.max(2, Math.round(widthPx)), h = Math.max(2, Math.round(heightPx));
     // Called once per presented frame: the drawing buffer's slack check.
     this._trimCanvas();
     this.pixelRatio = pixelRatio;
     this.pixelated = !!pixelated;
     this.cinematicPixel = !!cinematicPixel;
+    this.freePixelMotion = this.pixelated && !!freePixelMotion;
+    this.pixelMotionScale = Number.isFinite(pixelMotionScale) ? Math.max(1, pixelMotionScale) : 1;
     this.pixelHeightPx = pixelated && pixelHeightPx > 0 ? pixelHeightPx : null;
     this.pixelScale = 'original';
     for (const p of this.prepared?.values() || []) {
+      if (p.material && !p.compiled && !!p.material.defines?.FREE_TERRAIN_PIXELS !== this.freePixelMotion) {
+        if (this.freePixelMotion) p.material.defines.FREE_TERRAIN_PIXELS = 1;
+        else delete p.material.defines.FREE_TERRAIN_PIXELS;
+        p.material.needsUpdate = true;
+      }
       for (const material of [p.material, p.riverMaterial]) {
         if (!material || !!material.defines?.PIXEL_MATERIAL_SKIP === this.pixelated) continue;
         if (this.pixelated) material.defines.PIXEL_MATERIAL_SKIP = 1;
@@ -447,12 +479,14 @@ export class RangeScene {
     // when one of these changes -- never per frame, and never on routine
     // ledger churn -- so a refused multisample target does not tear down
     // side B, the mirror and the shafts on every resize call.
-    const request = [w, h, quality | 0, !!pixelated, this.edge?.capability ?? 0, this.edge?.override ?? null,
+    const request = [w, h, quality | 0, !!pixelated, this.freePixelMotion, this.pixelMotionScale,
+      this.edge?.capability ?? 0, this.edge?.override ?? null,
       this.contextEpoch ?? 0, this.budget, this.residency?.budgetBytes ?? null].join('|');
     const live = this.target && (!this.residency || this.residency.has('range:render-target'));
     const sameSize = live && w === this.size.width && h === this.size.height;
     if (sameSize && this._edgeRequest?.key === request) return;
-    this._edgeRequest = { key: request, args: { widthPx: w, heightPx: h, pixelRatio, quality, pixelated } };
+    this._edgeRequest = { key: request, args: { widthPx: w, heightPx: h, pixelRatio, quality, pixelated,
+      pixelHeightPx, cinematicPixel, freePixelMotion, pixelMotionScale } };
     this.edge.requestedSamples = policy.samples;
     if (sameSize && policy.samples === this.edge.samples) {
       this.edge.reason = policy.reason;
@@ -1840,6 +1874,7 @@ export class RangeScene {
           materialFeatures: materialFeatureCache ? 'warp' : 'reference',
           canopySummary: this.canopySummary,
           pixelated: this.pixelated ?? opts.pixelated ?? false,
+          freePixelMotion: this.freePixelMotion,
           mappedWaterOnly, inlandRiver: data.manifest.hydrology?.riverFlow === INLAND_RIVER_FLOW,
           inlandBankCells: data.riverBankAtlas?.coreSize,
           terrainShading: terrainShadingForView(this.terrainShading, view.id) });
@@ -2672,6 +2707,7 @@ export class RangeScene {
   _setUniforms(p, frame) {
     const THREE = this.THREE;
     const u = p.uniforms;
+    if (u.uPixelMotionScale) u.uPixelMotionScale.value = this.pixelMotionScale || 1;
     if (u.uSeparateWater) u.uSeparateWater.value = this.directTerrainMode && this.separateWater ? 1 : 0;
     const n = frame.narrative;
     // Scoped receiver calibration for the retained Black static scenic scene.
@@ -2932,9 +2968,10 @@ export class RangeScene {
   /** Draw `texture` 1:1 into the current target. With `coverage`
    *  ({ own, pass }) the partition is rescaled by the ownership of the
    *  bands nearer than `pass` (see COPY_FRAG). */
-  _copyTexture(texture, coverage = null) {
+  _copyTexture(texture, coverage = null, resolveDepth = null) {
     const u = this._copy.mesh.material.uniforms;
     u.uColor.value = texture;
+    if (u.uResolvePixels) { u.uResolvePixels.value = !!resolveDepth; u.uDepth.value = resolveDepth; }
     if (u.uUseOwn) {
       u.uUseOwn.value = coverage ? 1 : 0;
       u.uOwn.value = coverage ? coverage.own : null;
@@ -2998,7 +3035,8 @@ export class RangeScene {
    * return the canvas holding it (valid until the next render call; copy it
    * before calling again). Null when nothing can be drawn for this view.
    */
-  renderPartition(frame, pass, viewId = frame.viewFromId, { side = 'A', bandColumns = null } = {}) {
+  renderPartition(frame, pass, viewId = frame.viewFromId, { side = 'A', bandColumns = null, pixelPhase = false } = {}) {
+    this.partitionPixelOffset = null;
     const p = this.prepared.get(viewId);
     const target = side === 'B' ? this.sideTargets.B : this.target;
     if (!p || this.contextLost || !target) return null;
@@ -3010,14 +3048,24 @@ export class RangeScene {
     if (p.windowCache && p.windowCoverage?.covered === false) return null;
     this._setUniforms(p, frame);
     this._prepareMirror(p, frame, side, viewId);
+    // Lighting unprojects the nominal sky and the mirror samples the nominal
+    // backdrop. Only the terrain visibility raster needs an off-axis camera.
+    if (pixelPhase && this.directTerrainMode && this.freePixelMotion && !bandColumns && side === 'A') {
+      const scale = this.pixelMotionScale || 1;
+      this.partitionPixelOffset = terrainProjectionPhase(this.camera, p.view.camera,
+        Math.round(this.size.width/scale), Math.round(this.size.height/scale), frame.scenicViewport);
+      if (this.partitionPixelOffset) applyPartitionPixelOffset(this.camera, this.partitionPixelOffset);
+    }
+    const shift = this.partitionPixelOffset, phaseX = shift?.x ?? 0, phaseY = shift?.y ?? 0;
     this._updateForestDetail(p, frame, this.camera, this.size.width, this.size.height, 'main');
     const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
     this.camera.layers.set(0);
     if (!softForest) this.camera.layers.enable(3);
-    const source = pass === 'far' ? this._shaftSource(frame) : null;
+    const sun = pass === 'far' ? this._shaftSource(frame) : null;
+    const source = sun && shift ? { ...sun, xFrac: sun.xFrac-phaseX, yFrac: sun.yFrac-phaseY } : sun;
     const forestDepth = p.uniforms.uNarrativeInk.value >= .005
       || !!(source && this.shafts);
-    const opaqueKey = this.singleStage ? JSON.stringify([frame.generation, frame.frameId, frame.occurrenceId, viewId, this.contextEpoch]) : null;
+    const opaqueKey = this.singleStage ? JSON.stringify([frame.generation, frame.frameId, frame.occurrenceId, viewId, this.contextEpoch, phaseX, phaseY]) : null;
     let opaque = this.singleStage && this.pixelated && this.reuseOpaqueDepth !== false && !bandColumns && !target.samples
       && softForest && (forestDepth || this.opaqueDepth?.[side]?.key === opaqueKey) && this.residency && target.depthTexture?.isDepthTexture
       && this.renderer.initRenderTarget && this.renderer.copyTextureToTexture ? this._opaqueDepthTarget(side, target) : null;
@@ -3043,7 +3091,8 @@ export class RangeScene {
       depth.frame = -1;
       depth.owned = false;
       depth.content = null;
-    } else if (depth.frame !== frame.frameId || depth.view !== viewId || depth.occurrenceId !== frame.occurrenceId) {
+    } else if (depth.frame !== frame.frameId || depth.view !== viewId || depth.occurrenceId !== frame.occurrenceId
+      || phaseX !== (depth.phaseX ?? 0) || phaseY !== (depth.phaseY ?? 0)) {
       r.setRenderTarget(target);
       r.setClearColor(0x000000, 0);
       if (!groundDrawn) r.clear(true, true, false);
@@ -3086,6 +3135,8 @@ export class RangeScene {
       depth.frame = frame.frameId;
       depth.view = viewId;
       depth.occurrenceId = frame.occurrenceId;
+      depth.phaseX = phaseX;
+      depth.phaseY = phaseY;
     }
     // During travel a side's nearer bands draw only in some columns: its
     // seam fill draws there too (below), never over ground the other side
@@ -3120,16 +3171,18 @@ export class RangeScene {
     // During travel its depth was just rebuilt with this side's real columns.
     const scattering = source && this.shafts?.render(r, side, source, this.camera, frame.scenicViewport);
     r.setRenderTarget(null);
-    this._setCanvasSize(this.size.width, this.size.height);
+    const sampleScale = this.freePixelMotion && this.pixelMotionScale > 1 ? this.pixelMotionScale : 1;
+    this._setCanvasSize(Math.round(this.size.width / sampleScale), Math.round(this.size.height / sampleScale));
     this._clearCanvas();
     const owned = !bandColumns && depth.owned && this.ownership?.[side];
-    this._copyTexture(target.texture, owned ? { own: owned.texture, pass } : null);
+    this._copyTexture(target.texture, owned ? { own: owned.texture, pass } : null, sampleScale > 1 ? target.depthTexture : null);
     if (scattering && !this.directTerrainMode) this.shafts.compositeToScreen(r, side, source);
     // Whether translucent sky light now shares the returned image with the
     // terrain: an alpha mask taken from it must not trust faint pixels.
     this.lastShafted = !!scattering;
     this.stats.partitions++;
     this.stats.lastPartitionMs = performance.now() - t0;
+    if (shift) this.camera.updateProjectionMatrix();
     return this.canvas;
   }
 
@@ -3385,8 +3438,11 @@ export class RangeScene {
    *  texture. Null otherwise. */
   _sharedDepth(side, frame, viewId) {
     const target = side === 'B' ? this.sideTargets?.B : this.target;
-    const c = this.depthCache?.[side]?.content;
+    const depth = this.depthCache?.[side], c = depth?.content;
     if (!c || !target || c.target !== target || target.samples || !target.depthTexture) return null;
+    // Water is rendered through the nominal camera, at native or output
+    // resolution. A shifted native z buffer describes different rays.
+    if (depth.phaseX || depth.phaseY) return null;
     if (c.frame !== frame.frameId || c.view !== viewId || c.occurrenceId !== frame.occurrenceId) return null;
     return c;
   }

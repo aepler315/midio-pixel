@@ -101,9 +101,12 @@ export class PresentingRenderer {
     const cinematicPixel = !!this.output.presentation.cinematicPixel;
     if (manager) {
       manager.cinematicPixel = cinematicPixel;
+      manager.freePixelMotion = cinematicPixel && this.output.presentation.freePixelMotion !== false;
+      manager.freePixelCellPx = 0;
       manager.setCinematicQuality?.(sim?.perf?.level ?? 0);
     }
     const range = this.inner.rangePresentation;
+    if (range) range.freePixelMotion = !!manager?.freePixelMotion;
     const landscape = manager?.world?.kind === 'alpine' && !!range?.enabled;
     if (landscape && this._requestedPresentation?.directTerrain === true) return this._drawDirect(sim, alpha, { preparing, manager, range });
     const growing = landscape && this._requestedPresentation?.buildPixelDetail === true
@@ -282,6 +285,8 @@ export class PresentingRenderer {
     scene.deferPostEffects = false; scene.deferSceneCaptures = preparing;
     this.inner.presentationPixelated = false;
     manager.directFullResolution = true; manager.highResolutionSky = true;
+    manager.freePixelCellPx = fitPixelRect(policy.grid.width, policy.grid.height, canvas.width, canvas.height,
+      this.output.presentation.scaling === 'cover' ? 'cover' : 'fit').scale;
     manager.highResolutionMidEffects = false; manager.midEffectsOutputSize = null;
     range.directTerrainMode = true; range.pixelated = true; range.pixelPolicy = policy;
     range.cinematicPixel = !!this.output.presentation.cinematicPixel;
@@ -292,7 +297,7 @@ export class PresentingRenderer {
     if ('crestEnabled' in range) range.crestEnabled = false;
     range.crestOutputSize = null;
     range.drawTerrainImage = (ctx, image, stage, region) => this._drawDirectTerrain(ctx, image, stage, region, sim?.perf?.level ?? 0);
-    range.drawLegacyTerrain = (ctx, paint) => this._drawDirectGrid(ctx, paint, sim?.perf?.level ?? 0);
+    range.drawLegacyTerrain = (ctx, paint, stage) => this._drawDirectGrid(ctx, paint, sim?.perf?.level ?? 0, stage);
     try { this.inner.draw(sim, alpha); }
     catch (error) { scene.discardFrameCaptures?.(); this.output.failFrame('scene-draw'); throw error; }
     if (manager._awaitingTerrain) { scene.discardFrameCaptures?.(); return this.output.failFrame('terrain-not-ready'); }
@@ -309,26 +314,31 @@ export class PresentingRenderer {
   }
   _drawDirectTerrain(ctx, image, stage, region = image, quality = 0) {
     if (!(region.width > 0 && region.height > 0)) return false;
-    return this._drawDirectGrid(ctx, target => target.drawImage(image, 0, 0, region.width, region.height, 0, 0, stage.width, stage.height), quality);
+    return this._drawDirectGrid(ctx, target => target.drawImage(image, 0, 0, region.width, region.height, 0, 0, stage.width, stage.height),
+      quality, stage);
   }
-  _drawDirectGrid(ctx, paint, quality = 0) {
+  _drawDirectGrid(ctx, paint, quality = 0, stage = null) {
     const p = this.output.presentation, grid = this.output.grid;
     const out = this.canvas, fit = fitPixelRect(grid.width, grid.height, out.width, out.height,
       p.scaling === 'cover' ? 'cover' : 'fit');
     if (!(fit.scale > 0)) return false;
-    // Rasterize the transformed partition on the screen's stable pixel grid.
-    // The current clip remains on the destination when the result is copied.
-    const width = Math.ceil((out.width - fit.x) / fit.scale);
-    const height = Math.ceil((out.height - fit.y) / fit.scale);
+    // In free motion the cell colours belong to the layer. Carry its full
+    // translation and roll to the final blit, where fractional stage motion
+    // can cross the physical display between neighbouring native cells.
+    const m = ctx.getTransform?.() || { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+    const scaleX = Math.hypot(m.a, m.b || 0), scaleY = Math.hypot(m.c || 0, m.d ?? 1);
+    const free = p.cinematicPixel && p.freePixelMotion !== false && stage?.width > 0 && stage.height > 0 && scaleX > 0 && scaleY > 0;
+    const width = free ? Math.max(1, Math.round(stage.width * scaleX / fit.scale)) : Math.ceil((out.width - fit.x) / fit.scale);
+    const height = free ? Math.max(1, Math.round(stage.height * scaleY / fit.scale)) : Math.ceil((out.height - fit.y) / fit.scale);
     this._directBuffers ||= new CanvasBuffers({ residency: this.output.residency, owner: 'direct-terrain',
       makeCanvas: () => (this.canvas.ownerDocument || globalThis.document).createElement('canvas') });
     const source = this._directBuffers.ensure('partition', width, height);
     const sctx = source?.getContext('2d');
     if (!sctx) return false;
-    const m = ctx.getTransform?.() || { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
     sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.globalAlpha = 1;
     sctx.globalCompositeOperation = 'source-over'; sctx.clearRect(0, 0, width, height);
-    sctx.setTransform(m.a / fit.scale, (m.b || 0) / fit.scale, (m.c || 0) / fit.scale,
+    if (free) sctx.setTransform(width / stage.width, 0, 0, height / stage.height, 0, 0);
+    else sctx.setTransform(m.a / fit.scale, (m.b || 0) / fit.scale, (m.c || 0) / fit.scale,
       (m.d ?? 1) / fit.scale, ((m.e || 0) - fit.x) / fit.scale, ((m.f || 0) - fit.y) / fit.scale);
     sctx.imageSmoothingEnabled = false;
     paint(sctx);
@@ -337,12 +347,14 @@ export class PresentingRenderer {
     if (!needsCinematic) this._directCinematic?.suspend();
     ctx.save();
     try {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const destination = { x: fit.x, y: fit.y, width: width * fit.scale, height: height * fit.scale };
+      if (free) ctx.setTransform(m.a / scaleX, (m.b || 0) / scaleX, (m.c || 0) / scaleY, (m.d ?? 1) / scaleY, m.e || 0, m.f || 0);
+      else ctx.setTransform(1, 0, 0, 1, 0, 0);
+      const destination = free ? { x: 0, y: 0, width: stage.width * scaleX, height: stage.height * scaleY }
+        : { x: fit.x, y: fit.y, width: width * fit.scale, height: height * fit.scale };
       if (needsCinematic) {
         this._directCinematic ||= new CinematicPixelRenderer({ residency: this.output.residency,
           makeCanvas: () => (this.canvas.ownerDocument || globalThis.document).createElement('canvas') });
-        if (this._directCinematic.draw(ctx, source, destination)) return true;
+        if (this._directCinematic.draw(ctx, source, destination, 1, p.freePixelMotion !== false, free)) return true;
       }
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(source, destination.x, destination.y, destination.width, destination.height);

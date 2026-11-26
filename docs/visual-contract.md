@@ -7,7 +7,7 @@ regression contract, not a freeze on intentional experiments.
 
 | Property | Current implementation | Review obligation / aspiration |
 |---|---|---|
-| Pixel identity | Cinematic terrain on discrete native grids; output-space crest reconstruction and smooth sky/water composition | Preserve crisp terrain structure and purposeful reconstruction; do not replace terrain with a blurred photographic treatment. “Every output pixel is a nearest-scaled cell” is not current behavior. |
+| Pixel identity | Pixel detail controls the terrain sample size. Free pixel motion follows the surface, camera and weather. Classic motion retains the screen grid. | Keep stationary scenes stable, preserve opaque ridges and leave the sky and water on their own layers. Compare slow pans as well as stills. |
 | Geography | Measured catalog packages, shared metre coordinates and sample lattice; real ridges/spurs | Retain provenance, no-data handling, orientation and recognizable silhouettes across LOD. Composed stages relocate source pieces and can scale relief; state that claim separately. |
 | Depth-aware scaling | Retired. `pixelScale` resolves to `original` (Uniform) | Desired future depth treatment needs a new experiment with tests and review. Do not make a removed mode a passing requirement. |
 | Color and air | Cinematic grading, music-mood hue, atmospheric perspective, haze/mist | Retain strong terrain colors, separation of near/far masses and legible ridges; more haze is not automatically more atmosphere. No unmeasured universal haze threshold. |
