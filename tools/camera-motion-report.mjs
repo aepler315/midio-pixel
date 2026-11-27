@@ -22,7 +22,6 @@
 // orbit admitted 12 s in, after the rail has played) and rail (a catalog
 // view on its authored rail at the default pace).
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
-import { scenePoseAt } from '../src/world/terrain/SceneTravel.js';
 import { compileCinematicPulse } from '../src/world/alpine/CinematicPulse.js';
 import { rangeCameraMoveAt, FINALE_MS } from '../src/world/alpine/RangeCamera.js';
 import { compileSongprintOrbitScore } from '../src/world/alpine/SongprintOrbitScore.js';
