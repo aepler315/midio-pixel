@@ -3,6 +3,7 @@
 import { projectPoint, scenePoseAt } from '../terrain/SceneTravel.js';
 import { pathPoseAt } from '../terrain/ShotPath.js';
 import { seenFrom } from './LineOfSight.js';
+import { widenLens } from './CameraMotion.js';
 import { terrainHeightAt } from './TerrainMesh.js';
 
 const ASPECT = 16 / 9;
@@ -31,6 +32,13 @@ function companionFor(composition, slotId) {
   if (slotId === composition?.principal.slotId) return composition?.companion;
   if (slotId === composition?.companion.slotId) return composition?.principal;
   return null;
+}
+
+/** The rail pose as RangeScene draws it: authored rails stand on the wider
+ *  standing lens (CameraMotion), so stations are judged on that frame. */
+function drawnRailPose(view, progress01) {
+  const pose = scenePoseAt(view, { progress01 });
+  return pose.tour || view.glacier ? pose : { ...pose, fovYDeg: widenLens(pose.fovYDeg) };
 }
 
 function visiblePoint(data, pose, point) {
@@ -62,7 +70,7 @@ export function inlandRailCamera(data, view, composition) {
     if (d < 8000 || d > 26000 || next === point) continue;
     const eyeStartM = [x, lift(x, z, 320), z], eyeEndM = [next[0], lift(next[0], next[1], 320), next[1]];
     if (!eyeStartM.every(Number.isFinite) || !eyeEndM.every(Number.isFinite)) continue;
-    const pose = { eyeM: eyeStartM, targetM: mid, fovYDeg: view.camera.fovYDeg };
+    const pose = { eyeM: eyeStartM, targetM: mid, fovYDeg: widenLens(view.camera.fovYDeg) };
     const seen = peaks.filter(peak => visiblePoint(data, pose, peak)).length;
     const score = seen * 2 - Math.abs(d - 15000) / 15000;
     if (!best || score > best.score) best = { score, eyeStartM, eyeEndM };
@@ -101,7 +109,7 @@ export function songprintRailStations(data, view, landmarks, composition = null)
   if (!landmarks.length) return stations;
   for (let i = 0; i <= RAIL_STEPS; i++) {
     const progress01 = i / RAIL_STEPS;
-    const pose = scenePoseAt(view, { progress01 });
+    const pose = drawnRailPose(view, progress01);
     for (let index = 0; index < landmarks.length; index++) {
       const score = viewpointScore(data, pose, landmarks, index, composition);
       if (score > 0) stations[index].push({ progress01, score });

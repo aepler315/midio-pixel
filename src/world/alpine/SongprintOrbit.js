@@ -3,12 +3,13 @@ import { clamp01, smoothstep } from '../../utils/math.js';
 import { DEFORM_PAD_M } from './RangeCamera.js';
 import { STAGE_KIND } from './StageAssembly.js';
 import { terrainHeightAt } from './TerrainMesh.js';
+import { ORBIT_FRAME } from './CameraMotion.js';
 
 const ASPECT = 16 / 9;
 const FLIGHT_CLEARANCE_M = DEFORM_PAD_M + 140;
 const MARGIN_M = 420;
 const GROUND_PROBES = 192;
-const SWEEPS = [.88, .67, .44];
+const SWEEPS = ORBIT_FRAME.sweeps;
 const mix = (a, b, t) => a + (b - a) * t;
 const blend = (a, b, t) => a.map((value, i) => mix(value, b[i], t));
 const softenLimit = (a, b) => {
@@ -23,9 +24,10 @@ function station(route, progress01) {
   const { min, max } = route.bounds;
   const roomX = (dx > 0 ? max[0] - MARGIN_M - x : x - min[0] - MARGIN_M) / Math.max(1e-6, Math.abs(dx));
   const roomZ = (dz > 0 ? max[2] - MARGIN_M - z : z - min[2] - MARGIN_M) / Math.max(1e-6, Math.abs(dz));
-  // Start closer by moving the eye inward. Pull away as the coast and the
-  // neighboring mountains come into view, without changing focal length.
-  const wanted = route.homeRadiusM * mix(.69, .87, smoothstep(0, .79, progress01));
+  // Start near the rail's own distance and pull away past it as the coast
+  // and the neighboring mountains come into view, without changing focal
+  // length. The stage bounds (less the margin) cap the pull-back.
+  const wanted = route.homeRadiusM * mix(...ORBIT_FRAME.radius, smoothstep(0, .79, progress01));
   const radius = softenLimit(wanted, softenLimit(roomX, roomZ));
   return [x + radius * dx, route.flightM, z + radius * dz];
 }

@@ -1,7 +1,8 @@
 // The first seconds of every song, on one heard-time clock.
 //
 //   0.0 s  title card (song, artist) over the one-third-built landscape
-//   2.0 s  the card starts to fade and the opening close-up starts to widen
+//   0.8 s  the opening close-up starts to widen under the card
+//   2.0 s  the card starts to fade
 //   2.7 s  card gone
 //   ~4.2 s the first place caption fades in
 //   5.0 s  the lens is back at the authored framing
@@ -20,10 +21,12 @@ export const TITLE_CARD_HOLD_MS = 2000;
 export const TITLE_CARD_FADE_MS = 700;
 export const TITLE_CARD_END_MS = TITLE_CARD_HOLD_MS + TITLE_CARD_FADE_MS;
 
-/** The opening close-up starts widening as the card starts to fade... */
-export const OPENING_ZOOM_START_MS = TITLE_CARD_HOLD_MS;
-/** ...and reaches the authored lens this much later, whatever the land's height. */
-export const OPENING_ZOOM_MS = 3000;
+/** The opening close-up starts widening under the held card, so its pull
+ *  back is spread over more than four seconds instead of three... */
+export const OPENING_ZOOM_START_MS = 800;
+/** ...and reaches the authored lens this much later (by 5.0 s), whatever
+ *  the land's height. */
+export const OPENING_ZOOM_MS = 4200;
 
 const unit = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
 

@@ -1,6 +1,7 @@
 import { TITLE_CARD_HOLD_MS } from '../../core/OpeningTimeline.js';
 import { summitPassages } from '../terrain/SongprintRail.js';
 import { clamp01, smoothstep } from '../../utils/math.js';
+import { ORBIT_FRAME } from './CameraMotion.js';
 
 const MIN_TRAVEL_MS = 9000;
 const RETURN_RADIUS_MS = 3600;
@@ -32,6 +33,30 @@ function routeGuides(cues, startMs, span, progressAt) {
   return Object.freeze(guides);
 }
 
+/** Smooth a musical pace table with a triangular window of `radius`
+ * samples, then hold every value under `ceiling` times the mean. A loud
+ * passage still speeds the arc; it no longer lurches it. */
+function calmPace(pace, radius, ceiling) {
+  const n = pace.length;
+  if (n < 3 || radius < 1) return pace;
+  const smoothed = new Float64Array(n);
+  let mean = 0;
+  for (let i = 0; i < n; i++) {
+    let sum = 0, weight = 0;
+    for (let k = -radius; k <= radius; k++) {
+      const j = i + k;
+      if (j < 0 || j >= n) continue;
+      const w = radius + 1 - Math.abs(k);
+      sum += w * pace[j]; weight += w;
+    }
+    smoothed[i] = sum / weight;
+    mean += smoothed[i];
+  }
+  mean /= n;
+  for (let i = 0; i < n; i++) smoothed[i] = Math.min(smoothed[i], ceiling * mean);
+  return smoothed;
+}
+
 /** The camera follows one song-clock route. Dynamics shape the pace over
  * several seconds, and trusted arrivals and returning passages give it
  * small pushes. The opening and cadence ease onto physical viewpoints. */
@@ -42,11 +67,12 @@ export function compileSongprintOrbitScore({ songprint, admittedMs, cadenceMs, f
 
   const introMs = Math.min(6000, .25 * span);
   const closerMs = Math.min(finaleMs, .3 * span);
-  const fadeMs = Math.min(7200, .4 * span);
+  const fadeMs = Math.min(ORBIT_FRAME.handoffMs, .4 * span);
   const returns = spacedReturns(songprint, admittedMs, cadenceMs - closerMs);
   const steps = Math.min(MAX_SAMPLES, Math.ceil(span / SAMPLE_MS));
   const rates = new Float64Array(steps + 1);
   const distance = new Float64Array(steps + 1);
+  const pace = new Float64Array(steps + 1), ease = new Float64Array(steps + 1);
   let nextReturn = 0;
   for (let i = 1; i < steps; i++) {
     const t = startMs + i / steps * span;
@@ -54,9 +80,12 @@ export function compileSongprintOrbitScore({ songprint, admittedMs, cadenceMs, f
     while (returns[nextReturn]?.timeMs + RETURN_RADIUS_MS <= t) nextReturn++;
     const cue = returns[nextReturn];
     const refrain = cue ? cue.strength * smoothstep(RETURN_RADIUS_MS, 0, Math.abs(t - cue.timeMs)) : 0;
-    const pace = .72 + .58 * activity + .4 * (pulse.paceAt(t) - 1) + .34 * refrain;
-    rates[i] = pace * smoothstep(0, introMs, t - startMs) * smoothstep(0, closerMs, cadenceMs - t);
+    pace[i] = .72 + .58 * activity + .4 * (pulse.paceAt(t) - 1) + .34 * refrain;
+    ease[i] = smoothstep(0, introMs, t - startMs) * smoothstep(0, closerMs, cadenceMs - t);
   }
+  pace[0] = pace[1]; pace[steps] = pace[steps - 1];
+  const calm = calmPace(pace, Math.round(ORBIT_FRAME.rateSmoothMs / 2 / (span / steps)), ORBIT_FRAME.rateCeiling);
+  for (let i = 1; i < steps; i++) rates[i] = calm[i] * ease[i];
   for (let i = 0; i < steps; i++) distance[i + 1] = distance[i] + .5 * (rates[i] + rates[i + 1]);
   const total = distance[steps];
   const progressAt = timeMs => {

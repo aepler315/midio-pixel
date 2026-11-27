@@ -23,6 +23,7 @@
 import { cameraBasis } from '../terrain/SceneTravel.js';
 import { LAND_MAX_DISPLACEMENT_M } from './LandMotionLimits.js';
 import { hashSeed } from '../../utils/math.js';
+import { CAMERA_ACCENT, CAMERA_MOVES } from './CameraMotion.js';
 
 export const MOVE_KINDS = Object.freeze(['establish', 'push', 'reveal', 'settle', 'hold']);
 export const NEUTRAL_MOVE = Object.freeze({ dolly: 0, yaw: 0, crane: 0, truck: 0, kind: 'rest' });
@@ -43,8 +44,8 @@ const ENERGY_TURN = 0.15;
 export const FINALE_MS = 12000;
 // Amplitudes, as fractions of the rail's eye-to-target distance D (yaw in
 // radians). D is kilometres, so these are big on the ground and small on
-// screen: a 3 km push toward a summit 20 km away.
-export const MOVE_LIMITS = Object.freeze({ dolly: [0, 0.16], yaw: [-0.06, 0.06], crane: [0, 0.035], truck: [-0.025, 0.025] });
+// screen: a 2 km push toward a summit 20 km away. Tuned in CameraMotion.js.
+export const MOVE_LIMITS = CAMERA_MOVES.limits;
 // The song opens risen over the dark land and settles in as the sun comes up.
 export const OPENING_MOVE = Object.freeze({ dolly: 0, yaw: 0, crane: 0.03, truck: 0, kind: 'rest' });
 const FINALE = Object.freeze({ dolly: 0, crane: 0.03, truck: 0 });
@@ -128,26 +129,26 @@ export function cameraMoveKeys(sections, durationMs, seed = 0, cadenceMs = null)
       // Settle down out of the risen opening shot and lean in a little.
       next.kind = 'establish';
       next.crane = 0.008;
-      next.dolly = lerp(0.03, 0.07, energy);
+      next.dolly = lerp(...CAMERA_MOVES.establishDolly, energy);
     } else if (spans[i].delta >= ENERGY_TURN && energy >= .65) {
       // A climax opens the entire range: rise and come back to the wide
       // rail while looking across the same subject, then hold its scale.
       next.kind = 'reveal';
       next.dolly = lerp(.025, 0, energy);
       next.crane = lerp(.024, MOVE_LIMITS.crane[1], energy);
-      next.yaw = side * lerp(.025, .05, energy);
-      next.truck = side * lerp(.008, .018, energy);
+      next.yaw = side * lerp(...CAMERA_MOVES.revealYaw, energy);
+      next.truck = side * lerp(...CAMERA_MOVES.revealTruck, energy);
     } else if (spans[i].delta >= ENERGY_TURN) {
       // A build leans into the subject before the wider arrival.
       next.kind = 'push';
-      next.dolly = lerp(.06, .13, energy);
+      next.dolly = lerp(...CAMERA_MOVES.pushDolly, energy);
       next.crane = .012;
       next.yaw = side * .018;
       next.truck = side * .006;
     } else if (spans[i].delta <= -ENERGY_TURN) {
       // Quiet passages return gently to an intimate, still composition.
       next.kind = 'settle';
-      next.dolly = lerp(.035, .075, energy);
+      next.dolly = lerp(...CAMERA_MOVES.settleDolly, energy);
       next.crane = .008;
       next.yaw = cur.yaw * .35;
       next.truck = cur.truck * .35;
@@ -165,10 +166,44 @@ export function cameraMoveKeys(sections, durationMs, seed = 0, cadenceMs = null)
   return keys;
 }
 
+const accentStep = (u) => { const t = clamp(u, 0, 1); return t * t * (3 - 2 * t); };
+
+/** The camera's envelope for one pulse cue: a slow lean in, a hold on the
+ *  turn and a long release (CAMERA_ACCENT). 0 outside its window. */
+export function cameraAccentEnvelope(cue, timeMs) {
+  const { leadMs, holdMs, releaseMs } = CAMERA_ACCENT;
+  const age = timeMs - cue.timeMs;
+  if (age <= -leadMs || age >= holdMs + releaseMs) return 0;
+  if (age < 0) return accentStep((age + leadMs) / leadMs);
+  if (age <= holdMs) return 1;
+  return 1 - accentStep((age - holdMs) / releaseMs);
+}
+
+/** The accent at heard time from a compiled pulse: signed (yaw, truck) and
+ *  unsigned (dolly, crane) weights. Neighbouring cues overlap and cross-fade
+ *  instead of snapping between sides. A pulse without cues (a sampler
+ *  function) keeps its own envelope. */
+export function cameraAccentAt(pulse, timeMs) {
+  if (Array.isArray(pulse?.cues)) {
+    let signed = 0, lift = 0;
+    for (const cue of pulse.cues) {
+      if (cue.timeMs - CAMERA_ACCENT.leadMs > timeMs) break;
+      const amount = (Number(cue.strength) || 0) * cameraAccentEnvelope(cue, timeMs);
+      if (!(amount > 0)) continue;
+      signed += (cue.sign < 0 ? -1 : 1) * amount;
+      lift += amount;
+    }
+    return { signed: clamp(signed, -1, 1), lift: clamp(lift, 0, 1) };
+  }
+  const accent = typeof pulse === 'function' ? pulse(timeMs) : pulse?.at?.(timeMs);
+  const amount = accent?.accent01 > 0 ? accent.accent01 : 0;
+  return { signed: (accent?.sign < 0 ? -1 : 1) * amount, lift: amount };
+}
+
 /** The cinematic move offset at heard time `timeMs`. Neutral for previews.
  *  A compiled CinematicPulse adds bounded, alternating accents on trusted
- *  musical turns; it is sampled here, never integrated, so every seek lands
- *  on the same shot. */
+ *  musical turns, on the camera's own slow envelope; it is sampled here,
+ *  never integrated, so every seek lands on the same shot. */
 export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0, seed = 0,
   cadenceMs = null, preview = false, pulse = null } = {}) {
   if (preview || !(durationMs > 0)) return NEUTRAL_MOVE;
@@ -184,15 +219,20 @@ export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0,
     dolly: lerp(a.dolly, b.dolly, u), yaw: lerp(a.yaw, b.yaw, u),
     crane: lerp(a.crane, b.crane, u), truck: lerp(a.truck, b.truck, u), kind: u > 0 && u < 1 ? b.kind : 'hold',
   };
-  const accent = typeof pulse === 'function' ? pulse(t) : pulse?.at?.(t);
-  if (!accent || !(accent.accent01 > 0) || b.kind === 'finale') return move;
+  // A release still running when the closing move begins fades out with
+  // that move's own easing instead of stopping on its first frame.
+  const finaleFade = b.kind === 'finale' ? 1 - u : 1;
+  if (!pulse || !(finaleFade > 0)) return move;
+  const accent = cameraAccentAt(pulse, t);
+  const signed = accent.signed * finaleFade, rise = accent.lift * finaleFade;
+  if (!signed && !rise) return move;
   // Spend only the headroom left by the structural key, so an accent can
   // never push the eye outside the authored move limits.
   const headroom = (lo, hi, value, amount) => amount > 0 ? Math.min(amount, hi - value) : Math.max(amount, lo - value);
-  const push = headroom(...MOVE_LIMITS.dolly, move.dolly, 0.045 * accent.accent01);
-  const swing = headroom(...MOVE_LIMITS.yaw, move.yaw, accent.sign * 0.035 * accent.accent01);
-  const lift = headroom(...MOVE_LIMITS.crane, move.crane, 0.012 * accent.accent01);
-  const truck = headroom(...MOVE_LIMITS.truck, move.truck, accent.sign * 0.012 * accent.accent01);
+  const push = headroom(...MOVE_LIMITS.dolly, move.dolly, CAMERA_ACCENT.dolly * rise);
+  const swing = headroom(...MOVE_LIMITS.yaw, move.yaw, CAMERA_ACCENT.yaw * signed);
+  const lift = headroom(...MOVE_LIMITS.crane, move.crane, CAMERA_ACCENT.crane * rise);
+  const truck = headroom(...MOVE_LIMITS.truck, move.truck, CAMERA_ACCENT.truck * signed);
   move.dolly = clamp(move.dolly + push, ...MOVE_LIMITS.dolly);
   move.yaw = clamp(move.yaw + swing, ...MOVE_LIMITS.yaw);
   move.crane = clamp(move.crane + lift, ...MOVE_LIMITS.crane);

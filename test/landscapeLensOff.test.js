@@ -1,3 +1,4 @@
+import { widenLens, CAMERA_FRAME, REVEAL_CROP } from '../src/world/alpine/CameraMotion.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -71,7 +72,10 @@ test('Landscape scenic reveal is smooth and bounded while manual projection zoom
     assert.equal(frame.performance.lens.zoomPulse, 0, 'scenic reveal does not drive stage impact effects');
     assert.ok(frame.performance.lens.halfAngleScale >= .84 && frame.performance.lens.halfAngleScale < 1);
     scene._setCamera(view, { ...frame, cameraMove: null });
-    assert.ok(scene.camera.fov < 35 && scene.camera.fov > 29, 'reveal stays inside authored coverage');
+    // Rails stand on the wider standing lens; the reveal crops inside it, no
+    // tighter than REVEAL_CROP of that lens.
+    const standing = widenLens(35), tightest = widenLens(35, CAMERA_FRAME.wideLensTan * REVEAL_CROP);
+    assert.ok(scene.camera.fov < standing && scene.camera.fov >= tightest - 1e-9, 'reveal stays inside authored coverage');
     const initial = scene.camera.projectionMatrix.toArray();
     const position = scene.camera.position.toArray();
     scene._setCamera(view, { ...frame, cameraMove: null, userCamera: { fx: .6, rx: .08, uy: -.04 } });
@@ -84,6 +88,6 @@ test('Landscape scenic reveal is smooth and bounded while manual projection zoom
     const settled = buildRangeFrame({ frameId: 2, sim, pose: sim.lerpState(1),
       scenicViewport: viewportState({ logicalWidth: 1280, logicalHeight: 720 }) });
     scene._setCamera(view, { ...settled, cameraMove: null });
-    assert.equal(scene.camera.fov, 35, 'the reveal returns to the full authored view');
+    assert.equal(scene.camera.fov, standing, 'the reveal returns to the full standing view');
   } finally { sim.dispose(); }
 });

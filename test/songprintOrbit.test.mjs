@@ -1,3 +1,4 @@
+import { widenLens } from '../src/world/alpine/CameraMotion.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { projectPoint, scenePoseAt } from '../src/world/terrain/SceneTravel.js';
@@ -91,7 +92,7 @@ test('the drawn camera starts a late orbit without dropping the current lens or 
   assert.ok(Math.abs(first.proj.fovYDeg - legacy.proj.fovYDeg) < .002);
   assert.ok(Math.hypot(...first.pose.eyeM.map((coord, i) => coord - legacy.pose.eyeM[i])) < 2);
   assert.ok(middle.proj.fovYDeg > legacy.proj.fovYDeg && middle.proj.fovYDeg < full.proj.fovYDeg);
-  assert.ok(Math.abs(full.proj.fovYDeg - 36) < 1e-9);
+  assert.ok(Math.abs(full.proj.fovYDeg - widenLens(36)) < 1e-9, 'a full orbit stands on the wider standing lens');
   assert.ok(!full.pose.viewOffset);
   assert.ok(full.pose.songprintOrbit);
   assert.deepEqual(read(.5), middle);

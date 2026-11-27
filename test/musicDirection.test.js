@@ -1,3 +1,4 @@
+import { REVEAL_CROP } from '../src/world/alpine/CameraMotion.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sampleEffectsMusic, blendEffectsMusic, ATMOSPHERE_RELEASE_MS } from '../src/world/alpine/EffectsMusic.js';
@@ -175,13 +176,13 @@ test('scenic lens gathers and reveals scale without beat pumping or stage tilt',
   const lens = t => revealLensFromCues(cues, t);
   assert.equal(lens(16999), NEUTRAL_LENS);
   assert.ok(lens(19000).halfAngleScale < 1);
-  assert.ok(lens(20000).halfAngleScale < .86);
+  assert.ok(lens(20000).halfAngleScale < 1 - (1 - REVEAL_CROP) * .875, 'the gather is near its tightest');
   assert.ok(lens(23000).halfAngleScale > lens(21000).halfAngleScale);
   assert.equal(lens(25000), NEUTRAL_LENS);
   for (let t = 16000; t <= 26000; t += 16) {
     const a = lens(t), b = lens(t + 16);
     assert.equal(a.zoomPulse, 0);
-    assert.ok(a.halfAngleScale >= .84 && a.halfAngleScale <= 1, 'only authored coverage is shown');
+    assert.ok(a.halfAngleScale >= REVEAL_CROP && a.halfAngleScale <= 1, 'only authored coverage is shown');
     assert.ok(Math.abs(a.halfAngleScale - b.halfAngleScale) < .0017, 'framing travels over seconds');
   }
   assert.equal(revealLensFromCues(cues, 20000, true), NEUTRAL_LENS);
