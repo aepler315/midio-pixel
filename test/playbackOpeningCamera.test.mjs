@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { widenLens } from '../src/world/alpine/CameraMotion.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
 import { buildRangeFrame, viewportState } from '../src/world/alpine/RangeFrame.js';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
@@ -23,13 +24,15 @@ test('a played song opens on the land-rise close-up in the rendered camera and r
   const scene = Object.assign(Object.create(RangeScene.prototype), {
     prepared: new Map(), _movedPoses: new WeakMap(), camera: new THREE.PerspectiveCamera(),
     _ensureTourWindow() {} });
-  const ordinary = new THREE.PerspectiveCamera(35, 1280 / 720);
+  // Ordinary rails stand on the wider standing lens (CameraMotion).
+  const lens = widenLens(35);
+  const ordinary = new THREE.PerspectiveCamera(lens, 1280 / 720);
   assert.equal(frame.timeMs, 0);
   assert.equal(frame.rise01, LAND_RISE_START, 'the real playback frame must carry the opening rise into the camera');
   scene._setCamera(view, frame);
   const magnification = scene.camera.projectionMatrix.elements[5] / ordinary.projectionMatrix.elements[5];
   // The land starts one third built, so the terrain-safe close-up is about 3x.
-  const expected = Math.tan(35 * Math.PI / 360) / Math.tan(landRiseFov(35, LAND_RISE_START, 0) * Math.PI / 360);
+  const expected = Math.tan(lens * Math.PI / 360) / Math.tan(landRiseFov(lens, LAND_RISE_START, 0) * Math.PI / 360);
   assert.ok(Math.abs(magnification - expected) < 1e-9 && magnification > 2, `played opening magnification was ${magnification}`);
   // Six seconds in the land is still low, but the opening has let the lens go.
   sim.heardTimeMs = 6000; sim.biomes.tSec = 6;
