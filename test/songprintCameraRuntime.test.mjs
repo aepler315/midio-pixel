@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { CAMERA_FRAME } from '../src/world/alpine/CameraMotion.js';
 import { readFile } from 'node:fs/promises';
 import { setImmediate } from 'node:timers/promises';
 import { PerspectiveCamera, Vector3 } from 'three';
@@ -29,7 +30,10 @@ function sceneFixture() {
   Object.assign(view, { status: 'approved', biome: 'ALPINE' });
   Object.assign(view.camera, {
     eyeStartM: [6400, 1900, -1600], eyeEndM: [6600, 1900, -1300],
-    targetStartM: [10400, 1100, 6400], targetEndM: [1000, 1100, 6400], fovYDeg: 34,
+    // Authored so the wider standing lens (CameraMotion) frames 34 degrees:
+    // the test is about the directed rail, not the lens width.
+    targetStartM: [10400, 1100, 6400], targetEndM: [1000, 1100, 6400],
+    fovYDeg: 360 / Math.PI * Math.atan(Math.tan(17 * Math.PI / 180) / CAMERA_FRAME.wideLensTan),
   });
   view.songprintLandmarks = songprintLandmarks(data, view);
   view.songprintRailStations = songprintRailStations(data, view, view.songprintLandmarks);

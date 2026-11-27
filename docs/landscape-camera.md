@@ -42,6 +42,8 @@ knobs as named constants:
   rails and the Songprint orbit. Shot tours, Camera Studio, the glacier and
   Dual Summits keep their own framing. Terrain is baked for core framing at
   1.2× the authored tangent, so the wider lens stays inside full detail.
+  Returning-summit stations and the inland opening rail are judged on the
+  same wider frame the rail draws.
 - `CAMERA_MOVES` bounds the structural move. Push-ins reach at most 10% of
   the rail distance (was 16%), so a push keeps more of the range in frame.
 - `REVEAL_CROP` (0.92) is the tightest crop of the reveal lens before an
