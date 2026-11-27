@@ -48,6 +48,7 @@ import { buildRockStage } from './RockStage.js';
 import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
+import { widenLens } from './CameraMotion.js';
 import { applyCameraStudio, cameraStudioStatus } from './CameraStudio.js';
 import { BANDS, terrainFringeBytes, terrainRailCopyBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, atmosphereMusic } from './RangeAtmosphere.js';
@@ -2547,10 +2548,15 @@ export class RangeScene {
     }
     if (p) p.cameraStudioPlan = studioPlan;
     const poseTour = studioEnabled && view.tour ? terrainWindowTour(p?.data, view.tour, studioOptions) : p?.cameraTour || view.tour;
-    const baseRail = scenePoseAt(railView, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
+    const sourceRail = scenePoseAt(railView, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
       tour: poseTour });
-    if (p) p.cameraStudioSourcePose = baseRail;
-    const studioState = cameraStudioStatus(frame.cameraStudio, { fullCoverage: !!view.tour, pose: baseRail,
+    if (p) p.cameraStudioSourcePose = sourceRail;
+    // Authored rails and the Songprint orbit stand on a wider lens than their
+    // authoring (CameraMotion CAMERA_FRAME), inside the baked core coverage.
+    // Tours, Camera Studio and the glacier keep the framing they own.
+    const baseRail = studioEnabled || sourceRail.tour || poseTour || view.glacier ? sourceRail
+      : { ...sourceRail, fovYDeg: widenLens(sourceRail.fovYDeg) };
+    const studioState = cameraStudioStatus(frame.cameraStudio, { fullCoverage: !!view.tour, pose: sourceRail,
       detailLimited: !!studioPlan?.studioDetailAdjusted, budgetFallback: !!studioPlan?.studioFallback,
       maxErrorPx: studioPlan?.maxErrorPx, summitMaxErrorPx: studioPlan?.summitMaxErrorPx });
     const signature = !studioEnabled && dualSummitsPose(view, frame.performance?.signature, { baseM: landRiseBase(p) });
@@ -2560,7 +2566,7 @@ export class RangeScene {
       const tanY = Math.tan(proj.fovYDeg * Math.PI / 360) * Math.max(1, vp.logicalHeight - 2 * m) / vp.logicalHeight;
       const tanX = tanY * Math.max(1, vp.logicalWidth - 2 * m) / Math.max(1, vp.logicalHeight - 2 * m);
       const pose = applyCameraMoves(signature, null, frame.userCamera, { zoomMode: 'projection', cone: { tanX, tanY } });
-      const resolved = { rail: baseRail, proj, pose, tanX, tanY, cameraStudio: studioState };
+      const resolved = { rail: sourceRail, proj, pose, tanX, tanY, cameraStudio: studioState };
       poses.set(occurrenceId, resolved);
       return resolved;
     }

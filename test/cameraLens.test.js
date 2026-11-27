@@ -41,11 +41,13 @@ test('Range rendering shares the lens across projection and pose without dollyin
  const scene={prepared:new Map(),_ensureTourWindow(){},_movedPoses:new WeakMap()};
  const view={id:'lens',camera:{eyeStartM:[0,1500,0],eyeEndM:[0,1500,0],targetStartM:[0,700,-20000],targetEndM:[0,700,-20000],fovYDeg:35}};
  const frame={timeMs:20000,progress01:.5,scenicViewport:{logicalWidth:1280,logicalHeight:720},cameraEffects:{halfAngleScale:.82},cameraMove:null,userCamera:null};
+ const {widenLens}=await import('../src/world/alpine/CameraMotion.js');
  const result=RangeScene.prototype.movedPose.call(scene,view,frame);
- assert.ok(result.proj.fovYDeg<31);
+ // The rail stands on the wider standing lens; the cue crops inside it.
+ assert.ok(result.proj.fovYDeg<widenLens(35)-4);
  assert.equal(result.pose.fovYDeg,result.rail.fovYDeg);
  assert.deepEqual(result.pose.eyeM,[0,1500,0]);
- assert.equal(result.rail.fovYDeg,lens.applyLensFov(35,frame.cameraEffects));
+ assert.equal(result.rail.fovYDeg,lens.applyLensFov(widenLens(35),frame.cameraEffects));
 });
 
 // --- Trust gate (decorative, zero-confidence and repeated boundaries) ---
