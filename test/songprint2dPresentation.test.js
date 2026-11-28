@@ -4,7 +4,7 @@ import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 
 function canvas(width = 1280, height = 720) {
-  const target = { width, height, reads: 0, writes: 0, calls: [], fills: [], transforms: [] };
+  const target = { width, height, reads: 0, writes: 0, calls: [], fills: [], strokes: [], transforms: [] };
   const ctx = {
     canvas: target, imageSmoothingEnabled: true, globalAlpha: 1, globalCompositeOperation: 'source-over',
     fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: 'left', textBaseline: 'alphabetic',
@@ -13,7 +13,8 @@ function canvas(width = 1280, height = 720) {
     scale() {}, rotate() {}, transform() {}, bezierCurveTo() {}, quadraticCurveTo() {},
     save() { target.calls.push(['save']); },
     restore() { target.calls.push(['restore']); },
-    beginPath() {}, moveTo() {}, lineTo() {}, arc() {}, stroke() {}, fill() {}, closePath() {}, clip() { target.calls.push(['clip']); },
+    beginPath() {}, moveTo() {}, lineTo() {}, arc() {}, stroke() { target.strokes.push([this.strokeStyle, this.lineWidth]); },
+    fill() {}, closePath() {}, clip() { target.calls.push(['clip']); },
     rect() {}, strokeRect() {}, fillRect(...args) { target.fills.push(args); },
     fillText(text, x, y) { target.calls.push(['fillText', text, x, y]); },
     createLinearGradient() { return { addColorStop() {} }; },
@@ -126,7 +127,7 @@ test('songprint2d presentation falls back gracefully with missing song data', ()
 });
 
 test('the 2D raster steps down when the full backing store exceeds the budget', () => {
-  const out = canvas();
+  const out = canvas(1920, 1080);
   const inner = { draw() { throw new Error('should not draw 3D'); }, dispose() {} };
   const renderer = createPresentingRenderer({
     canvas: out,
@@ -146,6 +147,7 @@ test('the 2D raster steps down when the full backing store exceeds the budget', 
 
 test('denying every source bitmap still presents the print and impression as paths', () => {
   const out = canvas();
+  out.getContext('2d').lineWidth = 21;
   const renderer = createPresentingRenderer({
     canvas: out,
     presentation: { songVisualization: 'songprint2d' },
@@ -157,5 +159,7 @@ test('denying every source bitmap still presents the print and impression as pat
   assert.equal(out.calls.some(c => c[0] === 'drawImage'), false);
   assert.ok(out.calls.some(c => c[0] === 'clip'), 'the full-screen vector impression was drawn');
   assert.equal(out.reads, 0);
+  assert.ok(out.strokes.some(([color, width]) => color === '#aebabc' && width === 1),
+    'the small source contours set their own output-pixel width');
   renderer.dispose();
 });

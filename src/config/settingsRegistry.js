@@ -586,7 +586,7 @@ export const SETTINGS = Object.freeze([
     id: 'songprintEffect', url: 'songprintEffect', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
     label: 'Songprint impression', type: 'enum', default: 'apertures',
     options: [{ value: 'apertures', label: 'Apertures' }, { value: 'fold', label: 'Folded ink' }],
-    description: 'Look through an iris of folded paper or watch a familiar room repeat across a ribbon of songprint ink.',
+    description: 'Read the same sweep as overlapping edges or as a fold of successive impressions.',
     persist: 'saved', storage: unified('songprintEffect'), lifecycle: 'live', requires: [SONGPRINT_2D],
   },
   {
@@ -599,13 +599,13 @@ export const SETTINGS = Object.freeze([
   {
     id: 'songprintAudioResponse', url: 'songprintAudioResponse', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
     label: 'Follow the audio', type: 'boolean', default: true,
-    description: 'Sustained sound pulls the room sideways. Attacks catch the ink. Switch off to see the sweep in steady registration.',
+    description: 'Let sustained sound shift the layers and attacks catch an edge. Switch off to see the sweep alone.',
     persist: 'saved', storage: unified('songprintAudioResponse'), lifecycle: 'live', requires: [SONGPRINT_2D],
   },
   {
     id: 'songprintEntities', url: 'songprintEntities', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
     label: 'Beat tracers', type: 'boolean', default: true,
-    description: 'Three marks travel along the ink on independent paths and accent selected beats.',
+    description: 'Small slips of ink travel along different edges and catch on selected beats.',
     persist: 'saved', storage: unified('songprintEntities'), lifecycle: 'live',
     requires: [SONGPRINT_2D, { id: 'songprintAudioResponse', is: true, reason: 'Beat tracers follow the audio.' }],
   },

@@ -41,10 +41,10 @@ Lifecycle: when a change reaches a running page.
 - `pixelMotion` — Free motion places moving details between grid cells. Classic keeps their positions on the terrain pixel grid. Inactive unless: The standalone voxel pilot uses its own pixel renderer.
 - `scaling` — Fit fills the window and keeps the aspect. Integer uses evenly sized screen pixels, with borders when needed. Fullscreen always covers.
 - `songVisualization` — Choose Landscape or scan a song’s harmonic print into moving ink. Playback and video export use the chosen visualization.
-- `songprintEffect` — Look through an iris of folded paper or watch a familiar room repeat across a ribbon of songprint ink. Inactive unless: Choose Songprint 2D under Song visualization.
+- `songprintEffect` — Read the same sweep as overlapping edges or as a fold of successive impressions. Inactive unless: Choose Songprint 2D under Song visualization.
 - `songprintSweepPeriod` — Time for the spoke to scan once around the print. Inactive unless: Choose Songprint 2D under Song visualization.
-- `songprintAudioResponse` — Sustained sound pulls the room sideways. Attacks catch the ink. Switch off to see the sweep in steady registration. Inactive unless: Choose Songprint 2D under Song visualization.
-- `songprintEntities` — Three marks travel along the ink on independent paths and accent selected beats. Inactive unless: Choose Songprint 2D under Song visualization. Beat tracers follow the audio.
+- `songprintAudioResponse` — Let sustained sound shift the layers and attacks catch an edge. Switch off to see the sweep alone. Inactive unless: Choose Songprint 2D under Song visualization.
+- `songprintEntities` — Small slips of ink travel along different edges and catch on selected beats. Inactive unless: Choose Songprint 2D under Song visualization. Beat tracers follow the audio.
 
 ## Camera
 

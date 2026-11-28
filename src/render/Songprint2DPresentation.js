@@ -27,14 +27,8 @@ function drawDial(ctx, score, sample, size, margin, h) {
   // and the scan use the same field, physical scale and position.
   const cx = x + size * (score.fit?.cx ?? .5), cy = y + size * (score.fit?.cy ?? .5);
   const radius = size * (score.fit?.radius ?? .42);
-  ctx.beginPath();
-  ctx.arc(x + size / 2, y + size / 2, size * .59, 0, TAU);
-  ctx.fillStyle = '#11181ced';
-  ctx.fill();
-  ctx.lineWidth = Math.max(1, size / 180);
-  ctx.strokeStyle = '#bdc9bd66';
-  ctx.stroke();
-
+  ctx.save();
+  ctx.globalAlpha *= .72;
   if (score.raster) {
     ctx.drawImage(score.raster, x, y, size, size);
   } else {
@@ -43,6 +37,7 @@ function drawDial(ctx, score, sample, size, margin, h) {
     const { field, stride, slices, rays } = score.growth;
     const step = Math.max(1, Math.ceil(slices / 8));
     ctx.strokeStyle = '#aebabc';
+    ctx.lineWidth = Math.max(1, size / 180);
     for (let slice = slices; slice > 0; slice -= step) {
       ctx.beginPath();
       for (let j = 0; j < rays; j += 3) {
@@ -55,11 +50,12 @@ function drawDial(ctx, score, sample, size, margin, h) {
     }
   }
 
+  ctx.restore();
   const dx = Math.sin(sample.phase), dy = -Math.cos(sample.phase);
   const edge = sample.outerRadius * radius;
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * edge, cy + dy * edge);
-  ctx.strokeStyle = '#111817'; ctx.lineWidth = Math.max(2, size / 85); ctx.stroke();
-  ctx.strokeStyle = '#fff2c8'; ctx.lineWidth = Math.max(1, size / 175); ctx.stroke();
+  ctx.strokeStyle = '#171b1cbd'; ctx.lineWidth = Math.max(1.6, size / 75); ctx.stroke();
+  ctx.strokeStyle = '#f3e7cdda'; ctx.lineWidth = Math.max(.8, size / 150); ctx.stroke();
   const r = sample.activeRadius * radius;
   ctx.beginPath(); ctx.arc(cx + dx * r, cy + dy * r, Math.max(1.5, size * .022), 0, TAU);
   ctx.fillStyle = '#ffe6a6'; ctx.fill(); ctx.strokeStyle = '#152022'; ctx.stroke();
@@ -94,7 +90,7 @@ export class Songprint2DPresentation {
         sample: createSongprintSweep(score.descriptor, score.growth, sim, score.lab) });
     }
 
-    const size = Math.max(1, Math.min(w * .28, h * .29));
+    const size = Math.max(1, Math.min(w, h) * .165);
     const rasterSize = Math.max(128, Math.min(512, Math.ceil(size / 64) * 64));
     if (score.rasterSize !== rasterSize) {
       score.rasterSize = rasterSize;

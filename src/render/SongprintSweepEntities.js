@@ -1,6 +1,6 @@
 import { clamp, clamp01, lerp } from '../utils/math.js';
 
-// The tools ride different material edges and work on different beat divisions.
+// Three small registration slips travel along different material edges.
 // Their position is a function of the song clock, so export, pause and seek agree.
 const TOOLS = [
   { band: 0.23, offset: 0, interval: 2, travel: 7, rest: 0.48 },
@@ -8,9 +8,6 @@ const TOOLS = [
   { band: 0.79, offset: 2, interval: 4, travel: 13, rest: 0.37 },
 ];
 const TAU = 2 * Math.PI;
-const BRASS = '#e2bc79';
-const IVORY = '#fff0ce';
-const EDGE = '#24252b';
 
 export function sweepTools(scan, bandCount, enabled) {
   if (!enabled || scan.withAudio === false) return [];
@@ -33,79 +30,60 @@ export function sweepTools(scan, bandCount, enabled) {
   return tools;
 }
 
-function polygon(ctx, points, fill) {
-  ctx.beginPath();
-  ctx.moveTo(points[0], points[1]);
-  for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.strokeStyle = EDGE;
-  ctx.lineWidth = 0.045;
-  ctx.stroke();
+function alongEdge(cubic, t, view) {
+  const [a, b, c, d] = cubic;
+  const v = 1 - t;
+  const w0 = v*v*v, w1 = 3*v*v*t, w2 = 3*v*t*t, w3 = t*t*t;
+  return {
+    x: view.w * (w0*a.x + w1*b.x + w2*c.x + w3*d.x),
+    y: view.h * (w0*a.y + w1*b.y + w2*c.y + w3*d.y),
+  };
 }
 
-function wheel(ctx, x, y, radius, fill) {
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, TAU);
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.strokeStyle = EDGE;
-  ctx.lineWidth = 0.055;
-  ctx.stroke();
-}
-
-// The cubic belongs to the rendered blade or fold itself. Use its derivative
-// in output pixels to hold the tool against that edge at every canvas aspect.
+// Lift just a short section of the actual crease. Its shorter, lighter
+// impression shares that edge, so even the moving accent belongs to the ink.
 export function drawSweepTool(ctx, view, tool, cubic, u, color, load = 0) {
   const [a, b, c, d] = cubic;
   const v = 1 - u;
-  const x = v*v*v*a.x + 3*v*v*u*b.x + 3*v*u*u*c.x + u*u*u*d.x;
-  const y = v*v*v*a.y + 3*v*v*u*b.y + 3*v*u*u*c.y + u*u*u*d.y;
-  const dx = v*v*(b.x-a.x) + 2*v*u*(c.x-b.x) + u*u*(d.x-c.x);
-  const dy = v*v*(b.y-a.y) + 2*v*u*(c.y-b.y) + u*u*(d.y-c.y);
-  const angle = Math.atan2(view.h * dy, view.w * dx);
-  const size = clamp(Math.min(view.w, view.h) * 0.052, 13, 43);
-  const pigment = 'rgb(' + color.map(Math.round).join(',') + ')';
+  const dx = 3 * view.w * (v*v*(b.x-a.x) + 2*v*u*(c.x-b.x) + u*u*(d.x-c.x));
+  const dy = 3 * view.h * (v*v*(b.y-a.y) + 2*v*u*(c.y-b.y) + u*u*(d.y-c.y));
+  const speed = Math.hypot(dx, dy);
+  if (speed < .0001) return;
+  const scale = clamp(Math.min(view.w, view.h) / 540, .55, 3);
   const press = tool.strike;
-  const transfer = load * press;
+  const dt = Math.min(.15, scale * (7 + 4*tool.travel + 9*press) / speed);
+  const centre = alongEdge(cubic, u, view);
+  const before = alongEdge(cubic, Math.max(0, u-dt), view);
+  const after = alongEdge(cubic, Math.min(1, u+dt*.73), view);
+  // Local pixel coordinates let the two impressions straddle a curved
+  // rail by a fraction of a pixel when they are almost in register.
+  const tx = dx / speed, ty = dy / speed;
+  const x0 = (before.x-centre.x)*tx + (before.y-centre.y)*ty;
+  const y0 = (before.y-centre.y)*tx - (before.x-centre.x)*ty;
+  const x1 = (after.x-centre.x)*tx + (after.y-centre.y)*ty;
+  const y1 = (after.y-centre.y)*tx - (after.x-centre.x)*ty;
+  const offset = scale * (.58 + (2.3 + load) * press);
   ctx.save();
   ctx.scale(1 / view.w, 1 / view.h);
-  ctx.translate(x * view.w, y * view.h);
-  ctx.rotate(angle);
-  // At the catch the moving tool briefly presses flat into its own sheet.
-  // Releasing the seam restores the free silhouette.
-  ctx.scale(size * (1 + .32 * transfer), size * (1 - .78 * transfer));
-  ctx.globalAlpha *= tool.opacity;
-
-  // A momentary bite remains on the contact edge as the tool recoils.
-  if (press > 0.02) {
-    ctx.beginPath();
-    ctx.moveTo(-0.52 - press * 0.8, 0.045);
-    ctx.lineTo(0.02, 0.045);
-    ctx.strokeStyle = IVORY;
-    ctx.lineWidth = 0.035 + 0.08 * press;
-    ctx.stroke();
-  }
-
-  if (tool.id === 0) {
-    // A sail-shaped shuttle closes its two wings around the edge.
-    const lift = 0.26 * (1 - press);
-    polygon(ctx, [-0.76,-0.06, -0.23,-0.30-lift, 0.64,-0.03, 0.06,0.10], IVORY);
-    polygon(ctx, [-0.58,0.02, -0.22,0.21+lift*0.48, 0.63,-0.03, 0.03,0.04], pigment);
-    wheel(ctx, -0.19, -0.08, 0.075, BRASS);
-  } else if (tool.id === 1) {
-    // Two brass rollers share a low ink carriage. It sinks onto the wheels.
-    wheel(ctx, -0.33, -0.02, 0.17, BRASS);
-    wheel(ctx, 0.34, -0.02, 0.17, IVORY);
-    const body = -0.32 + 0.12 * press;
-    polygon(ctx, [-0.56,-0.11, -0.36,body, 0.21,body-0.045, 0.54,-0.11, 0.37,-0.04, -0.23,-0.04], pigment);
-  } else {
-    // A long split stylus stamps the ridge with its lower tine.
-    const lift = 0.19 * (1 - press);
-    polygon(ctx, [-0.67,-0.22-lift, -0.50,-0.36-lift, 0.74,-0.025, 0.12,0.06], BRASS);
-    polygon(ctx, [-0.59,0.12+lift*0.4, -0.38,0.16+lift*0.4, 0.74,-0.025, 0.14,-0.10], IVORY);
-    wheel(ctx, -0.31, -0.08, 0.075, pigment);
-  }
+  ctx.translate(centre.x, centre.y);
+  ctx.rotate(Math.atan2(dy, dx));
+  ctx.globalAlpha *= tool.opacity * (.44 + .40*press);
+  ctx.fillStyle = 'rgb(' + color.map(c => Math.round(c*.36)).join(',') + ')';
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(0, 0);
+  ctx.lineTo(x1, y1);
+  ctx.lineTo(x1, y1 + .63*offset);
+  ctx.lineTo(0, offset);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgb(' + color.map(c => Math.round(lerp(c, 213, .34))).join(',') + ')';
+  ctx.beginPath();
+  ctx.moveTo(x0*.59, y0*.59);
+  ctx.lineTo(0, -.54*offset);
+  ctx.lineTo(x1*.78, y1*.78);
+  ctx.lineTo(0, 0);
+  ctx.closePath();
+  ctx.fill();
   ctx.restore();
 }

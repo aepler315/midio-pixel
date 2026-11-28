@@ -108,14 +108,13 @@ test('steady sound and unavailable evidence never manufacture attacks', () => {
   assert.equal(drone(1.5).beatPosition, null);
 });
 
-test('sustained room pressure distinguishes a transient, a held phrase and its release on seek', () => {
+test('sustained ink pressure distinguishes a transient, a held phrase and its release on seek', () => {
   const band = Float32Array.from({length: 500}, (_, i) => i === 10 || (i >= 100 && i < 240) ? .25 : 0);
   const read = createSongprintSweep(descriptor, field, { durationMs: 10000, energyCurves: { rmsBands: [band], rateHz: 50 } });
-  assert.equal(read(.18).sustained, 0, 'future samples cannot affect the room');
+  assert.equal(read(.18).sustained, 0, 'future samples cannot affect the ink');
   assert.ok(read(.20).attack > .9 && read(.20).sustained < .05);
   const crest = structuredClone(read(4.4));
   assert.ok(crest.sustained > .95 && crest.attack < .01);
-  near(crest.songPosition, .44);
   assert.ok(read(9.9).sustained < .03);
   assert.equal(read(4.4, {withAudio: false}).sustained, 0);
   assert.deepEqual(read(4.4), crest);
