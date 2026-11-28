@@ -15,10 +15,11 @@ export function createSongprintSweep(descriptor, growth, sim, lab) {
   const offset = descriptor.offsetSeconds ?? 0;
   // Old cached Fable printouts discarded their leading trim. Match the
   // previous normalized playback mapping when no origin is available.
-  const recordingMs = sim.conductor?.durationMs ?? sim.durationMs ?? sim.biomes?.durationMs;
+  const recordingMs = sim.conductor?.durationMs || sim.durationMs || sim.biomes?.durationMs;
   const sourceDuration = descriptor.offsetSeconds == null && recordingMs > 0 ? recordingMs / 1000
     : total * descriptor.sliceSeconds;
   const seconds = sourceDuration / total;
+  const songSeconds = recordingMs > 0 ? recordingMs / 1000 : offset + sourceDuration;
   const audioAt = createSweepAudio(sim, descriptor);
   let meanGap = 0;
   for (let j = 0; j < rays; j++) meanGap += field[j * stride + slices];
@@ -28,12 +29,12 @@ export function createSongprintSweep(descriptor, growth, sim, lab) {
   function createSlot() {
     return { rows: colors.map((color, i) => ({ i, color, r0: 0, r1: 0, bend: 0, gap: 0, focus: 0 })) };
   }
-  return (timeSec, { periodSec = 12, withAudio = true } = {}) => {
+  return (timeSec, { periodSec, withAudio = true } = {}) => {
     const time = Number.isFinite(timeSec) ? Math.max(0, timeSec) : 0;
-    const period = Number.isFinite(periodSec) && periodSec > 0 ? periodSec : 12;
+    const loopSeconds = Number.isFinite(periodSec) && periodSec > 0 ? periodSec : null;
     for (let i = 0; i < slots.length; i++) {
       const hit = slots[i];
-      if (hit.time === time && hit.periodSec === period && hit.withAudio === withAudio) {
+      if (hit.time === time && hit.periodSec === loopSeconds && hit.withAudio === withAudio) {
         // A seek can revisit the oldest slot. Keep it alive while the two
         // delayed impressions borrow their own row buffers for this frame.
         slots.splice(i, 1);
@@ -43,17 +44,23 @@ export function createSongprintSweep(descriptor, growth, sim, lab) {
     }
     const out = slots.length < 4 ? createSlot() : slots.shift();
     slots.push(out);
-    const periodUs = Math.max(1, Math.round(period * 1e6));
-    const turn = (Math.round(time * 1e6) % periodUs) / periodUs;
+    // Angular position follows the full recording. Only the radial playhead
+    // below uses the print's audible trim. Numeric periods opt into a loop.
+    let turn = clamp(time / songSeconds, 0, 1);
+    if (loopSeconds !== null) {
+      const periodUs = Math.max(1, Math.round(loopSeconds * 1e6));
+      turn = (Math.round(time * 1e6) % periodUs) / periodUs;
+    }
     const angle = turn * rays;
-    const j = Math.floor(angle), k = (j + 1) % rays, mix = angle - j;
+    const index = Math.floor(angle);
+    const j = index % rays, k = (j + 1) % rays, mix = angle - index;
     const a = j * stride, b = k * stride;
     const al = ((j + rays - spread) % rays) * stride, bl = ((k + rays - spread) % rays) * stride;
     const ar = ((j + spread) % rays) * stride, br = ((k + spread) % rays) * stride;
     const elapsed = clamp((time - offset) / seconds, 0, total);
     const active = Math.min(slices, elapsed <= slices - 1 ? elapsed : slices - 1 + (elapsed - slices + 1) / last);
     const activeSlice = Math.min(slices - 1, Math.floor(active));
-    Object.assign(out, { time, periodSec: period, phase: turn * TAU, activeIndex: active, withAudio });
+    Object.assign(out, { time, periodSec: loopSeconds, phase: turn * TAU, activeIndex: active, withAudio });
     if (withAudio) audioAt(out, time * 1000, time >= offset && time <= offset + sourceDuration, activeSlice);
     else Object.assign(out, { attack: 0, energy: .5, audible: 1, sustained: 0, beatPosition: null, beatConfidence: 0 });
     let r0 = 0, left = 0, right = 0;

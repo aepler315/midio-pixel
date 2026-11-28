@@ -1995,7 +1995,10 @@ function startTimeline(timelineData, extra = {}) {
   // Keep lastAudioBuffer across replays (same song, new/same seed). Loaders
   // that switch song type clear it themselves — wiping it here made
   // "New seed" / "Replay seed" start a silent level after any audio drop.
-  conductor.load(timelineData);
+  // An uploaded file's final analysis stops at an envelope-frame boundary.
+  // Time the 2D sweep and its seek bar to the actual decoded sample count.
+  const mediaMs = songprint2D && playBuffer ? playBuffer.length / playBuffer.sampleRate * 1000 : 0;
+  conductor.load(mediaMs > 0 ? { ...timelineData, durationMs: mediaMs } : timelineData);
   // Starting part-way in (a recognised song already playing in the room):
   // move the dispatch cursors with the clock, or the first frame fires every
   // note between zero and here at once -- the whole first half of the song

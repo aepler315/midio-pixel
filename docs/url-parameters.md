@@ -32,7 +32,7 @@ Lifecycle: when a change reaches a running page.
 | `scaling` | Scaling | `fit`, `integer` | `fit` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `songVisualization` | Song visualization | `off`, `songprint2d` | `off` | Next song | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `songprintEffect` | Songprint impression | `apertures`, `fold` | `apertures` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `songprintSweepPeriod` | Time per rotation | `8`, `12`, `24` | `12` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `songprintSweepPeriod` | Sweep timing | `song`, `8`, `12`, `24` | `song` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `songprintAudioResponse` | Follow the audio | `1`, `0` | `on` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `songprintEntities` | Beat tracers | `1`, `0` | `on` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 
@@ -42,7 +42,7 @@ Lifecycle: when a change reaches a running page.
 - `scaling` — Fit fills the window and keeps the aspect. Integer uses evenly sized screen pixels, with borders when needed. Fullscreen always covers.
 - `songVisualization` — Choose Landscape or scan a song’s harmonic print into moving ink. Playback and video export use the chosen visualization.
 - `songprintEffect` — Read the same sweep as overlapping edges or as a fold of successive impressions. Inactive unless: Choose Songprint 2D under Song visualization.
-- `songprintSweepPeriod` — Time for the spoke to scan once around the print. Inactive unless: Choose Songprint 2D under Song visualization.
+- `songprintSweepPeriod` — The spoke turns once from the start of the track to the end. Choose a repeat interval for a looping sweep. Inactive unless: Choose Songprint 2D under Song visualization.
 - `songprintAudioResponse` — Let sustained sound shift the layers and attacks catch an edge. Switch off to see the sweep alone. Inactive unless: Choose Songprint 2D under Song visualization.
 - `songprintEntities` — Small slips of ink travel along different edges and catch on selected beats. Inactive unless: Choose Songprint 2D under Song visualization. Beat tracers follow the audio.
 
