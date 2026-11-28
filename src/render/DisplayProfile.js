@@ -56,5 +56,6 @@ export function writeDisplayPrefs(storage, prefs) {
 export function resolvePresentation(prefs) {
   const p = resolveDisplayPrefs({ saved: prefs });
   return { pixelated: true, cinematicPixel: true, freePixelMotion: p.pixelMotion === 'free', buildPixelDetail: p.buildPixelDetail, grid: pixelGrid(p.pixelGrid),
-    quality: p.quality, scaling: p.scaling, pixelScale: p.pixelScale };
+    quality: p.quality, scaling: p.scaling, pixelScale: p.pixelScale,
+    ...(prefs?.songprintSweep ? { songprintSweep: prefs.songprintSweep } : {}) };
 }

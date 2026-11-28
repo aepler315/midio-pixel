@@ -2,7 +2,7 @@
 // The library needs only the composition's skyline, never its passage timeline.
 export const SONGPRINT_VERSION = 1;
 export const SONGPRINT_PHRASE_VERSION = 1;
-export const SONGPRINT_FABLE_VERSION = 1;
+export const SONGPRINT_FABLE_VERSION = 2;
 export const MAX_PHRASE_FAMILIES = 4;
 export const MAX_PHRASE_OCCURRENCES = 8;
 import { copySongprintTimeline } from './SongprintTimeline.js';
@@ -35,7 +35,7 @@ function copyPhraseFamilies(data, durationMs) {
 }
 
 function copyFableDescriptor(data) {
-  if (!data || data.version !== SONGPRINT_FABLE_VERSION) return null;
+  if (!data || (data.version !== SONGPRINT_FABLE_VERSION && data.version !== 1)) return null;
   const slices = data.slices;
   if (!Number.isInteger(slices) || slices < 1 || slices > 1200) return null;
   const chromaLen = slices * 12;
@@ -71,8 +71,10 @@ function copyFableDescriptor(data) {
   const keyAngle = Number(data.keyAngle);
   if (!Number.isFinite(sliceSeconds) || sliceSeconds <= 0 || !Number.isFinite(lastFraction) || lastFraction <= 0 || lastFraction > 1.0001) return null;
   if (!Number.isFinite(keyAngle)) return null;
+  if (data.version === 2 && (!Number.isFinite(data.offsetSeconds) || data.offsetSeconds < 0)) return null;
   return {
-    version: SONGPRINT_FABLE_VERSION,
+    version: data.version,
+    ...(data.version === 2 ? { offsetSeconds: data.offsetSeconds } : {}),
     slices,
     sliceSeconds,
     lastFraction: Math.min(1, Math.max(1e-3, lastFraction)),
@@ -87,6 +89,11 @@ function copyFableDescriptor(data) {
 
 export function copySongprint(print, durationMs = Infinity) {
   const compact = copySongprintSkyline(print);
+  const fable = copyFableDescriptor(print?.fable);
+  // A short or steady source can carry a valid print before any geographic
+  // recurrence can be measured. Preserve that result through cache restores.
+  if (!compact && print?.version === SONGPRINT_VERSION && !('skyline' in print) && fable)
+    return { version: SONGPRINT_VERSION, fable };
   // One candidate every two seconds in a recording of up to twenty minutes.
   if (!compact || !Array.isArray(print.passages) || print.passages.length > 601) return null;
   const passages = [];
@@ -100,6 +107,5 @@ export function copySongprint(print, durationMs = Infinity) {
   }
   const phraseFamilies = copyPhraseFamilies(print.phraseFamilies, durationMs);
   const timeline = copySongprintTimeline(print.timeline, durationMs);
-  const fable = copyFableDescriptor(print.fable);
   return { ...compact, passages, ...(phraseFamilies ? { phraseFamilies } : {}), ...(timeline ? { timeline } : {}), ...(fable ? { fable } : {}) };
 }

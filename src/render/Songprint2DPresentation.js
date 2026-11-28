@@ -1,146 +1,68 @@
 import { CanvasBuffers } from './CanvasResidency.js';
 import { clamp01 } from '../utils/math.js';
-import { buildDescriptorFromSongprint, renderFable, revealedSliceIndex } from './SongprintFable.js';
+import { buildDescriptorFromSongprint, growthField, renderFable, sliceColours } from './SongprintFable.js';
+import { createSongprintSweep } from './SongprintSweep.js';
+import { drawSweepEffect } from './SongprintSweepEffects.js';
 
 const TAU = Math.PI * 2;
-const PALETTE = ['#ddaa69', '#89c8ce', '#aab5de', '#c0aa89'];
-const sectionColor = i => PALETTE[i % PALETTE.length];
 
-function energyAt(sim, timeMs) {
-  return clamp01(sim.energyCurves?.globalEnergyNorm?.(timeMs) ?? 0);
-}
-
-function clock(timeMs) {
-  const seconds = Math.floor(timeMs / 1000);
-  return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
-}
-
-// A neutral ring score gives unpitched or provisional audio a picture too.
-// Only level comes from the energy curve. Chroma remains uniform.
-function energyDescriptor(sim, durationMs) {
-  const slices = Math.min(600, Math.ceil(durationMs / 2000));
+// A provisional recording still has a clock and a level, even before it has
+// a tonal print. Uniform chroma keeps its fallback rings circular.
+function energyDescriptor(curves, durationMs) {
+  const slices = Math.max(1, Math.min(600, Math.ceil(durationMs / 2000)));
   const chroma = new Float32Array(slices * 12).fill(1 / 12);
   const tone = new Float32Array(slices * 3);
   const stepMs = durationMs / slices;
   for (let i = 0; i < slices; i++) {
     tone[i * 3] = 2.9;
     tone[i * 3 + 1] = -1.7;
-    tone[i * 3 + 2] = -42 + 38 * energyAt(sim, (i + .5) * stepMs);
+    tone[i * 3 + 2] = -42 + 38 * clamp01(curves?.globalEnergyNorm?.((i + .5) * stepMs) ?? 0);
   }
-  return { slices, sliceSeconds: stepMs / 1000, lastFraction: 1, keyAngle: 0, chroma, tone };
+  return { slices, sliceSeconds: stepMs / 1000, lastFraction: 1, offsetSeconds: 0, keyAngle: 0, chroma, tone };
 }
 
-function drawBackground(ctx, w, h, cx, cy) {
-  ctx.fillStyle = '#0a131a';
-  ctx.fillRect(0, 0, w, h);
-  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * .64);
-  glow.addColorStop(0, '#22343a');
-  glow.addColorStop(.6, '#12212a');
-  glow.addColorStop(1, '#0a131a');
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, w, h);
-}
-
-function traceContour(ctx, growth, x, y, size, slice) {
-  const { field, rays, stride, centreX, centreY, width, radius } = growth;
-  const scale = size / width;
-  const lo = Math.floor(slice), hi = Math.min(lo + 1, growth.slices), mix = slice - lo;
+function drawDial(ctx, score, sample, size, margin, h) {
+  const x = margin, y = h - size - margin;
+  // The pith can lie well off the silhouette's center. The source image
+  // and the scan use the same field, physical scale and position.
+  const cx = x + size * (score.fit?.cx ?? .5), cy = y + size * (score.fit?.cy ?? .5);
+  const radius = size * (score.fit?.radius ?? .42);
   ctx.beginPath();
-  for (let j = 0; j < rays; j += 2) {
-    const row = j * stride, angle = TAU * j / rays;
-    const r = (field[row + lo] * (1 - mix) + field[row + hi] * mix) * radius;
-    const px = x + (centreX + Math.sin(angle) * r) * scale;
-    const py = y + (centreY - Math.cos(angle) * r) * scale;
-    if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-}
-
-function drawRings(ctx, art, cx, cy, size, timeMs, durationMs, accent) {
-  const r = size * .50;
-  ctx.strokeStyle = '#79949a44';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, TAU);
-  ctx.stroke();
-  const angle = -Math.PI / 2 + TAU * timeMs / durationMs;
-  ctx.fillStyle = accent;
-  ctx.beginPath();
-  ctx.arc(cx + r * Math.cos(angle), cy + r * Math.sin(angle), Math.max(2, size * .007), 0, TAU);
+  ctx.arc(x + size / 2, y + size / 2, size * .59, 0, TAU);
+  ctx.fillStyle = '#11181ced';
   ctx.fill();
-  if (timeMs <= 0) return;
-  if (!art) {
-    const radius = r * timeMs / durationMs;
-    const fill = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    fill.addColorStop(0, '#263a41');
-    fill.addColorStop(.8, '#45616a');
-    fill.addColorStop(1, accent);
-    ctx.fillStyle = fill;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, TAU);
-    ctx.fill();
-    return;
-  }
-
-  const { descriptor, growth, raster } = art;
-  const index = revealedSliceIndex(descriptor, timeMs, durationMs);
-  const startOfTail = descriptor.slices - 1;
-  const slice = index <= startOfTail ? index : startOfTail + (index - startOfTail) / (descriptor.lastFraction ?? 1);
-  const x = cx - size / 2, y = cy - size / 2;
-  ctx.save();
-  traceContour(ctx, growth, x, y, size, Math.min(slice, descriptor.slices));
-  ctx.clip();
-  ctx.drawImage(raster, x, y, size, size);
-  ctx.restore();
-  ctx.strokeStyle = '#ffe1ae99';
-  ctx.lineWidth = Math.max(.75, size * .0025);
+  ctx.lineWidth = Math.max(1, size / 180);
+  ctx.strokeStyle = '#bdc9bd66';
   ctx.stroke();
-}
 
-function drawTimeline(ctx, points, sections, { x, y, w, h }, timeMs, durationMs) {
-  const at = ms => x + clamp01(ms / durationMs) * w;
-  const head = at(timeMs);
-  ctx.fillStyle = '#0c171d';
-  ctx.fillRect(x, y, w, h);
-  const trace = () => {
-    ctx.beginPath();
-    for (let i = 0; i < points.length; i++) {
-      const px = x + w * i / (points.length - 1);
-      const py = y + h * (.88 - .67 * points[i]);
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  if (score.raster) {
+    ctx.drawImage(score.raster, x, y, size, size);
+  } else {
+    // Graphics admission can refuse the optional bitmap. Trace the same
+    // measured field directly while the full-screen instrument keeps playing.
+    const { field, stride, slices, rays } = score.growth;
+    const step = Math.max(1, Math.ceil(slices / 8));
+    ctx.strokeStyle = '#aebabc';
+    for (let slice = slices; slice > 0; slice -= step) {
+      ctx.beginPath();
+      for (let j = 0; j < rays; j += 3) {
+        const angle = TAU * j / rays, r = field[j * stride + slice] * radius;
+        const px = cx + Math.sin(angle) * r, py = cy - Math.cos(angle) * r;
+        if (j) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      }
+      ctx.closePath();
+      ctx.stroke();
     }
-    ctx.lineTo(x + w, y + h);
-    ctx.lineTo(x, y + h);
-    ctx.closePath();
-  };
-  trace();
-  ctx.fillStyle = '#3b555d';
-  ctx.fill();
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(x, y, head - x, h);
-  ctx.clip();
-  trace();
-  ctx.fillStyle = '#ad8e65';
-  ctx.fill();
-  ctx.restore();
-
-  for (let i = 0; i < sections.length; i++) {
-    const start = at(sections[i].startMs);
-    const end = at(sections[i + 1]?.startMs ?? durationMs);
-    ctx.fillStyle = sectionColor(i);
-    ctx.fillRect(start, y + h - 2, Math.max(0, end - start - 1), 2);
   }
-  ctx.fillStyle = '#f0d5ab';
-  ctx.fillRect(head - 1, y, 2, h);
-  if (w < 120) return;
-  ctx.fillStyle = '#adc0c1';
-  ctx.font = Math.max(10, Math.round(h * .26)) + 'px ui-monospace, monospace';
-  ctx.textBaseline = 'bottom';
-  ctx.textAlign = 'left';
-  ctx.fillText(clock(timeMs), x, y - 6);
-  ctx.textAlign = 'right';
-  ctx.fillText(clock(durationMs), x + w, y - 6);
+
+  const dx = Math.sin(sample.phase), dy = -Math.cos(sample.phase);
+  const edge = sample.outerRadius * radius;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * edge, cy + dy * edge);
+  ctx.strokeStyle = '#111817'; ctx.lineWidth = Math.max(2, size / 85); ctx.stroke();
+  ctx.strokeStyle = '#fff2c8'; ctx.lineWidth = Math.max(1, size / 175); ctx.stroke();
+  const r = sample.activeRadius * radius;
+  ctx.beginPath(); ctx.arc(cx + dx * r, cy + dy * r, Math.max(1.5, size * .022), 0, TAU);
+  ctx.fillStyle = '#ffe6a6'; ctx.fill(); ctx.strokeStyle = '#152022'; ctx.stroke();
 }
 
 export class Songprint2DPresentation {
@@ -150,39 +72,45 @@ export class Songprint2DPresentation {
     this.score = null;
   }
 
-  draw(ctx, canvas, sim) {
+  draw(ctx, canvas, sim, options = {}) {
     const { width: w, height: h } = canvas;
-    const durationMs = Math.max(1, sim.durationMs || sim.biomes?.durationMs || 1);
-    const timeMs = durationMs * clamp01((sim.heardTimeMs ?? (sim.tSec || 0) * 1000) / durationMs);
+    if (w < 1 || h < 1) return;
+    const durationMs = Math.max(1, sim.conductor?.durationMs || sim.durationMs || sim.biomes?.durationMs || 1);
+    const timeSec = clamp01((sim.heardTimeMs ?? (sim.tSec || 0) * 1000) / durationMs) * durationMs / 1000;
     const print = sim.biomes?.songprintWeatherPrint;
-    const sections = sim.sections || sim.biomes?.sections || [];
-    const accent = sectionColor(Math.max(0, sections.findLastIndex(section => section.startMs <= timeMs)));
-    const shortest = Math.min(w, h);
-    const pad = Math.max(1, shortest * .065);
-    const stripHeight = Math.max(1, Math.min(h * .12, 58));
-    const artworkHeight = Math.max(1, h - stripHeight - pad * 3);
-    const size = Math.max(1, Math.min(w - 2 * pad, artworkHeight));
-    const cx = w / 2, cy = pad + artworkHeight / 2;
-    const rasterSize = Math.min(640, Math.max(256, Math.ceil(size / 128) * 128));
     let score = this.score;
-    if (!score || score.sim !== sim || score.print !== print || score.curves !== sim.energyCurves || score.durationMs !== durationMs) {
-      const descriptor = print?.fable ?? buildDescriptorFromSongprint(print, durationMs) ?? energyDescriptor(sim, durationMs);
-      const points = Array.from({ length: 161 }, (_, i) => energyAt(sim, durationMs * i / 160));
-      this.score = score = { sim, print, curves: sim.energyCurves, durationMs, descriptor, points, art: null, rasterSize: null };
+    if (!score || score.print !== print || score.durationMs !== durationMs
+      || (score.energyOnly && score.curves !== sim.energyCurves)) {
+      const descriptor = print?.fable ?? buildDescriptorFromSongprint(print, durationMs) ?? energyDescriptor(sim.energyCurves, durationMs);
+      const growth = growthField(descriptor, { rays: 180 });
+      this.score = score = { print, durationMs, curves: sim.energyCurves, descriptor, growth, lab: sliceColours(descriptor),
+        energyOnly: !print?.fable && !print?.timeline?.loudness?.length };
     }
+    const timeline = sim.conductor?.timeline;
+    const analyzedThroughMs = sim.biomes?.analyzedThroughMs;
+    if (score.sim !== sim || score.curves !== sim.energyCurves || score.timeline !== timeline
+        || score.beat !== sim.songBeat || score.analyzedThroughMs !== analyzedThroughMs) {
+      Object.assign(score, { sim, curves: sim.energyCurves, timeline, beat: sim.songBeat, analyzedThroughMs,
+        sample: createSongprintSweep(score.descriptor, score.growth, sim, score.lab) });
+    }
+
+    const size = Math.max(1, Math.min(w * .28, h * .29));
+    const rasterSize = Math.max(128, Math.min(512, Math.ceil(size / 64) * 64));
     if (score.rasterSize !== rasterSize) {
       score.rasterSize = rasterSize;
-      const raster = this.buffers.ensure('rings', rasterSize, rasterSize)
-        ?? (rasterSize > 256 ? this.buffers.ensure('rings', 256, 256) : null);
-      const rasterCtx = raster?.getContext('2d');
-      score.art = null;
+      score.raster = this.buffers.ensure('rings', rasterSize, rasterSize)
+        ?? (rasterSize > 128 ? this.buffers.ensure('rings', 128, 128) : null);
+      const rasterCtx = score.raster?.getContext('2d');
+      score.fit = null;
       if (rasterCtx) {
-        const { width } = raster;
-        const { data, ...growth } = renderFable(score.descriptor, width, { rays: 240 });
+        const { width } = score.raster;
+        const image = renderFable(score.descriptor, width, { growth: score.growth, lab: score.lab });
         const pixels = rasterCtx.createImageData(width, width);
-        pixels.data.set(data);
+        pixels.data.set(image.data);
         rasterCtx.putImageData(pixels, 0, 0);
-        score.art = { raster, growth, descriptor: score.descriptor };
+        score.fit = { cx: image.centreX / width, cy: image.centreY / width, radius: image.radius / width };
+      } else {
+        score.raster = null;
       }
     }
 
@@ -190,13 +118,12 @@ export class Songprint2DPresentation {
     try {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 1;
-      ctx.imageSmoothingEnabled = true;
       ctx.globalCompositeOperation = 'source-over';
-      drawBackground(ctx, w, h, cx, cy);
-      drawRings(ctx, score.art, cx, cy, size, timeMs, durationMs, accent);
-      const stripWidth = Math.min(w - 2 * pad, Math.max(w * .56, size));
-      drawTimeline(ctx, score.points, sections,
-        { x: (w - stripWidth) / 2, y: h - pad - stripHeight, w: stripWidth, h: stripHeight }, timeMs, durationMs);
+      ctx.imageSmoothingEnabled = true;
+      ctx.fillStyle = '#101416'; ctx.fillRect(0, 0, w, h);
+      const sampleAt = t => score.sample(t, options);
+      drawSweepEffect(ctx, { x: 0, y: 0, w, h }, sampleAt, timeSec, options);
+      drawDial(ctx, score, sampleAt(timeSec), size, Math.max(1, size * .18), h);
     } finally {
       ctx.restore();
     }

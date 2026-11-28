@@ -4,7 +4,7 @@ import { clamp01, smoothstep } from '../utils/math.js';
 import { MAX_PHRASE_FAMILIES, MAX_PHRASE_OCCURRENCES, SONGPRINT_PHRASE_VERSION, SONGPRINT_VERSION } from './SongprintData.js';
 import { reflectFrame, songprintChroma } from './SongprintChroma.js';
 import { songprintTimeline } from './SongprintTimeline.js';
-import { analyze as analyzeSongprintFable } from './songprintFable/analyze.js';
+import { analyze as analyzeSongprintFable, analyzeSignal } from './songprintFable/analyze.js';
 
 export { songprintChroma } from './SongprintChroma.js';
 
@@ -262,29 +262,21 @@ export function songprintFromChroma(frames, { offsetMs = 0, hopMs = 125, phrases
   return { version: SONGPRINT_VERSION, skyline: terrainSkyline(frames), ...passageEvidence(frames, offsetMs, hopMs, phrases) };
 }
 
-export function analyzeSongprintPCM(mono11025, { phrases = true, fable = false } = {}) {
+export function analyzeSongprintPCM(mono11025, { phrases = true, fable = false, fableInput = null } = {}) {
   const { frames, offsetMs, hopMs } = songprintChroma(mono11025);
   const print = songprintFromChroma(frames, { offsetMs, hopMs, phrases });
   const timeline = print && songprintTimeline(mono11025, frames, { offsetMs, hopMs });
   let fableDescriptor = null;
-  if (fable && print) {
+  if (fable) {
     try {
-      const desc = analyzeSongprintFable([mono11025], 11025);
-      if (desc?.chroma && desc?.tone) {
-        fableDescriptor = {
-          version: 1,
-          slices: desc.slices,
-          sliceSeconds: desc.sliceSeconds,
-          lastFraction: desc.lastFraction,
-          keyAngle: desc.keyAngle,
-          keyStrength: desc.keyStrength,
-          tuningCents: desc.tuningCents,
-          stereoWidth: desc.stereoWidth,
-          chroma: desc.chroma,
-          tone: desc.tone,
-        };
+      const desc = fableInput ? analyzeSignal(fableInput.output, fableInput.stereoWidth)
+        : analyzeSongprintFable([mono11025], 11025);
+      if (desc) {
+        const { version, slices, sliceSeconds, lastFraction, offsetSeconds, keyAngle, keyStrength, tuningCents, stereoWidth, chroma, tone } = desc;
+        fableDescriptor = { version, slices, sliceSeconds, lastFraction, offsetSeconds, keyAngle, keyStrength, tuningCents, stereoWidth, chroma, tone };
       }
-    } catch { /* optional */ }
+    } catch { /* Keep the measured timeline if the optional full-spectrum analysis fails. */ }
   }
-  return print ? { ...print, ...(timeline ? { timeline } : {}), ...(fableDescriptor ? { fable: fableDescriptor } : {}) } : null;
+  if (!print && !fableDescriptor) return null;
+  return { version: SONGPRINT_VERSION, ...print, ...(timeline ? { timeline } : {}), ...(fableDescriptor ? { fable: fableDescriptor } : {}) };
 }

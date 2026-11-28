@@ -184,6 +184,7 @@ for (const userAgent of ['Android 13', 'Desktop']) test(`actual ${userAgent} lan
   const captured = [], drawn = [], studioLocks = [];
   const context = vm.createContext({ snapshotBusy: false, running: true, sim: {}, paused: true, playbackPreparing: false,
     bulkExportArmed: false, songRecorder: null, snapshotPlayerPrefs: null, bulkExportSize: null, displayPrefs: savedPrefs,
+    lastTimelineData: null,
     presentation: resolvePresentation(savedPrefs), navigator: { userAgent }, canvas: { width: 960, height: 540 },
     resolvePresentation, snapshotCapturePlan, captureDetailSnapshots, snapshotFileName: (_date, level) => level,
     syncDetailControls() {}, syncDisplayControls() {}, syncCameraStudio() { studioLocks.push(context.snapshotBusy); }, wakeHud() {},
@@ -203,4 +204,67 @@ for (const userAgent of ['Android 13', 'Desktop']) test(`actual ${userAgent} lan
   assert.equal(context.bulkExportSize, null);
   assert.equal(context.snapshotBusy, false);
   assert.deepEqual(studioLocks, [true, false], 'camera controls lock for the whole snapshot set');
+});
+
+test('Songprint 2D hides geographic and pixel details, preserving Landscape HUD on return', () => {
+  const source = name => {
+    const begin = main.indexOf(`function ${name}(`);
+    return main.slice(begin, main.indexOf('\n}\n', begin) + 3);
+  };
+  const hidden = new Set(), attributes = new Map(), caption = { title: 'Range caption' };
+  const detail = { parentElement: { classList: { toggle(name, value) {
+    if (value) hidden.add(name);
+    else hidden.delete(name);
+  } } } };
+  const snapshot = { setAttribute(key, value) { attributes.set(key, value); } };
+  let shownCaption;
+  const context = vm.createContext({
+    lastTimelineData: { songVisualization: 'songprint2d' }, running: true,
+    detailLevelEl: detail, snapshotBtnEl: snapshot, snapshotBusy: false,
+    displayPrefs: { pixelGrid: 'medium', buildPixelDetail: true }, displayControls: { pixelGrid: null },
+    renderer: { diagnostics: { voxelRange: false } }, sim: { biomes: { world: { kind: 'alpine' } } },
+    document: { getElementById: () => null }, navigator: { userAgent: 'Desktop' },
+    rangeCaptionDetailsEl: {}, captionAt: () => ({ caption }), setCaptionDetails(_details, value) { shownCaption = value; },
+  });
+  vm.runInContext(source('syncDetailControls') + '\n' + source('syncCaptionDetails'), context);
+  context.syncDetailControls(); context.syncCaptionDetails();
+  assert.ok(hidden.has('hidden'));
+  assert.equal(shownCaption, null);
+  assert.equal(attributes.get('aria-label'), 'Save the current frame as a PNG');
+
+  context.lastTimelineData = { songVisualization: 'off' };
+  context.syncDetailControls(); context.syncCaptionDetails();
+  assert.equal(hidden.has('hidden'), false);
+  assert.equal(detail.textContent, 'Building detail');
+  assert.equal(shownCaption, caption);
+  assert.equal(attributes.get('aria-label'), 'Save snapshots at every detail level');
+});
+
+test('Songprint 2D saves only its held output-resolution canvas without changing grid preferences', async () => {
+  const { captureDetailSnapshots, snapshotCapturePlan } = await import('../src/ui/DetailSnapshots.js');
+  const begin = main.indexOf('async function saveDetailSnapshots()');
+  const code = main.slice(begin, main.indexOf('\n}\n', begin) + 3);
+  const displayPrefs = { version: 2, look: 'cinematic', pixelGrid: 'medium', buildPixelDetail: true };
+  const canvas = { width: 960, height: 540 };
+  const output = [], studioLocks = [];
+  const context = vm.createContext({ snapshotBusy: false, running: true, sim: {}, paused: false, playbackPreparing: false,
+    bulkExportArmed: false, songRecorder: null, snapshotPlayerPrefs: null, bulkExportSize: null, displayPrefs,
+    lastTimelineData: { songVisualization: 'songprint2d' },
+    presentation: resolvePresentation(displayPrefs), navigator: { userAgent: 'Desktop' }, canvas,
+    resolvePresentation, snapshotCapturePlan, captureDetailSnapshots, snapshotFileName: (_date, level) => level,
+    syncDetailControls() {}, syncDisplayControls() {}, syncCameraStudio() { studioLocks.push(context.snapshotBusy); },
+    togglePause() { context.paused = !context.paused; }, wakeHud() {}, fitCanvas() {},
+    renderer: { draw() { return { presented: true }; } },
+    canvasToPng: async target => ({ width: target.width, height: target.height }),
+    saveSnapshotFile(png, name) { output.push({ ...png, name, prefs: context.displayPrefs }); },
+    setTimeout(fn) { fn(); }, console: { error(error) { throw error; }, warn(error) { throw error; } },
+    showErrorBanner(error) { throw Error(error); },
+  });
+  vm.runInContext(code, context);
+  await context.saveDetailSnapshots();
+  assert.deepEqual(output, [{ ...canvas, name: 'songprint2d', prefs: displayPrefs }]);
+  assert.equal(context.bulkExportSize, null);
+  assert.equal(context.paused, false);
+  assert.equal(context.snapshotBusy, false);
+  assert.deepEqual(studioLocks, [true, false]);
 });

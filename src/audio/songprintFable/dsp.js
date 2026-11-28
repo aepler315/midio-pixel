@@ -59,8 +59,9 @@ function besselI0(x) {
   return sum;
 }
 
-export function resample(input, fromRate, toRate) {
-  if (fromRate === toRate) return input;
+// Shared by whole-buffer and bounded streaming resampling. The float taps,
+// edge handling and phase selection match Songprint Fable ae99887.
+export function resamplePlan(fromRate, toRate) {
   const g = gcd(Math.round(fromRate), Math.round(toRate));
   const up = Math.round(toRate) / g;
   const down = Math.round(fromRate) / g;
@@ -72,7 +73,7 @@ export function resample(input, fromRate, toRate) {
   const beta = 8.6;
   const i0b = besselI0(beta);
   const cutoff = 0.92 * scale;
-  const table = new Float64Array(phases * taps);
+  const table = new Float32Array(phases * taps);
   for (let p = 0; p < phases; p++) {
     const frac = p / phases;
     let sum = 0;
@@ -88,6 +89,12 @@ export function resample(input, fromRate, toRate) {
     }
     for (let t = 0; t < taps; t++) table[p * taps + t] /= sum;
   }
+  return { up, down, phases, radius: half, width: taps, taps: table };
+}
+
+export function resample(input, fromRate, toRate) {
+  if (fromRate === toRate) return input;
+  const { up, down, phases, radius: half, width: taps, taps: table } = resamplePlan(fromRate, toRate);
   const ratio = fromRate / toRate;
   const outLen = Math.floor(input.length / ratio);
   const out = new Float32Array(outLen);

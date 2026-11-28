@@ -10,6 +10,7 @@ function canvas(width = 1280, height = 720) {
     fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: 'left', textBaseline: 'alphabetic',
     setTransform(...args) { target.transforms.push(['set', ...args]); },
     translate(...args) { target.transforms.push(['translate', ...args]); },
+    scale() {}, rotate() {}, bezierCurveTo() {}, quadraticCurveTo() {},
     save() { target.calls.push(['save']); },
     restore() { target.calls.push(['restore']); },
     beginPath() {}, moveTo() {}, lineTo() {}, arc() {}, stroke() {}, fill() {}, closePath() {}, clip() { target.calls.push(['clip']); },
@@ -105,7 +106,8 @@ test('songprint2d presentation reuses a single painted raster from the productio
   assert.equal(images.length, 2, 'both frames paint the production descriptor');
   assert.equal(images[0][1], images[1][1], 'both frames reuse the same painted raster');
   assert.equal(images[0][1].writes, 1, 'the cached raster uploads once');
-  assert.equal(out.calls.filter(c => c[0] === 'clip').length, 4, 'each frame clips to the heard contour and timeline');
+  assert.ok(out.calls.some(c => c[0] === 'clip'), 'the impression is clipped to its viewport');
+  assert.equal(out.reads, 0, 'the spoke samples stored radii without reading back screen pixels');
   renderer.dispose();
   assert.equal(images[0][1].width, 0, 'disposal releases the raster');
 });
@@ -129,7 +131,7 @@ test('the 2D raster steps down when the full backing store exceeds the budget', 
   const renderer = createPresentingRenderer({
     canvas: out,
     presentation: { songVisualization: 'songprint2d' },
-    residency: new GraphicsResidency({ budgetBytes: 1024 * 1024 }),
+    residency: new GraphicsResidency({ budgetBytes: 128 * 128 * 4 }),
     rendererFactory: () => inner,
   });
   const song = sim();
@@ -137,7 +139,23 @@ test('the 2D raster steps down when the full backing store exceeds the budget', 
   renderer.draw(song, 1);
   const images = out.calls.filter(c => c[0] === 'drawImage');
   assert.equal(images.length, 2);
-  assert.equal(images[0][1].width, 256);
+  assert.equal(images[0][1].width, 128);
   assert.equal(images[0][1], images[1][1]);
+  renderer.dispose();
+});
+
+test('denying every source bitmap still presents the print and impression as paths', () => {
+  const out = canvas();
+  const renderer = createPresentingRenderer({
+    canvas: out,
+    presentation: { songVisualization: 'songprint2d' },
+    residency: new GraphicsResidency({ budgetBytes: 1 }),
+    rendererFactory: () => ({ dispose() {}, draw() { throw new Error('unexpected terrain draw'); } }),
+  });
+  const result = renderer.draw(sim(), 1);
+  assert.equal(result.presented, true);
+  assert.equal(out.calls.some(c => c[0] === 'drawImage'), false);
+  assert.ok(out.calls.some(c => c[0] === 'clip'), 'the full-screen vector impression was drawn');
+  assert.equal(out.reads, 0);
   renderer.dispose();
 });

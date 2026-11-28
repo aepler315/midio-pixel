@@ -2,6 +2,8 @@
 // A windowed sinc (Kaiser beta 5, ten zero crossings either side) retains
 // filter history across blocks. Fractional phases share a bounded lookup
 // table even at unusual native rates.
+import { resamplePlan } from './songprintFable/dsp.js';
+import { RATE as FABLE_RATE } from './songprintFable/analyze.js';
 const PRINT_RATE = 11025;
 const MAX_PHASES = 512;
 
@@ -45,10 +47,12 @@ function polyphaseBank(up, down) {
 }
 
 export class SongprintReducer {
-  constructor(rate, frames, channels) {
+  constructor(rate, frames, channels, { fable = false } = {}) {
     this.rate = rate;
     this.frames = frames;
-    this.output = new Float32Array(Math.ceil(frames * PRINT_RATE / rate));
+    this.fable = fable;
+    this.targetRate = fable ? FABLE_RATE : PRINT_RATE;
+    this.output = new Float32Array(fable ? Math.floor(frames / (rate / FABLE_RATE)) : Math.ceil(frames * PRINT_RATE / rate));
     this.powers = new Float64Array(channels);
     this.monoPower = 0;
     this.singleChannel = null;
@@ -56,10 +60,10 @@ export class SongprintReducer {
     this.cursor = 0;
     this.history = new Float64Array(0);
     this.finished = false;
-    const divisor = Number.isInteger(rate) ? gcd(rate, PRINT_RATE) : 1;
-    this.up = PRINT_RATE / divisor;
+    const divisor = Number.isInteger(rate) ? gcd(rate, this.targetRate) : 1;
+    this.up = this.targetRate / divisor;
     this.down = rate / divisor;
-    this.filter = rate === PRINT_RATE ? null : polyphaseBank(this.up, this.down);
+    this.filter = rate === this.targetRate ? null : fable ? resamplePlan(rate, FABLE_RATE) : polyphaseBank(this.up, this.down);
   }
 
   push(planes) {
@@ -80,24 +84,30 @@ export class SongprintReducer {
         mono[i] /= planes.length;
         this.monoPower += mono[i] * mono[i];
       }
+      if (this.fable) mono = Float32Array.from(mono);
     }
     this.resample(mono);
     if (this.framesRead < this.frames) return;
     const channelPower = this.powers.reduce((sum, n) => sum + n, 0) / this.powers.length;
-    if (this.singleChannel === null && this.monoPower < channelPower * 0.04) {
-      this.singleChannel = this.powers.indexOf(Math.max(...this.powers));
-      this.cursor = 0;
-      this.framesRead = 0;
-      this.history = new Float64Array(0);
-      return;
-    }
+    if (this.fable && this.singleChannel === null)
+      this.stereoWidth = planes.length === 2 && channelPower > 0 ? Math.max(0, 1 - this.monoPower / channelPower) : 0;
+    if (this.singleChannel === null && this.monoPower < channelPower * 0.04)
+      return this.reread(this.powers.indexOf(Math.max(...this.powers)));
     this.finished = true;
+  }
+
+  reread(channel) {
+    this.singleChannel = channel;
+    this.cursor = 0;
+    this.framesRead = 0;
+    this.history = new Float64Array(0);
+    this.finished = false;
   }
 
   resample(block) {
     const start = this.framesRead - this.history.length;
     this.framesRead += block.length;
-    if (this.rate === PRINT_RATE) {
+    if (this.rate === this.targetRate) {
       this.output.set(block, this.framesRead - block.length);
       return;
     }
@@ -110,7 +120,8 @@ export class SongprintReducer {
       const position = this.cursor * this.down;
       const center = Math.floor(position / this.up);
       if (!final && center + radius >= this.framesRead) break;
-      const phase = Math.floor((position % this.up) * phases / this.up);
+      const phasePosition = (position % this.up) * phases / this.up;
+      const phase = this.fable ? Math.min(phases - 1, Math.round(phasePosition)) : Math.floor(phasePosition);
       const left = Math.max(0, center - radius);
       const end = Math.min(this.framesRead - 1, center + radius);
       let tap = phase * width + radius + left - center;

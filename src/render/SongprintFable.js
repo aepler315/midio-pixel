@@ -137,10 +137,16 @@ export function sliceColours(desc, cal = TONE_CAL) {
   return out;
 }
 
-export function renderFable(desc, size = 512, { ridges = true, rays = 720 } = {}) {
+export function sliceInks(desc, lab = sliceColours(desc)) {
+  const rgb = new Uint8ClampedArray(desc.slices * 3);
+  for (let i = 0; i < rgb.length; i += 3) oklabToSrgb(lab[i], lab[i + 1], lab[i + 2], rgb, i);
+  return Array.from({ length: desc.slices }, (_, s) => [rgb[s * 3], rgb[s * 3 + 1], rgb[s * 3 + 2]]);
+}
+
+export function renderFable(desc, size = 512, { ridges = true, rays: requestedRays = 720,
+  growth = growthField(desc, { rays: requestedRays }), lab = sliceColours(desc) } = {}) {
   const data = new Uint8ClampedArray(size * size * 4);
-  const { field, stride, slices } = growthField(desc, { rays });
-  const lab = sliceColours(desc);
+  const { field, rays, stride, slices } = growth;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (let j = 0; j < rays; j++) {
     const theta = (TAU * j) / rays, rim = field[j * stride + slices];
@@ -203,12 +209,4 @@ export function renderFable(desc, size = 512, { ridges = true, rays = 720 } = {}
     }
   }
   return { width: size, height: size, data, field, rays, stride, slices, centreX, centreY, radius };
-}
-
-export function revealedSliceIndex(desc, timeMs, durationMs) {
-  const totalSlices = desc?.slices || 1;
-  const dur = Math.max(1, durationMs || 1);
-  const t = clamp01(timeMs / dur);
-  const end = (totalSlices - 1) + (desc?.lastFraction ?? 1);
-  return t * end;
 }

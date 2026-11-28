@@ -434,7 +434,7 @@ export class PresentingRenderer {
     if (!ctx) return this.output.failFrame('output-context');
     try {
       this._songprint2D ??= new Songprint2DPresentation(canvas, this.residency ?? undefined);
-      this._songprint2D.draw(ctx, canvas, sim);
+      this._songprint2D.draw(ctx, canvas, sim, this._requestedPresentation.songprintSweep);
     } catch (err) {
       this.output.failFrame('songprint2d-draw');
       throw err;
