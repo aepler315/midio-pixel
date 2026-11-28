@@ -112,12 +112,14 @@ test('timeline rebuild carries only the live level and starts a fresh timing rec
   const rebuildSetup = new vm.Script(source.slice(begin, end));
   const timeline = { durationMs: 120000, worldId: 'alpine' };
   const presentation = {};
-  for (const [label, options, expected] of [
+  const playBuffer = { length: 5292735, sampleRate: 44100 };
+  for (const [label, options, expected, durationMs = timeline.durationMs] of [
     ['same song', {}, 4],
     ['different song', { timelineData: { ...timeline } }, 1],
     ['new presentation', { previousPresentation: {} }, 1],
     ['fresh start', { keepPerfLevel: false }, 1],
     ['export', { exportMode: true }, 2],
+    ['decoded 2D track', { songprint2D: true, playBuffer }, 4, playBuffer.length / playBuffer.sampleRate * 1000],
   ]) {
     const governor = new PerfGovernor({ startLevel: 4 });
     governor.sample(16, 100, { workMs: 8 });
@@ -127,12 +129,15 @@ test('timeline rebuild carries only the live level and starts a fresh timing rec
       previousPresentation: presentation, rangePresentation: presentation,
       exportMode: false, exportQualityLevel: 2, perfStartLevel: 1, fixturePerfLevel: null,
       renderQualityLevel: () => 0, generalQuality: 'auto', effectivePresentation: () => ({ quality: 'auto' }),
-      preservePause: false, keepAudio: false, startAtMs: 0, conductor: { load() {} },
+      preservePause: false, keepAudio: false, startAtMs: 0, songprint2D: false, playBuffer: null,
+      conductor: { load(data) { this.durationMs = data.durationMs; } },
       resolveDurationMs: (_, duration) => duration, getWorld: () => null,
       ensureRidgeMusicSession() {}, retainPerformanceScene() {}, stopTimeline() {}, fitCanvas() {},
       lastRenderedWorkMs: 31, lastRenderedSyncWaitMs: 7, ...options,
     });
     rebuildSetup.runInContext(context);
+    assert.equal(context.conductor.durationMs, durationMs, label);
+    assert.equal(context.timelineData.durationMs, 120000, 'the shared analysis retains its duration');
     assert.equal(context.perfGovernor.level, expected, label);
     assert.equal(context.perfGovernor.record.wholeRun.periodMs.count, 0, label);
     assert.equal(context.lastRenderedWorkMs, null, label);
