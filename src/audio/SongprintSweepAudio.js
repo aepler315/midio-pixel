@@ -24,6 +24,11 @@ function recordedEnvelope(curves) {
   }
   const ceiling = reference(power), brightCeiling = reference(treble);
   const attack = new Float32Array(power.length);
+  // Each treble sample is consumed once below. Reuse its storage for the
+  // slower envelope so the 2D analysis keeps the same peak array count.
+  const sustained = treble;
+  const gather = 1 - Math.exp(-1 / (curves.rateHz * .65));
+  const settle = 1 - Math.exp(-1 / (curves.rateHz * 1.3));
   let slow = 0, brightSlow = 0;
   const attackGain = 1 - Math.exp(-1 / (curves.rateHz * .02));
   const releaseGain = 1 - Math.exp(-1 / (curves.rateHz * .065));
@@ -33,12 +38,14 @@ function recordedEnvelope(curves) {
     slow += (rms > slow ? attackGain : releaseGain) * (rms - slow);
     brightSlow += (bright > brightSlow ? attackGain : releaseGain) * (bright - brightSlow);
     power[i] = rms > .001 ? Math.min(1, rms ** .85) : 0;
+    const previous = i ? sustained[i - 1] : 0;
+    sustained[i] = previous + (power[i] - previous) * (power[i] > previous ? gather : settle);
   }
   const transientCeiling = reference(attack), decay = Math.exp(-1 / (curves.rateHz * .045));
   for (let i = 0; i < attack.length; i++) {
     attack[i] = power[i] > .005 ? Math.max(clamp01(attack[i] / transientCeiling), i ? attack[i - 1] * decay : 0) : 0;
   }
-  return { power, attack, rate: curves.rateHz };
+  return { power, attack, sustained, rate: curves.rateHz };
 }
 
 function interpolate(values, frame) {
@@ -98,7 +105,7 @@ export function createSweepAudio(sim, descriptor) {
       correction: Number.isFinite(segment.phaseConfidence) ? Math.round(position) - position : 0 };
   });
   return (out, ms, withinPrint, slice) => {
-    out.attack = 0; out.energy = 0; out.audible = 0;
+    out.attack = 0; out.energy = 0; out.audible = 0; out.sustained = 0;
     out.beatPosition = null; out.beatConfidence = 0;
     if (ms > through) return;
     const beat = sim.songBeat?.snapshotAt(ms);
@@ -113,12 +120,24 @@ export function createSweepAudio(sim, descriptor) {
       const frame = ms * envelope.rate / 1000;
       if (frame >= envelope.power.length) return;
       out.energy = interpolate(envelope.power, frame);
+      out.sustained = interpolate(envelope.sustained, frame);
       onset = interpolate(envelope.attack, frame);
     } else if (curves) {
       // MIDI and old caches can have calibrated band activity only.
       out.energy = clamp01(curves.globalEnergy?.(ms) ?? curves.globalEnergyNorm?.(ms));
+      // MIDI curves already have an envelope. Average causal positions so a
+      // single note can catch a seam without jerking the whole room sideways.
+      for (let i = 0; i < 8; i++) {
+        const at = ms - i * 160;
+        if (at < 0) continue;
+        const raw = curves.globalEnergy?.(at);
+        if (raw <= .005) continue;
+        const relative = clamp01(curves.globalEnergyNorm?.(at) ?? raw);
+        out.sustained += lerp(raw ?? relative, relative, .7) / 8;
+      }
     } else if (withinPrint && descriptor.version === 2) {
       out.energy = clamp01(10 ** (descriptor.tone[slice * 3 + 2] / 20));
+      out.sustained = out.energy;
     }
     // A MIDI attack is scored at its exact timestamp. Its synthesized
     // activity curve can still be zero until the following envelope frame.

@@ -1,5 +1,6 @@
 import { clamp, clamp01 } from '../utils/math.js';
 import { drawSweepTool, sweepTools } from './SongprintSweepEntities.js';
+import { drawPaperRoom, printChair, roomRegistration } from './SongprintPaperRoom.js';
 
 const TAU = Math.PI * 2;
 const PAPER = [240, 230, 206];
@@ -72,16 +73,22 @@ export function drawSweepEffect(ctx, view, sampleAt, timeSec, { effect = 'apertu
   ctx.translate(view.x, view.y);
   ctx.scale(view.w, view.h);
   ctx.lineJoin = 'round';
+  const room = roomRegistration(now);
+  drawPaperRoom(ctx, view, room, effect);
+  // The paper and the tiny tools ride the same sideways pull. The source
+  // dial is drawn later in screen space, so the listener can find it again.
+  ctx.transform(1, .055 * room.roll, .24 * room.roll, 1 - .14 * room.load,
+    -.076 * room.roll, .044 * room.load - .024 * room.roll);
   if (effect === 'fold') {
-    drawFold(ctx, view, sampleAt, now, time, entities);
+    drawFold(ctx, view, sampleAt, now, time, entities, room);
   } else {
-    drawAperture(ctx, view, now, entities);
+    drawAperture(ctx, view, now, entities, room);
   }
   ctx.restore();
 }
 
 // Three joined faces carry successively newer impressions of the same ridges.
-function drawFold(ctx, view, sampleAt, now, time, entities) {
+function drawFold(ctx, view, sampleAt, now, time, entities, room) {
   const samples = [pastSample(sampleAt, now, time, 0.96), pastSample(sampleAt, now, time, 0.34), now];
   const count = now.rows.length;
   const bands = scanBands(now, clamp(Math.round(view.h / 9), 22, 72));
@@ -128,6 +135,12 @@ function drawFold(ctx, view, sampleAt, now, time, entities) {
       x: 0.74 - 0.25 * c.u + 0.060 * c.phaseX + 0.24 * (c.outer - 0.67) - 0.065 * c.bend * c.body,
       y: 0.85 - 0.24 * c.u + 0.045 * c.phaseY + 0.13 * c.bite + 0.29 * (c.outer - 0.67)
     };
+    // Like the bottom edge of the room, the two creases tip toward a
+    // common plane. The delay keeps a previous impression on the far face.
+    crest.x += .12 * room.roll * (1 - b.u);
+    crest.y += .18 * room.load;
+    heel.x -= .14 * room.roll * c.u;
+    heel.y -= .13 * room.load;
     const end = {
       x: 1.08 + 0.04 * c.bite,
       y: 0.11 + 0.38 * c.u + 0.085 * c.phaseY + 0.03 * c.bend * c.body
@@ -154,6 +167,24 @@ function drawFold(ctx, view, sampleAt, now, time, entities) {
   rails.push(rail(count));
   ctx.globalAlpha *= visibility;
   const opacity = ctx.globalAlpha;
+  // Print the familiar chair directly onto the moving sheet. Map each cut
+  // through that band's real Bezier rail, including tracer indentations.
+  function printOnFace(face, start, span) {
+    function onFold(x, y) {
+      const across = (.12 + .76 * y) * bands.length;
+      const row = Math.floor(across), blend = across - row;
+      const a = rails[row][face], b = rails[row + 1][face];
+      const u = start + x * span, v = 1 - u;
+      const weights = [v*v*v, 3*u*v*v, 3*u*u*v, u*u*u];
+      let px = 0, py = 0;
+      for (let j = 0; j < 4; j++) {
+        px += weights[j] * (a[j].x + blend * (b[j].x - a[j].x));
+        py += weights[j] * (a[j].y + blend * (b[j].y - a[j].y));
+      }
+      return { x: px, y: py };
+    }
+    printChair(ctx, onFold, '#242431', '#e6c488');
+  }
   for (const face of FACES_BACK_TO_FRONT) {
     for (let k = 0; k < bands.length; k++) {
       const b = bands[k], top = rails[k][face], bottom = rails[k + 1][face];
@@ -190,102 +221,122 @@ function drawFold(ctx, view, sampleAt, now, time, entities) {
       ctx.stroke();
       ctx.globalAlpha = opacity;
     }
+    if (face !== 1) {
+      ctx.globalAlpha = opacity * (.46 + .44 * room.load);
+      printOnFace(face, .37, .17);
+      // The first impression has a misregistered neighbour under pressure.
+      if (room.load > .01) {
+        ctx.globalAlpha = opacity * .64 * room.load;
+        printOnFace(face, .65, .17);
+      }
+      ctx.globalAlpha = opacity;
+    }
   }
   for (const tool of tools) {
     const path = rails[tool.band][tool.id];
-    drawSweepTool(ctx, view, tool, path, 0.27 + 0.52 * tool.travel, bands[tool.band].ink);
+    drawSweepTool(ctx, view, tool, path, 0.27 + 0.52 * tool.travel, bands[tool.band].ink, room.load);
   }
 }
 
-// The broad blades leave an irregular central eye and a slot beside each lip.
-function drawAperture(ctx, view, scan, entities) {
+// The eye is a hole in one continuous stack of sheets. Neighboring sheets
+// use the same corners, so even a strong contact cannot pull out a free tip.
+function drawAperture(ctx, view, scan, entities, room) {
   const rows = scan.rows;
   const outer = Math.max(0.000001, rows[rows.length - 1].r1);
-  const bands = scanBands(scan, Math.round(clamp(view.w / 74, 7, 14)));
+  const bands = scanBands(scan, Math.round(clamp(view.w / 78, 7, 14)));
   const tools = sweepTools(scan, bands.length, entities);
-  const scale = 1 / Math.min(view.w, view.h);
-  const energy = clamp01(scan.energy);
-  const attack = clamp01(scan.attack);
-  const ratio = clamp(view.w / view.h, 0.75, 2.5);
-  const cx = 0.46 + 0.058 * Math.sin(scan.phase);
-  const cy = 0.47 - 0.055 * Math.cos(scan.phase);
-  const lift = 0.90 - 0.34 * (outer - 0.60);
+  const repeats = Math.ceil(7 / bands.length);
+  const short = Math.min(view.w, view.h);
+  const extent = Math.hypot(view.w, view.h) / short;
+  const energy = clamp01(scan.energy), attack = clamp01(scan.attack);
+  const cx = 0.51 + 0.057 * Math.sin(scan.phase);
+  const cy = 0.49 - 0.054 * Math.cos(scan.phase);
+  const registration = -1.86 + 0.32 * Math.sin(scan.phase);
+  const teeth = [];
 
   function polar(angle, radius) {
-    const x = 0.52 * radius * Math.cos(angle);
-    const y = 0.56 * radius * Math.sin(angle);
-    return { x: cx + x + 0.22 * y, y: cy + y - 0.10 * ratio * x };
+    const x = 0.5 * radius * Math.cos(angle), y = 0.5 * radius * Math.sin(angle);
+    return { x: cx + short / view.w * (x + 0.12 * y), y: cy + short / view.h * (y - 0.06 * x) };
+  }
+  function between(a, b, t) {
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  }
+  function plate(fill, ...points) {
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+    ctx.fill();
   }
 
-  function curve(a1, r1, a2, r2, a3, r3) {
-    const p = polar(a1, r1), q = polar(a2, r2), end = polar(a3, r3);
-    ctx.bezierCurveTo(p.x, p.y, q.x, q.y, end.x, end.y);
-  }
-
-  ctx.globalAlpha *= 0.39 + 0.61 * Math.sqrt(clamp01(scan.audible));
+  // Keep short prints legible by continuing their existing sheets around the
+  // opening. Every repeat still belongs to the original band and its tool.
   for (let i = 0; i < bands.length; i++) {
     const band = bands[i];
     const tool = tools.find(t => t.band === i);
-    const strike = tool?.strike ?? 0;
-    // Reserve part of the circle for chronology so a thin ridge still has
-    // a visible blade. The rest of its width comes from the scanned radius.
     const start = 0.64 * i / bands.length + 0.36 * rows[band.start].r0 / outer;
     const end = 0.64 * (i + 1) / bands.length + 0.36 * rows[band.end - 1].r1 / outer;
-    const span = TAU * (end - start);
-    const open = Math.tanh(band.gap * 0.77);
-    const cut = span * (0.025 + 0.10 * open + 0.26 * attack * band.focus + 0.16 * strike);
-    const a = TAU * start - 1.83 + cut * 0.5;
-    const b = TAU * end - 1.83 - cut * 0.5;
-    const reach = lift * (0.23 + 0.16 * open + 0.13 * energy + 0.21 * attack * band.focus + 0.085 * strike);
-    const curl = 0.88 + 0.30 * band.bend + 0.15 * open;
-    const tail = 1.8;
-    const first = polar(a, tail);
-    const leadingEdge = [polar(b, tail), polar(b + 0.12, 1.02),
-      polar(b + curl - 0.13, reach + 0.17), polar(b + curl, reach)];
-    ctx.beginPath();
-    ctx.moveTo(first.x, first.y);
-    // Long arcs appear on short recordings when the descriptor has few slices.
-    const steps = Math.ceil((b - a) / 0.65);
-    for (let step = 1; step <= steps; step++) {
-      const p = polar(a + (b - a) * step / steps, tail);
-      ctx.lineTo(p.x, p.y);
+    const open = Math.tanh(0.77 * band.gap);
+    for (let j = 0; j < repeats; j++) {
+      const angle = registration + TAU * (start + (end - start) * j / repeats);
+      const span = TAU * (end - start) / repeats;
+      const occupant = j === Math.floor(repeats / 2) ? tool : null;
+      const press = occupant?.strike ?? 0;
+      const reach = 0.29 + 0.18 * open + 0.12 * energy + 0.16 * attack * band.focus + 0.11 * press;
+      const flex = span * (0.18 * band.bend + 0.09 * open + 0.12 * press);
+      const twist = 0.84 + 0.18 * Math.sin(scan.phase) + flex;
+      const ledge = 0.72 + 0.16 * open + 0.09 * Math.cos(angle - scan.phase) + 0.06 * press;
+      teeth.push({ band, tool: occupant, open, angle,
+        outside: polar(angle - 0.24, 1.6 * extent),
+        back: polar(angle - 0.12 + 0.25 * flex, 1.35 + 0.13 * open),
+        hinge: polar(angle + 0.38 + flex, ledge),
+        eye: polar(angle + twist, reach)
+      });
     }
-    traverse(ctx, leadingEdge);
-    curve(b + curl - 0.23 * span, reach - 0.025, a + curl + 0.27 * span, reach + 0.02, a + curl, reach + 0.065);
-    curve(a + curl - 0.05, reach + 0.22, a + 0.10, 1.10, a, tail);
-    ctx.closePath();
-    const center = polar(a + curl, reach), rim = polar(a, 1.28);
-    const gradient = ctx.createLinearGradient(center.x, center.y, rim.x, rim.y);
-    gradient.addColorStop(0, inkLight(band.ink, 0.89, 0.10));
-    gradient.addColorStop(0.24, inkLight(band.ink, 0.98, 0.035));
-    gradient.addColorStop(0.73, inkLight(band.ink, 0.54, 0.01));
-    gradient.addColorStop(1, inkLight(band.ink, 0.21));
-    ctx.fillStyle = gradient;
-    ctx.fill();
+  }
 
-    ctx.save();
-    ctx.clip();
-    for (let mark = 0; mark < 2; mark++) {
-      const inset = span * (0.13 + mark * (0.09 + 0.08 * open));
-      const point = polar(a + inset, 1.55);
+  ctx.globalAlpha *= 0.39 + 0.61 * Math.sqrt(clamp01(scan.audible));
+  for (let i = 0; i < teeth.length; i++) {
+    const left = teeth[i], right = teeth[(i + 1) % teeth.length];
+    const { band, tool, open } = left;
+    const light = 0.5 + 0.5 * Math.cos(left.angle - 0.58);
+    const mouth = inkLight(band.ink, 0.71 + 0.15 * light, 0.08 + 0.05 * band.focus);
+    const gradient = ctx.createLinearGradient(left.back.x, left.back.y, left.outside.x, left.outside.y);
+    gradient.addColorStop(0, inkLight(band.ink, 0.67 + 0.22 * light));
+    gradient.addColorStop(1, inkLight(band.ink, 0.12 + 0.16 * light));
+    plate(gradient, left.outside, right.outside, right.back, left.back);
+
+    // Each page turns through a diagonal crease. Its darker underside gives
+    // the next page an edge to slide under as the scanned interval expands.
+    plate(inkLight(band.ink, 0.52 + 0.16 * light, 0.035), left.back, right.back, right.hinge);
+    plate(inkLight(band.ink, 0.79 + 0.18 * light, 0.05), left.back, right.hinge, left.hinge);
+    plate(mouth, left.hinge, right.hinge, right.eye, left.eye);
+    // A cast shadow gradually slips out from under the neighboring edge. It
+    // dies at the inner fold so the opening keeps its uninterrupted boundary.
+    const slip = 0.045 + 0.15 * open + 0.11 * attack * band.focus;
+    plate(inkLight(band.ink, 0.25 + 0.08 * light), left.outside,
+      between(left.outside, right.outside, slip), between(left.back, right.back, slip * 0.78),
+      between(left.hinge, right.hinge, slip * 0.35), left.eye, left.hinge, left.back);
+    const stack = 0.11 + 0.14 * open + 0.17 * attack * band.focus + 0.09 * (tool?.strike ?? 0);
+    const lowerLeft = between(left.hinge, left.eye, stack);
+    const lowerRight = between(right.hinge, right.eye, stack * 0.32);
+    plate(inkLight(band.ink, 0.26 + 0.11 * light), left.hinge, right.hinge, lowerRight, lowerLeft);
+    for (let leaf = 1; leaf < 4; leaf++) {
+      const depth = leaf / 4;
+      const l = between(left.hinge, lowerLeft, depth), r = between(right.hinge, lowerRight, depth);
+      ctx.strokeStyle = inkLight(band.ink, 0.58, 0.19);
+      ctx.lineWidth = (0.65 + 0.5 * band.focus) / short;
       ctx.beginPath();
-      ctx.moveTo(point.x, point.y);
-      curve(a + inset + 0.12, 1.04, a + inset + curl - 0.14, reach + 0.19, a + inset + curl, reach + 0.065);
-      ctx.strokeStyle = mark === 0 ? inkLight(band.ink, 0.30) : inkLight(band.ink, 0.85, 0.21);
-      ctx.lineWidth = scale * (mark === 0 ? 1.4 + 2.9 * open : 0.65 + 1.2 * band.focus);
+      ctx.moveTo(l.x, l.y);
+      ctx.lineTo(r.x, r.y);
       ctx.stroke();
     }
-    const lip = leadingEdge[3];
-    ctx.beginPath();
-    ctx.moveTo(lip.x, lip.y);
-    curve(b + curl - 0.23 * span, reach - 0.025, a + curl + 0.27 * span, reach + 0.02, a + curl, reach + 0.065);
-    ctx.strokeStyle = inkLight(band.ink, 0.77, 0.36);
-    ctx.lineWidth = scale * (2.3 + 2.1 * attack * band.focus);
-    ctx.stroke();
-    ctx.restore();
-    if (tool) tool.path = leadingEdge;
+    // The tool's cubic is a straight line coincident with this very crease.
+    if (tool) tool.path = [left.hinge, between(left.hinge, right.hinge, 1 / 3),
+      between(left.hinge, right.hinge, 2 / 3), right.hinge];
   }
   for (const tool of tools) {
-    drawSweepTool(ctx, view, tool, tool.path, 0.59 + 0.35 * tool.travel, bands[tool.band].ink);
+    drawSweepTool(ctx, view, tool, tool.path, 0.15 + 0.7 * tool.travel, bands[tool.band].ink, room.load);
   }
 }

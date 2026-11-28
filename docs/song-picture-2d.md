@@ -11,9 +11,20 @@ width around the dial follows pitch-class emphasis. Recording tone and relative
 level supply the ink colour. A spoke rotates from the growth centre to the rim.
 The dot on it marks the layer corresponding to the sound you hear.
 
-Under **Appearance**, choose **Apertures** for an iris whose blades open where
-the spoke crosses wide bands, or **Folded ink** for a ribbon made from three
-nearby scan times. **Time per rotation** sets an 8-, 12- or 24-second turn.
+Under **Appearance**, choose **Apertures** to look through interlocking paper
+shutters. A window, bentwood chair and half-open door sit behind the polygonal
+opening. With **Folded ink**, the room fills the screen. Its chair is also
+printed across a ribbon made from three nearby scan times. The same cuts
+stretch and collapse with each face of the paper.
+
+Sustained sound tips the floor and pulls the listener toward the doorway.
+The room behind it contains another impression of the chair. The opening
+and ending of the song bring the original room back into register. The source
+dial stays fixed throughout. The design draws on accounts of directional
+pull, repetition and becoming part of a familiar object in the
+[Psychonaut Engine corpus analysis](songprint-salvia.md).
+
+**Time per rotation** sets an 8-, 12- or 24-second turn.
 **Follow the audio** emphasizes the current layer and responds to measured
 energy and onsets. Turn it off to compare successive revolutions of the
 impression. The small dial continues to indicate your position in the song.
@@ -21,7 +32,7 @@ The impression, rotation, audio response and tracers can all change during playb
 
 **Beat tracers** adds up to three small tools. A shuttle, roller and split
 stylus follow different edges. They accent staggered two-, three- and
-four-beat intervals, moving the material at the point of contact. They drift
+four-beat intervals, flattening into the material at the point of contact. They drift
 with their edges when the beat is uncertain and settle in quiet passages.
 Their positions can be reconstructed directly at any playhead time. Switching
 off the tracers also removes their pressure on the ink.
