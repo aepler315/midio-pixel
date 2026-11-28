@@ -586,7 +586,7 @@ export const SETTINGS = Object.freeze([
     id: 'songprintEffect', url: 'songprintEffect', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
     label: 'Songprint impression', type: 'enum', default: 'apertures',
     options: [{ value: 'apertures', label: 'Apertures' }, { value: 'fold', label: 'Folded ink' }],
-    description: 'Open gaps between ink blades or fold the same scanned bands into a ribbon.',
+    description: 'Look through an iris of folded paper or watch a familiar room repeat across a ribbon of songprint ink.',
     persist: 'saved', storage: unified('songprintEffect'), lifecycle: 'live', requires: [SONGPRINT_2D],
   },
   {
@@ -599,7 +599,7 @@ export const SETTINGS = Object.freeze([
   {
     id: 'songprintAudioResponse', url: 'songprintAudioResponse', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
     label: 'Follow the audio', type: 'boolean', default: true,
-    description: 'Let the current passage and audible attacks shape the ink. Switch off to see the sweep alone.',
+    description: 'Sustained sound pulls the room sideways. Attacks catch the ink. Switch off to see the sweep in steady registration.',
     persist: 'saved', storage: unified('songprintAudioResponse'), lifecycle: 'live', requires: [SONGPRINT_2D],
   },
   {

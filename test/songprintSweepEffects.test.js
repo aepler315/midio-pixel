@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { drawSweepEffect } from '../src/render/SongprintSweepEffects.js';
+import { roomRegistration } from '../src/render/SongprintPaperRoom.js';
 
 const view = { x: 8, y: 11, w: 793, h: 432 };
 
@@ -9,7 +10,7 @@ function recordingContext() {
   const stack = [];
   const ctx = { commands, globalAlpha: 1 };
   for (const name of ['beginPath', 'moveTo', 'lineTo', 'closePath', 'arc', 'bezierCurveTo', 'rect',
-    'translate', 'rotate', 'scale', 'clip', 'stroke', 'fill']) {
+    'translate', 'rotate', 'scale', 'transform', 'clip', 'stroke', 'fill']) {
     ctx[name] = (...args) => {
       assert.ok(args.every(Number.isFinite), name + ' received a non-finite argument');
       commands.push([name, ...args, ctx.globalAlpha]);
@@ -41,6 +42,29 @@ function frame(effect, t, overrides = {}, entities = true) {
   assert.equal(ctx.globalAlpha, 1);
   return { commands: ctx.commands, sampled };
 }
+
+test('both impressions carry the room and its ink sideways and return at the cadence', () => {
+  const held = { sustained: .7, songPosition: .54 };
+  for (const effect of ['apertures', 'fold']) {
+    const draw = overrides => frame(effect, 5, { ...held, ...overrides }, false).commands;
+    const resting = draw({sustained: 0});
+    const pulling = draw({});
+    assert.deepEqual(draw({songPosition: 0}), resting);
+    assert.deepEqual(draw({songPosition: 1}), resting);
+    const transform = pulling.find(([kind]) => kind === 'transform');
+    assert.ok(Math.abs(transform[3]) > .08 && transform[4] < .9, 'the entire sheet shears and flattens');
+    assert.notDeepEqual(pulling, resting);
+    assert.deepEqual(draw({}), pulling, 'scrubbing back restores the same room and ink');
+    const raw = {withAudio: false, sustained: .99};
+    assert.deepEqual(draw({...raw, songPosition: .1}), draw({...raw, songPosition: .7}));
+  }
+  assert.equal(roomRegistration(field(5, {...held, withAudio: false})).load, 0);
+  // The aperture boundary and its cut edges stay polygonal at both extremes.
+  for (const sustained of [0, 1]) {
+    const { commands } = frame('apertures', 5, {...held, sustained}, false);
+    assert.equal(commands.some(([kind]) => kind === 'bezierCurveTo' || kind === 'arc'), false);
+  }
+});
 
 for (const effect of ['fold', 'apertures']) {
   test(effect + ' entities visibly travel on three material paths and turn off cleanly', () => {

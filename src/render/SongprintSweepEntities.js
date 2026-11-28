@@ -57,7 +57,7 @@ function wheel(ctx, x, y, radius, fill) {
 
 // The cubic belongs to the rendered blade or fold itself. Use its derivative
 // in output pixels to hold the tool against that edge at every canvas aspect.
-export function drawSweepTool(ctx, view, tool, cubic, u, color) {
+export function drawSweepTool(ctx, view, tool, cubic, u, color, load = 0) {
   const [a, b, c, d] = cubic;
   const v = 1 - u;
   const x = v*v*v*a.x + 3*v*v*u*b.x + 3*v*u*u*c.x + u*u*u*d.x;
@@ -68,11 +68,14 @@ export function drawSweepTool(ctx, view, tool, cubic, u, color) {
   const size = clamp(Math.min(view.w, view.h) * 0.052, 13, 43);
   const pigment = 'rgb(' + color.map(Math.round).join(',') + ')';
   const press = tool.strike;
+  const transfer = load * press;
   ctx.save();
   ctx.scale(1 / view.w, 1 / view.h);
   ctx.translate(x * view.w, y * view.h);
   ctx.rotate(angle);
-  ctx.scale(size, size);
+  // At the catch the moving tool briefly presses flat into its own sheet.
+  // Releasing the seam restores the free silhouette.
+  ctx.scale(size * (1 + .32 * transfer), size * (1 - .78 * transfer));
   ctx.globalAlpha *= tool.opacity;
 
   // A momentary bite remains on the contact edge as the tool recoils.

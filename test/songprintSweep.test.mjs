@@ -107,3 +107,22 @@ test('steady sound and unavailable evidence never manufacture attacks', () => {
   assert.ok(drone(1.5).attack < .0001);
   assert.equal(drone(1.5).beatPosition, null);
 });
+
+test('sustained room pressure distinguishes a transient, a held phrase and its release on seek', () => {
+  const band = Float32Array.from({length: 500}, (_, i) => i === 10 || (i >= 100 && i < 240) ? .25 : 0);
+  const read = createSongprintSweep(descriptor, field, { durationMs: 10000, energyCurves: { rmsBands: [band], rateHz: 50 } });
+  assert.equal(read(.18).sustained, 0, 'future samples cannot affect the room');
+  assert.ok(read(.20).attack > .9 && read(.20).sustained < .05);
+  const crest = structuredClone(read(4.4));
+  assert.ok(crest.sustained > .95 && crest.attack < .01);
+  near(crest.songPosition, .44);
+  assert.ok(read(9.9).sustained < .03);
+  assert.equal(read(4.4, {withAudio: false}).sustained, 0);
+  assert.deepEqual(read(4.4), crest);
+  const midi = createSongprintSweep(descriptor, field, {durationMs: 10000, energyCurves: {
+    globalEnergy: ms => ms > 2000 && ms < 5000 ? .1 : 0, globalEnergyNorm: () => .9,
+  }});
+  assert.equal(midi(1).sustained, 0, 'song calibration cannot manufacture a pulse in silence');
+  assert.ok(midi(4).sustained > .63 && midi(4).sustained < .68);
+  assert.equal(midi(8).sustained, 0);
+});

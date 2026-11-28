@@ -10,7 +10,7 @@ function canvas(width = 1280, height = 720) {
     fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: 'left', textBaseline: 'alphabetic',
     setTransform(...args) { target.transforms.push(['set', ...args]); },
     translate(...args) { target.transforms.push(['translate', ...args]); },
-    scale() {}, rotate() {}, bezierCurveTo() {}, quadraticCurveTo() {},
+    scale() {}, rotate() {}, transform() {}, bezierCurveTo() {}, quadraticCurveTo() {},
     save() { target.calls.push(['save']); },
     restore() { target.calls.push(['restore']); },
     beginPath() {}, moveTo() {}, lineTo() {}, arc() {}, stroke() {}, fill() {}, closePath() {}, clip() { target.calls.push(['clip']); },
