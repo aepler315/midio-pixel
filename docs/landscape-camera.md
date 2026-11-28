@@ -70,7 +70,7 @@ rail captures, explicit tours-Off selection and longer continuous clips.
 
 ## Close-up opening
 
-Playback opens in close-up over the growing landscape: up to 24× lens
+Playback opens in close-up over the growing landscape: up to 18× lens
 magnification, bounded by the terrain detail budget (over the low-built
 opening). The camera keeps its horizontal route and ground
 clearance and follows the rising summit or tour action. It widens as relief
@@ -80,6 +80,11 @@ the range keeps building through the song without a long zoomed-in start
 ([landscape-rise.md](landscape-rise.md#song-timing-and-seeking)). Seeking
 reconstructs the same framing. Sky anchors use the same zoom, and
 wheel/pinch zoom continues to work over the opening lens.
+
+Structural camera moves are bidirectional: pushes can lean in, while reveals,
+settles and the finale can pull back and rise to show more land. Musical pulse
+accents stay bounded inside move limits and favor breathing/lift over lateral
+swing, so energetic turns feel intentional rather than frantic.
 
 ## One default camera
 

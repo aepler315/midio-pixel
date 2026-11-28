@@ -82,7 +82,7 @@ export function revealLensFromCues(cues, timeMs, preview = false) {
   const envelope = age < 0 ? smooth((age + REVEAL_GATHER_MS) / REVEAL_GATHER_MS)
     : 1 - smooth(age / REVEAL_OPEN_MS);
   const amount = unit(cue.strength) * envelope;
-  return amount > 0 ? Object.freeze({ halfAngleScale: 1 - .16 * amount, zoomPulse: 0, cueIndex: cue.index }) : NEUTRAL_LENS;
+  return amount > 0 ? Object.freeze({ halfAngleScale: 1 - .12 * amount, zoomPulse: 0, cueIndex: cue.index }) : NEUTRAL_LENS;
 }
 
 /** Sections-only lens (no Landscape score): the same cue rule, no handoff. */

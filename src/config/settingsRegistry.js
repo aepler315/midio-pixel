@@ -574,6 +574,13 @@ export const SETTINGS = Object.freeze([
     options: [{ value: 'canvas', label: 'Canvas 2D' }, { value: 'webgl', label: 'WebGL overlay' }],
     persist: 'saved', storage: unified('renderer'), lifecycle: 'renderer',
   },
+  {
+    id: 'songVisualization', url: 'songVisualization', section: 'experiments', group: 'Rendering experiments', tier: 'experimental', maturity: 'experimental',
+    label: 'Song visualization', type: 'enum', default: 'off',
+    description: 'Replace the 3D landscape with an experimental 2D song representation driven by heard-time song data. Export and capture use the same 2D frame.',
+    options: [{ value: 'off', label: 'Off (3D landscape)' }, { value: 'songprint2d', label: 'Songprint 2D prototype' }],
+    persist: 'saved', storage: unified('songVisualization'), lifecycle: 'live',
+  },
 
   // ---- Audio & playback
   {

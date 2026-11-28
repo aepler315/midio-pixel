@@ -721,6 +721,7 @@ function effectivePresentation() {
   const buildPixelDetail = !!requested.buildPixelDetail && !bulkExportSize && !voxelRangePilot && !experimental;
   // Cinematic, the only look, presents through the hybrid composite.
   return { ...requested, buildPixelDetail, rangePipeline: 'hybrid',
+    songVisualization: settings.get('songVisualization'),
     ...(buildPixelDetail && requested.scaling === 'integer' ? { scaling: 'fit' } : {}),
     ...(experimental ? { directTerrain: true } : {}),
     ...(!bulkExportSize && typeof document !== 'undefined' && isFullscreen() ? { scaling: 'cover' } : {}) };
@@ -911,6 +912,7 @@ const SETTING_APPLIERS = {
   dev: value => { DEV_MODE = value; },
   perf: () => { perfStartLevel = currentPerfStartLevel(); },
   directTerrain: () => { perfGovernor?.forgetRecoveryHistory(); fitCanvasAndRedraw(); },
+  songVisualization: () => { if (renderer) renderer.setPresentation(effectivePresentation()); fitCanvasAndRedraw(); },
 };
 
 function applySettingChange({ changes }) {
@@ -2724,7 +2726,8 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
   const analysisGroove = new GrooveFingerprint(groove.toJSON());
   const songprintLandscapeEnabled = settings.get('songprintLandscape') === 'on';
   const songprintPhrases = settings.get('songprintAtmosphere') === true;
-  const songprint = songprintLandscapeEnabled || songprintPhrases;
+  const songprintFable = settings.get('songVisualization') === 'songprint2d';
+  const songprint = songprintLandscapeEnabled || songprintPhrases || songprintFable;
   showProgress('Reading file…');
   try {
     await bootAudio();
@@ -2854,6 +2857,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
       groove: analysisGroove,
       songprint: songprint && !openingFirst,
       songprintPhrases: songprintPhrases && !openingFirst,
+      songprintFable: songprintFable && !openingFirst,
       signal: analysisAbort.signal,
       onProgress: ({ phase, progress }) => {
         if (isStale() || analysisAbort.signal.aborted) return;
@@ -2868,7 +2872,8 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     // whole-song analysis, ready-made.
     const fileSig = isStemDrop ? null : fileSignature(selectedFiles[0], audioBuffer);
     const hasRequestedPrint = data => !songprint || (Object.hasOwn(data, 'songprint')
-      && (!songprintPhrases || data.songprint === null || data.songprint?.phraseFamilies));
+      && (!songprintPhrases || data.songprint === null || data.songprint?.phraseFamilies)
+      && (!songprintFable || data.songprint === null || data.songprint?.fable));
     const restoreCached = (bundle) => {
       const restored = bundle ? unpackBundle(bundle) : null;
       return restored && hasRequestedPrint(restored) ? restored : null;
@@ -2880,7 +2885,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
         // is taken, which takes seconds on a long song.
         const recalled = recallFingerprint(fileSig);
         if (recalled) {
-          const key = analysisCacheKey(recalled, { stems: [], groove: analysisGroove, songprint, songprintPhrases });
+          const key = analysisCacheKey(recalled, { stems: [], groove: analysisGroove, songprint, songprintPhrases, songprintFable });
           const cached = key ? await getBundle(key) : null;
           if (!canUpdatePrepared()) throw audioAbortError();
           const restored = restoreCached(cached);
@@ -2894,7 +2899,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
         fingerprint = await fingerprintBufferOffThread(audioBuffer, { signal });
         if (!canUpdatePrepared()) throw audioAbortError();
         rememberFingerprint(fileSig, fingerprint);
-        cacheKey = analysisCacheKey(fingerprint, { stems: isStemDrop ? decoded : [], groove: analysisGroove, songprint, songprintPhrases });
+        cacheKey = analysisCacheKey(fingerprint, { stems: isStemDrop ? decoded : [], groove: analysisGroove, songprint, songprintPhrases, songprintFable });
         const cached = cacheKey ? await getBundle(cacheKey) : null;
         if (!canUpdatePrepared()) throw audioAbortError();
         // An unreadable bundle (older layout, truncated, hand-edited) is not
@@ -2942,7 +2947,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
           fullAnalysis = new Promise((resolve) => setTimeout(resolve, 150)).then(async () => {
             if (analysisAbort.signal.aborted) throw audioAbortError();
             const whole = audioToTimeline(audioBuffer, {
-              groove: analysisGroove, signal: analysisAbort.signal, cooperative: true, songprint, songprintPhrases,
+              groove: analysisGroove, signal: analysisAbort.signal, cooperative: true, songprint, songprintPhrases, songprintFable,
             });
             whole.catch(() => {});
             const restored = await early;

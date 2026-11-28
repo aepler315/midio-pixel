@@ -4,6 +4,7 @@ import { pixelRenderPolicy } from './PixelRenderPolicy.js';
 import { CanvasBuffers } from './CanvasResidency.js';
 import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
+import { drawSongprint2D } from './Songprint2DPresentation.js';
 import { landscapeResolutionPlan, landscapeResolutionAt, landscapeResolutionEndpoint, landscapeQualityRung } from './ProgressiveLandscapeResolution.js';
 
 const SKY_LAYER_KEY = 'range:output-sky';
@@ -79,6 +80,9 @@ export class PresentingRenderer {
     if (this._disposed) return this.output.failFrame('disposed');
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
     this.output.diagnostics.rangePipeline = this._requestedPresentation?.rangePipeline || 'hybrid';
+    if (this._requestedPresentation?.songVisualization === 'songprint2d') {
+      return this._drawSongprint2D(sim, alpha, { preparing });
+    }
     if (this.voxelRange || this._requestedPresentation?.directTerrain === true) {
       this.output.setFrameGrid(); this._growthKey = null;
       this.output.diagnostics.progressiveDetail = { active: false };
@@ -412,6 +416,44 @@ export class PresentingRenderer {
     if (!this._sky) return;
     if (this.residency?.release) this.residency.release(SKY_LAYER_KEY);
     if (this._sky) { this._sky.canvas.width = this._sky.canvas.height = 0; this._sky = null; }
+  }
+  _drawSongprint2D(sim, alpha, { preparing = false } = {}) {
+    this.output.diagnostics.rangePipeline = 'songprint2d';
+    this.output.diagnostics.progressiveDetail = { active: false };
+    this.output.diagnostics.directTerrain = false;
+    this.output.diagnostics.voxelRange = false;
+    this.output.setFrameGrid();
+    this._directFrame = false;
+    this._voxelFrame = false;
+    this._releaseDirect();
+    const canvas = this.output.beginDirectFrame();
+    if (!canvas) return this.output.diagnostics.frame;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return this.output.failFrame('output-context');
+    try {
+      drawSongprint2D(ctx, canvas, sim, alpha);
+    } catch (err) {
+      this.output.failFrame('songprint2d-draw');
+      throw err;
+    }
+    const result = this.output.finishDirectFrame('songprint2d');
+    this._directFrame = !!result?.presented;
+    this.output.diagnostics.directTerrain = false;
+    this.output.diagnostics.effectiveLook = 'songprint2d';
+    this.output.diagnostics.songVisualization = 'songprint2d';
+    if (this.output._capture) {
+      this.output._capture.directTerrain = false;
+      this.output._capture.terrainPixelated = false;
+    }
+    this._captureBackground = null;
+    this._captureWater = null;
+    this._captureEffects = null;
+    this._captureCrest = null;
+    this._captureShore = null;
+    this._captureTerrain = null;
+    this._capturePost = null;
+    if (!preparing) this.canvasRenderer.discardFrameCaptures?.();
+    return result;
   }
   dispose() { if (this._disposed) return; this._disposed = true; this._releaseSky(); this._releaseDirect(); this._directCinematic?.dispose(); try { this.inner.dispose(); } finally { this.output.dispose(); } }
 }

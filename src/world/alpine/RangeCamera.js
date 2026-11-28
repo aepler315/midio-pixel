@@ -43,8 +43,11 @@ const ENERGY_TURN = 0.15;
 export const FINALE_MS = 12000;
 // Amplitudes, as fractions of the rail's eye-to-target distance D (yaw in
 // radians). D is kilometres, so these are big on the ground and small on
-// screen: a 3 km push toward a summit 20 km away.
-export const MOVE_LIMITS = Object.freeze({ dolly: [0, 0.16], yaw: [-0.06, 0.06], crane: [0, 0.035], truck: [-0.025, 0.025] });
+// screen: a 3 km push toward a summit 20 km away. Dolly is bidirectional:
+// positive leans in, negative pulls back to breathe and show more land.
+// Lateral swing is kept tighter than vertical lift so moves read cinematic,
+// not frantic.
+export const MOVE_LIMITS = Object.freeze({ dolly: [-0.08, 0.12], yaw: [-0.045, 0.045], crane: [0, 0.04], truck: [-0.018, 0.018] });
 // The song opens risen over the dark land and settles in as the sun comes up.
 export const OPENING_MOVE = Object.freeze({ dolly: 0, yaw: 0, crane: 0.03, truck: 0, kind: 'rest' });
 const FINALE = Object.freeze({ dolly: 0, crane: 0.03, truck: 0 });
@@ -128,29 +131,29 @@ export function cameraMoveKeys(sections, durationMs, seed = 0, cadenceMs = null)
       // Settle down out of the risen opening shot and lean in a little.
       next.kind = 'establish';
       next.crane = 0.008;
-      next.dolly = lerp(0.03, 0.07, energy);
+      next.dolly = lerp(0.02, 0.05, energy);
     } else if (spans[i].delta >= ENERGY_TURN && energy >= .65) {
-      // A climax opens the entire range: rise and come back to the wide
-      // rail while looking across the same subject, then hold its scale.
+      // A climax opens the entire range: rise, ease back, and keep lateral
+      // swing restrained so the reveal feels expansive rather than frantic.
       next.kind = 'reveal';
-      next.dolly = lerp(.025, 0, energy);
+      next.dolly = lerp(-.01, -.06, energy);
       next.crane = lerp(.024, MOVE_LIMITS.crane[1], energy);
-      next.yaw = side * lerp(.025, .05, energy);
-      next.truck = side * lerp(.008, .018, energy);
+      next.yaw = side * lerp(.014, .03, energy);
+      next.truck = side * lerp(.004, .01, energy);
     } else if (spans[i].delta >= ENERGY_TURN) {
-      // A build leans into the subject before the wider arrival.
+      // A build leans into the subject, but keeps room for land in frame.
       next.kind = 'push';
-      next.dolly = lerp(.06, .13, energy);
+      next.dolly = lerp(.04, .09, energy);
       next.crane = .012;
-      next.yaw = side * .018;
-      next.truck = side * .006;
+      next.yaw = side * .012;
+      next.truck = side * .004;
     } else if (spans[i].delta <= -ENERGY_TURN) {
-      // Quiet passages return gently to an intimate, still composition.
+      // Quiet passages breathe out: settle wider and calmer, not tighter.
       next.kind = 'settle';
-      next.dolly = lerp(.035, .075, energy);
-      next.crane = .008;
-      next.yaw = cur.yaw * .35;
-      next.truck = cur.truck * .35;
+      next.dolly = lerp(-.03, .01, 1 - energy);
+      next.crane = .012;
+      next.yaw = cur.yaw * .25;
+      next.truck = cur.truck * .25;
     } else {
       next.kind = 'hold';
     }
@@ -160,7 +163,10 @@ export function cameraMoveKeys(sections, durationMs, seed = 0, cadenceMs = null)
   // halfway home, arriving as the music ends and holding through any tail.
   const last = keys.at(-1);
   const finaleFrom = Math.max(finaleAt, last.tMs);
-  keys.push({ fromMs: finaleFrom, tMs: Math.max(finaleFrom, cadence), ...FINALE, yaw: last.yaw * 0.5, kind: 'finale' });
+  keys.push({
+    fromMs: finaleFrom, tMs: Math.max(finaleFrom, cadence),
+    ...FINALE, dolly: -.04, yaw: last.yaw * 0.35, truck: last.truck * 0.35, kind: 'finale',
+  });
   if (Array.isArray(sections)) keyCache.set(sections, { dur, seed, cadence, keys });
   return keys;
 }
@@ -189,10 +195,12 @@ export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0,
   // Spend only the headroom left by the structural key, so an accent can
   // never push the eye outside the authored move limits.
   const headroom = (lo, hi, value, amount) => amount > 0 ? Math.min(amount, hi - value) : Math.max(amount, lo - value);
-  const push = headroom(...MOVE_LIMITS.dolly, move.dolly, 0.045 * accent.accent01);
-  const swing = headroom(...MOVE_LIMITS.yaw, move.yaw, accent.sign * 0.035 * accent.accent01);
-  const lift = headroom(...MOVE_LIMITS.crane, move.crane, 0.012 * accent.accent01);
-  const truck = headroom(...MOVE_LIMITS.truck, move.truck, accent.sign * 0.012 * accent.accent01);
+  // Accents should breathe, not thrash: a little forward lift and a gentle
+  // lateral nudge, with most headroom spent on vertical/scale presence.
+  const push = headroom(...MOVE_LIMITS.dolly, move.dolly, 0.025 * accent.accent01);
+  const swing = headroom(...MOVE_LIMITS.yaw, move.yaw, accent.sign * 0.02 * accent.accent01);
+  const lift = headroom(...MOVE_LIMITS.crane, move.crane, 0.014 * accent.accent01);
+  const truck = headroom(...MOVE_LIMITS.truck, move.truck, accent.sign * 0.008 * accent.accent01);
   move.dolly = clamp(move.dolly + push, ...MOVE_LIMITS.dolly);
   move.yaw = clamp(move.yaw + swing, ...MOVE_LIMITS.yaw);
   move.crane = clamp(move.crane + lift, ...MOVE_LIMITS.crane);

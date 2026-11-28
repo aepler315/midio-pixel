@@ -2,6 +2,7 @@
 // The library needs only the composition's skyline, never its passage timeline.
 export const SONGPRINT_VERSION = 1;
 export const SONGPRINT_PHRASE_VERSION = 1;
+export const SONGPRINT_FABLE_VERSION = 1;
 export const MAX_PHRASE_FAMILIES = 4;
 export const MAX_PHRASE_OCCURRENCES = 8;
 import { copySongprintTimeline } from './SongprintTimeline.js';
@@ -33,6 +34,57 @@ function copyPhraseFamilies(data, durationMs) {
   return { version: SONGPRINT_PHRASE_VERSION, families };
 }
 
+function copyFableDescriptor(data) {
+  if (!data || data.version !== SONGPRINT_FABLE_VERSION) return null;
+  const slices = data.slices;
+  if (!Number.isInteger(slices) || slices < 1 || slices > 1200) return null;
+  const chromaLen = slices * 12;
+  const toneLen = slices * 3;
+  const toArray = (value, len) => {
+    if (value instanceof Float32Array || Array.isArray(value)) {
+      if (value.length !== len) return null;
+      const out = new Array(len);
+      for (let i = 0; i < len; i++) {
+        const v = Number(value[i]);
+        if (!Number.isFinite(v)) return null;
+        out[i] = v;
+      }
+      return out;
+    }
+    // tolerate JSONified Float32Array {"0":...}
+    if (value && typeof value === 'object') {
+      const out = new Array(len);
+      for (let i = 0; i < len; i++) {
+        const v = Number(value[i]);
+        if (!Number.isFinite(v)) return null;
+        out[i] = v;
+      }
+      return out;
+    }
+    return null;
+  };
+  const chroma = toArray(data.chroma, chromaLen);
+  const tone = toArray(data.tone, toneLen);
+  if (!chroma || !tone) return null;
+  const sliceSeconds = Number(data.sliceSeconds);
+  const lastFraction = Number(data.lastFraction);
+  const keyAngle = Number(data.keyAngle);
+  if (!Number.isFinite(sliceSeconds) || sliceSeconds <= 0 || !Number.isFinite(lastFraction) || lastFraction <= 0 || lastFraction > 1.0001) return null;
+  if (!Number.isFinite(keyAngle)) return null;
+  return {
+    version: SONGPRINT_FABLE_VERSION,
+    slices,
+    sliceSeconds,
+    lastFraction: Math.min(1, Math.max(1e-3, lastFraction)),
+    keyAngle,
+    chroma,
+    tone,
+    ...(Number.isFinite(data.keyStrength) ? { keyStrength: Number(data.keyStrength) } : {}),
+    ...(Number.isFinite(data.tuningCents) ? { tuningCents: Number(data.tuningCents) } : {}),
+    ...(Number.isFinite(data.stereoWidth) ? { stereoWidth: Number(data.stereoWidth) } : {}),
+  };
+}
+
 export function copySongprint(print, durationMs = Infinity) {
   const compact = copySongprintSkyline(print);
   // One candidate every two seconds in a recording of up to twenty minutes.
@@ -48,5 +100,6 @@ export function copySongprint(print, durationMs = Infinity) {
   }
   const phraseFamilies = copyPhraseFamilies(print.phraseFamilies, durationMs);
   const timeline = copySongprintTimeline(print.timeline, durationMs);
-  return { ...compact, passages, ...(phraseFamilies ? { phraseFamilies } : {}), ...(timeline ? { timeline } : {}) };
+  const fable = copyFableDescriptor(print.fable);
+  return { ...compact, passages, ...(phraseFamilies ? { phraseFamilies } : {}), ...(timeline ? { timeline } : {}), ...(fable ? { fable } : {}) };
 }

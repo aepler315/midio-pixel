@@ -2,7 +2,7 @@ import { clamp01 } from '../../utils/math.js';
 import { projectPoint } from '../terrain/SceneTravel.js';
 import { openingZoomRelease01 } from '../../core/OpeningTimeline.js';
 
-export const BUILD_CAMERA = Object.freeze({ settleRise: .7, openingMagnification: 24 });
+export const BUILD_CAMERA = Object.freeze({ settleRise: .7, openingMagnification: 18 });
 const mix = (a, b, t) => a + (b - a) * t;
 const overviewAt = rise => {
   const u = clamp01(rise / BUILD_CAMERA.settleRise);

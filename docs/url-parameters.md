@@ -139,6 +139,7 @@ Lifecycle: when a change reaches a running page.
 | `rangeRelief` | Fixed composed relief | 0.25–6 (empty: automatic) | automatic | Next song | yes (developer) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 | `songRangeLayout` | Composed pilot layout | text matching `^[A-Za-z0-9._-]{1,80}$` | automatic | Next song | no (URL only) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 | `renderer` | WebGL post-effects overlay | `canvas`, `webgl` | `webgl` | Renderer restart | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `songVisualization` | Song visualization | `off`, `songprint2d` | `off` | Live | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `directTerrain` | Terrain-only pixel pipeline | see note | `on` | Live | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `voxelRange` | Voxel range pilot | see note | `off` | Reload | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `terrainShading` | Mount Moran snow study | `off`, `moran` | `off` | Renderer restart | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
@@ -163,6 +164,7 @@ Lifecycle: when a change reaches a running page.
 - `rangeRelief` — A fixed relief scale for composed stages (1 = measured) instead of the framing rule. Empty uses the rule. Inactive unless: Applies to composed song ranges.
 - `songRangeLayout` — Run a catalog pilot layout (song-range-pilot-a/b/c) through the runtime, to compare with its offline stage.
 - `renderer` — Draw the optional WebGL post-effects overlay on top of Canvas 2D. Falls back to Canvas 2D when WebGL is unavailable.
+- `songVisualization` — Replace the 3D landscape with an experimental 2D song representation driven by heard-time song data. Export and capture use the same 2D frame.
 - `directTerrain` — Compose sky, water and effects at output resolution and sample only the terrain onto the pixel grid. Colours can differ from normal playback. URL rule: only `1` enables it. Inactive unless: Needs the 3D landscape renderer.
 - `voxelRange` — Replace the landscape with the White Mountains voxel pilot (a 16 MB download, WebGL2). URL rule: only `1` enables it.
 - `terrainShading` — Curvature-aware snow edges on Mount Moran in the Jackson Lake view. Other views are unchanged. URL rule: only `moran` enables the study. Inactive unless: Needs the 3D landscape renderer.

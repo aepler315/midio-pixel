@@ -27,6 +27,13 @@ test('a trusted musical turn becomes one bounded alternating accent', () => {
   assert.equal(pulse.at(20000).sign, 1);
   assert.equal(pulse.at(40000).sign, -1);
   assert.equal(pulse.at(70000).accent01, 0, 'the release ends before the next section');
+  const push = rangeCameraMoveAt({ timeMs: 20000, sections, durationMs: 80000, seed: 1, pulse });
+  const plain = rangeCameraMoveAt({ timeMs: 20000, sections, durationMs: 80000, seed: 1 });
+  assert.ok(push.dolly > plain.dolly, 'accent adds gentle forward breathing room');
+  assert.ok(push.crane > plain.crane, 'accent lifts crane slightly');
+  for (const name of ['dolly', 'yaw', 'crane', 'truck']) {
+    assert.ok(push[name] >= MOVE_LIMITS[name][0] - 1e-9 && push[name] <= MOVE_LIMITS[name][1] + 1e-9);
+  }
   assert.deepEqual(pulse.at(20000), pulse.at(20000), 'a sample is a pure value');
 });
 

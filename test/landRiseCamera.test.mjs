@@ -121,7 +121,7 @@ test('the opening close-up lets go on its own clock while the land keeps buildin
     assert.equal(landRiseFov(35, rise, 0), landRiseFov(35, rise));
     assert.equal(landRiseFov(35, rise, OPENING_ZOOM_START_MS - 1), landRiseFov(35, rise));
   }
-  assert.ok(Math.abs(magnification(0, 0) - 24) < 1e-9, 'flat ground opens at the full close-up');
+  assert.ok(Math.abs(magnification(0, 0) - 18) < 1e-9, 'flat ground opens at the full close-up');
   // A low land does not hold the close-up past the opening.
   const end = OPENING_ZOOM_START_MS + OPENING_ZOOM_MS;
   for (const rise of [0, 1 / 3, .5]) {

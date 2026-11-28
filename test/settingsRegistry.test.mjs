@@ -46,7 +46,7 @@ test('the Settings menu offers basic presentation settings, including both Songp
     'pixelGrid', 'buildPixelDetail', 'pixelMotion', 'scaling', 'cameraStudioEnabled', 'mp4Resolution', 'mp4Fps',
     'rangeTour', 'rangePace', 'songprintLandscape', 'songprintAtmosphere', 'shuffle', 'continuous', 'lyrics', 'btLatency',
   ]);
-  assert.equal(SETTINGS.length - menu.length, 48, 'every other definition stays registered but hidden');
+  assert.equal(SETTINGS.length - menu.length, 49, 'every other definition stays registered but hidden');
   for (const def of menu) {
     assert.equal(def.tier, 'basic', def.id);
     const songprint = ['songprintLandscape', 'songprintAtmosphere'].includes(def.id);
