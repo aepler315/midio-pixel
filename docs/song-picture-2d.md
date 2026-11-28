@@ -8,8 +8,11 @@ song. Playback, seeking, and MP4 export use that song's selected mode.
 
 The small dial shows the whole print. Each second contributes a layer whose
 width around the dial follows pitch-class emphasis. Recording tone and relative
-level supply the ink colour. A spoke rotates from the growth centre to the rim.
-The dot on it marks the layer corresponding to the sound you hear.
+level supply the ink colour. A spoke extends from the growth centre to the rim
+and turns clockwise once over the full track. It points up at the start,
+right a quarter of the way through, down at halfway, and back up at the end.
+Seeking moves it directly to the corresponding angle. The dot on it marks
+the layer corresponding to the sound you hear.
 
 Under **Appearance**, **Apertures** lets some angular edges show through while
 others fade into the ground. **Folded ink** lays three recent readings of the
@@ -21,10 +24,11 @@ The source print stays in the corner while the overlap changes. The original
 research into directional pull and repetition is in the
 [Psychonaut Engine corpus analysis](songprint-salvia.md).
 
-**Time per rotation** sets an 8-, 12- or 24-second turn.
-**Follow the audio** emphasizes the current layer and responds to measured
-energy and onsets. Turn it off to compare successive revolutions of the
-impression. The small dial continues to indicate your position in the song.
+**Sweep timing** defaults to **Once per song**. You can select a repeating
+sweep every 8, 12 or 24 seconds. Earlier links and saved choices with those
+intervals keep their timing. **Follow the audio** emphasizes the current
+layer and responds to measured energy and onsets. Turn it off to see the
+sweep alone. The small dial continues to indicate your position in the song.
 The impression, rotation, audio response and tracers can all change during playback.
 
 **Beat tracers** adds up to three small slips along existing edges. Each

@@ -111,6 +111,22 @@ test('enum, number and boolean constraints validate and normalize', () => {
   assert.equal(normalizeValue(settingDefinition('rangeView'), 'bad view!'), undefined);
 });
 
+test('the sweep defaults to one turn per song and preserves explicitly selected loop intervals', () => {
+  const id = 'songprintSweepPeriod';
+  const storage = memoryStorage();
+  const store = new SettingsStore({ storage });
+  store.set('songprintEffect', 'fold');
+  assert.equal(new SettingsStore({ storage }).get(id), 'song');
+  for (const seconds of [8, 12, 24]) {
+    assert.equal(urlSettingValue(id, '?' + id + '=' + seconds), seconds);
+    store.set(id, seconds);
+    assert.equal(new SettingsStore({ storage }).get(id), seconds);
+  }
+  assert.equal(new SettingsStore({ storage, search: '?' + id + '=song' }).get(id), 'song');
+  store.reset(id);
+  assert.equal(new SettingsStore({ storage }).get(id), 'song');
+});
+
 test('historical URL rules are preserved', () => {
   const v = (id, search) => urlSettingValue(id, search);
   assert.equal(v('rangeMsaa', '?rangeMsaa=4'), '4');

@@ -591,9 +591,10 @@ export const SETTINGS = Object.freeze([
   },
   {
     id: 'songprintSweepPeriod', url: 'songprintSweepPeriod', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
-    label: 'Time per rotation', type: 'enum', default: 12,
-    options: [8, 12, 24].map(value => ({ value, label: value + ' seconds' })),
-    description: 'Time for the spoke to scan once around the print.',
+    label: 'Sweep timing', type: 'enum', default: 'song',
+    options: [{ value: 'song', label: 'Once per song' },
+      ...[8, 12, 24].map(value => ({ value, label: 'Repeat every ' + value + ' seconds' }))],
+    description: 'The spoke turns once from the start of the track to the end. Choose a repeat interval for a looping sweep.',
     persist: 'saved', storage: unified('songprintSweepPeriod'), lifecycle: 'live', requires: [SONGPRINT_2D],
   },
   {

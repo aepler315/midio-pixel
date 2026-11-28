@@ -41,12 +41,30 @@ test('ray crossings, colour, pith and partial tail follow the same print and see
   const snapshot = structuredClone(sampleAt(.8));
   for (let t = 6; t < 12; t++) sampleAt(t);
   assert.deepEqual(sampleAt(.8), snapshot);
-  const replay = sampleAt(12.8, { withAudio: false });
-  near(replay.rows[0].r1, snapshot.rows[0].r1);
-  near(replay.phase, snapshot.phase);
+  const loop = structuredClone(sampleAt(.8, { periodSec: 12, withAudio: false }));
+  const replay = sampleAt(12.8, { periodSec: 12, withAudio: false });
+  near(replay.rows[0].r1, loop.rows[0].r1);
+  near(replay.phase, loop.phase);
   assert.equal(replay.attack, 0); assert.equal(replay.rows[0].focus, 0);
   const old = createSongprintSweep({ ...descriptor, version: 1, offsetSeconds: undefined }, field, { conductor: { durationMs: 5000 } });
   near(old(2).activeIndex, 1);
+});
+
+test('the default sweep makes one clockwise turn over the entire heard track, including its silent margins', () => {
+  const read = createSongprintSweep(descriptor, field, { conductor: {durationMs: 96500} });
+  for (const withAudio of [true, false]) {
+    for (const fraction of [0, .002, .125, .25, .50, .75, .999, 1, .25, 1.1]) {
+      const scan = read(fraction * 96.5, {withAudio});
+      near(scan.phase, Math.min(1, fraction) * 2 * Math.PI);
+      const ray = Math.min(1, fraction) * field.rays;
+      const j = Math.floor(ray) % field.rays, k = (j + 1) % field.rays, mix = ray - Math.floor(ray);
+      near(scan.rows[0].r1, (1-mix) * field.field[j*field.stride+1] + mix * field.field[k*field.stride+1]);
+    }
+  }
+  near(read(48.25, {periodSec: 'song'}).phase, Math.PI);
+  // A loop with the same duration and a full-song pass have different end states.
+  near(read(96.5, {periodSec: 96.5}).phase, 0);
+  near(read(96.5).phase, 2 * Math.PI);
 });
 
 test('the original raster uses the same geometry and colour when provided by the sweep', () => {

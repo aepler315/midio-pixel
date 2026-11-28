@@ -64,6 +64,12 @@ test('sustained sound shifts both impressions at any position in the song', () =
   }
 });
 
+test('a single pass starts its delayed folds at the first heard position, including in sweep-only mode', () => {
+  assert.deepEqual(frame('fold', .1, {withAudio: false, periodSec: null}).sampled, [.1, 0, 0]);
+  const repeat = frame('fold', .1, {withAudio: false, periodSec: 12}).sampled;
+  assert.ok(repeat[1] > 11 && repeat[2] > 11);
+});
+
 test('the underprint follows the measured crossings and keeps its own palette and pressure on replay', () => {
   function draw(scan) {
     const ctx = recordingContext(), colors = [];

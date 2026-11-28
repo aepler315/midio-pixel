@@ -50,8 +50,8 @@ function traverse(ctx, points, reverse = false) {
 }
 
 function pastSample(sampleAt, now, time, delay) {
-  // At zero, a pure repeated scan already has a full revolution of history.
-  // The audio-coupled view only has history the listener has actually heard.
+  // A single pass has no readings before the track begins. Only an
+  // explicitly looping, audio-free scan wraps its history across the seam.
   const t = now.withAudio === false && now.periodSec > 0
     ? ((time - delay) % now.periodSec + now.periodSec) % now.periodSec
     : Math.max(0, time - delay);
