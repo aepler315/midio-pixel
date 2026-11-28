@@ -22,12 +22,40 @@ viewpoint uses the ordinary camera. The saved rail schedule includes the
 chosen station and timing, so seeking and video export replay the move.
 
 The music-timed structural camera and the construction share one
-`CinematicPulse`: trusted section turns and chorus/drop entries produce a
-short alternating accent on the framing and a bounded gain on the climb. The
-pulse is compiled with the score and sampled only at heard time, so pause,
-seek, replay, re-analysis and fixed-clock export agree. Accents stay inside
-`MOVE_LIMITS` and stop at the closing move. A full analysis cannot flip an
-accent the listener already heard.
+`CinematicPulse`: trusted section turns and chorus/drop entries produce an
+accent on the framing and a bounded gain on the climb. The camera reads the
+pulse's cue times and sides but uses its own slower envelope
+(`CAMERA_ACCENT` in `src/world/alpine/CameraMotion.js`): it leans in over
+3.2 s, holds 0.9 s and releases over 5.6 s, and neighbouring cues sum instead
+of snapping from one side to the other. The pulse is compiled with the score
+and sampled only at heard time, so pause, seek, replay, re-analysis and
+fixed-clock export agree. Accents stay inside `MOVE_LIMITS` and fade out
+smoothly across the closing move. A full analysis cannot flip an accent the
+listener already heard.
+
+## Frame and motion tuning
+
+`src/world/alpine/CameraMotion.js` holds the camera's framing and motion
+knobs as named constants:
+
+- `CAMERA_FRAME.wideLensTan` (1.15) widens the standing lens of authored
+  rails and the Songprint orbit. Shot tours, Camera Studio, the glacier and
+  Dual Summits keep their own framing. Terrain is baked for core framing at
+  1.2× the authored tangent, so the wider lens stays inside full detail.
+  Returning-summit stations and the inland opening rail are judged on the
+  same wider frame the rail draws.
+- `CAMERA_MOVES` bounds the structural move. Push-ins reach at most 10% of
+  the rail distance (was 16%), so a push keeps more of the range in frame.
+- `REVEAL_CROP` (0.92) is the tightest crop of the reveal lens before an
+  arrival (was 0.84).
+- `ORBIT_FRAME` sets the Songprint orbit: it circles at 0.86 to 1.04 of the
+  rail's home radius over the song (was 0.69 to 0.87), its rate is smoothed
+  over 4 s and held within 1.7× its mean, and a late print hands over from
+  the rail across 12 s (was 7.2 s).
+
+`node tools/camera-motion-report.mjs` drives the real camera path over a
+synthetic song and reports look speed and acceleration, image flow, zoom
+rate and land in frame, for comparing tunings before a render review.
 
 At 2×, 3× and 4× the number multiplies each appearance's own natural,
 energy-driven travel before that travel is fitted to the finite rail, so a
@@ -74,8 +102,10 @@ Playback opens in close-up over the growing landscape: up to 18× lens
 magnification, bounded by the terrain detail budget (over the low-built
 opening). The camera keeps its horizontal route and ground
 clearance and follows the rising summit or tour action. It widens as relief
-grows, and in any case eases out to the authored lens between 2.0 and 5.0 s
-(`OpeningTimeline.openingZoomRelease01`, the summit aim on the same clock), so
+grows, and in any case eases out to the authored lens between 0.8 and 5.0 s
+(`OpeningTimeline.openingZoomRelease01`, the summit aim on the same clock).
+The magnification lets go geometrically so the frame widens at an even
+perceived rate while
 the range keeps building through the song without a long zoomed-in start
 ([landscape-rise.md](landscape-rise.md#song-timing-and-seeking)). Seeking
 reconstructs the same framing. Sky anchors use the same zoom, and

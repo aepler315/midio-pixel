@@ -23,8 +23,10 @@ export function landRiseFov(fovYDeg, rise01 = 1, timeMs = NaN) {
   // Vertical mesh error contracts with rise. Smoothly limit the extra
   // magnification so rise * magnification <= 1 throughout the opening.
   const ratio = excess * rise / (1 - rise);
-  // The opening clock eases the terrain-safe close-up out evenly.
-  const magnification = 1 + excess / Math.hypot(1, ratio) * (1 - release);
+  // The opening clock eases the terrain-safe close-up out at an even
+  // perceived rate: magnification falls geometrically, so the last doubling
+  // takes as long as the first instead of snapping wide at the end.
+  const magnification = (1 + excess / Math.hypot(1, ratio)) ** (1 - release);
   return 360 / Math.PI * Math.atan(Math.tan(fovYDeg * Math.PI / 360) / magnification);
 }
 

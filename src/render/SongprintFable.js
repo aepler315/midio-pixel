@@ -4,7 +4,6 @@
 // that can build a descriptor from available heard-time Songprint timeline data.
 
 const TAU = Math.PI * 2;
-const FIFTHS = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
 const CHROMA_MAX = 0.16;
 export const GEOMETRY = { mean: 0.55, detail: 1.2, kappa: 8 };
 export const RIDGE_SECONDS = 2;

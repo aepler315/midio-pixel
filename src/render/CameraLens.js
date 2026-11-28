@@ -4,6 +4,7 @@
 // Landscape score compiles these cues with its re-analysis handoff.
 import { sectionTrust } from '../world/alpine/EffectsMusic.js';
 import { boundaryLift01 } from '../world/WorldMusic.js';
+import { REVEAL_CROP } from '../world/alpine/CameraMotion.js';
 
 const cache = new WeakMap();
 const smooth = x => { const t = Math.max(0, Math.min(1, x)); return t * t * t * (t * (t * 6 - 15) + 10); };
@@ -82,7 +83,7 @@ export function revealLensFromCues(cues, timeMs, preview = false) {
   const envelope = age < 0 ? smooth((age + REVEAL_GATHER_MS) / REVEAL_GATHER_MS)
     : 1 - smooth(age / REVEAL_OPEN_MS);
   const amount = unit(cue.strength) * envelope;
-  return amount > 0 ? Object.freeze({ halfAngleScale: 1 - .12 * amount, zoomPulse: 0, cueIndex: cue.index }) : NEUTRAL_LENS;
+  return amount > 0 ? Object.freeze({ halfAngleScale: 1 - (1 - REVEAL_CROP) * amount, zoomPulse: 0, cueIndex: cue.index }) : NEUTRAL_LENS;
 }
 
 /** Sections-only lens (no Landscape score): the same cue rule, no handoff. */

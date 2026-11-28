@@ -4,7 +4,6 @@ import { hexToRgb } from '../utils/color.js';
 import { buildDescriptorFromSongprint, renderFable, revealedSliceIndex } from './SongprintFable.js';
 
 const TAU = Math.PI * 2;
-const FIFTHS = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
 const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 
 function rgba(hex, a = 1) {
@@ -193,7 +192,6 @@ function drawSongprintFable(ctx, sim, score, rect, timeMs, durationMs) {
   ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
 
   if (fable?.rendered) {
-    let reveal = 1;
     try {
       const img = ctx.createImageData?.(fable.rendered.width, fable.rendered.height);
       const doc = ctx.canvas?.ownerDocument || globalThis.document;
@@ -206,7 +204,7 @@ function drawSongprintFable(ctx, sim, score, rect, timeMs, durationMs) {
         ctx.save();
         ctx.globalAlpha = 0.98;
         ctx.drawImage(c, cx - drawSize / 2, cy - drawSize / 2, drawSize, drawSize);
-        reveal = revealedSliceIndex(fable.desc, timeMs, dur) / ((fable.desc.slices - 1) + (fable.desc.lastFraction ?? 1));
+        const reveal = revealedSliceIndex(fable.desc, timeMs, dur) / ((fable.desc.slices - 1) + (fable.desc.lastFraction ?? 1));
         ctx.globalCompositeOperation = 'source-atop';
         ctx.fillStyle = `rgba(0,0,0,${0.35 * (1 - clamp01(reveal))})`;
         ctx.fillRect(cx - drawSize / 2, cy - drawSize / 2, drawSize, drawSize);
@@ -279,8 +277,6 @@ export function drawSongprint2D(ctx, canvas, sim) {
   const pad = Math.max(16, Math.round(Math.min(w, h) * 0.04));
   const timelineH = Math.max(72, Math.round(h * 0.18));
   const mainH = h - pad * 3 - timelineH;
-  const radius = Math.min(w * 0.28, mainH * 0.45);
-  const center = { x: w * 0.33, y: pad + mainH * 0.5 };
   drawSongprintFable(ctx, sim, score, { x: pad, y: pad, w: w * 0.52 - pad, h: mainH }, timeMs, durationMs);
 
   // right-side info

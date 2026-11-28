@@ -207,8 +207,8 @@ test('late Songprint admission fades from the rail and later score updates keep 
   assert.equal(admitted.at(39000).songprintOrbit, undefined);
   assert.deepEqual(admitted.at(40001).songprintOrbit, seek.at(40001).songprintOrbit);
   assert.ok(admitted.at(43000).songprintOrbit.gain > .1 && admitted.at(43000).songprintOrbit.gain < .9);
-  assert.equal(admitted.at(50000).songprintOrbit.gain, 1);
-  const revised = compileLandscapeScore({ ...options, sections, previous: admitted, committedThroughMs: 50000 });
-  for (const t of [43000, 50001, 90000, 120000]) assert.deepEqual(revised.at(t).songprintOrbit, admitted.at(t).songprintOrbit);
+  assert.equal(admitted.at(52000).songprintOrbit.gain, 1, 'the hand-off takes ORBIT_FRAME.handoffMs');
+  const revised = compileLandscapeScore({ ...options, sections, previous: admitted, committedThroughMs: 52000 });
+  for (const t of [43000, 52001, 90000, 120000]) assert.deepEqual(revised.at(t).songprintOrbit, admitted.at(t).songprintOrbit);
   assert.equal(compileLandscapeScore({ ...options, songprintAdmittedMs: 113000 }).at(115000).songprintOrbit, undefined);
 });

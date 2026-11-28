@@ -8,6 +8,8 @@ import { scenicProjection } from '../src/world/alpine/RangeFrame.js';
 import { RangePresentation } from '../src/world/alpine/RangePresentation.js';
 import { NEUTRAL_MOVE } from '../src/world/alpine/RangeCamera.js';
 import { projectRailSky } from '../src/world/alpine/RangeSkyComposition.js';
+import { widenLens } from '../src/world/alpine/CameraMotion.js';
+import { OPENING_ZOOM_START_MS } from '../src/core/OpeningTimeline.js';
 
 const camera = { eyeStartM: [0, 1500, 0], eyeEndM: [1000, 1600, 0],
   targetStartM: [0, 700, -9000], targetEndM: [2000, 700, -8000], fovYDeg: 35 };
@@ -22,7 +24,7 @@ function fixture(view, p) {
     _ensureTourWindow(owner, at, requested) { windows.push(requested); } });
   // Under the title card, before the opening clock releases the close-up
   // (OpeningTimeline.openingZoomRelease01): framing here follows rise alone.
-  const frame = { frameId: 1, timeMs: 1000, progress01: .4, rise01: .3, scenicViewport: viewport };
+  const frame = { frameId: 1, timeMs: OPENING_ZOOM_START_MS / 2, progress01: .4, rise01: .3, scenicViewport: viewport };
   return { scene, frame, windows };
 }
 
@@ -73,7 +75,7 @@ test('ordinary rails retain their source summit as the build focus', () => {
   const rail = scenePoseAt(view, { progress01: frame.progress01 });
   const resolved = scene.movedPose(view, frame);
   const expected = landRiseCamera({ ...rail, fovYDeg: resolved.pose.fovYDeg }, { rise01: frame.rise01, baseM: 100, groundM: NaN, focusM: summit,
-    aspect: scenicProjection(rail.fovYDeg, viewport).aspect });
+    aspect: scenicProjection(widenLens(rail.fovYDeg), viewport).aspect });
   assert.deepEqual(scene.movedPose(view, frame).pose, { ...expected, userScale: 1 });
 });
 
@@ -108,7 +110,8 @@ test('every camera route opens at eighteen times magnification and smoothly rest
     if (mode === 'static-tour') prepared.cameraTour = tour;
     if (mode === 'mapped-tour') { view.tour = tour; prepared.windowCache = {}; }
     const { scene, frame } = fixture(view, prepared);
-    const base = scenicProjection(35, scenicViewport);
+    // Authored rails stand on the wider standing lens; tours keep theirs.
+    const base = scenicProjection(mode === 'rail' ? widenLens(35) : 35, scenicViewport);
     const ordinary = new THREE.PerspectiveCamera(base.fovYDeg, base.aspect);
     let lastFocal = Infinity;
     for (let i = 0; i <= 70; i++) {

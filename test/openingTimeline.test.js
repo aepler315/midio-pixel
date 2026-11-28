@@ -22,8 +22,9 @@ test('the title card holds, then fades out completely by its end', () => {
   }
 });
 
-test('the opening close-up releases from the card fade to five seconds in', () => {
-  assert.equal(OPENING_ZOOM_START_MS, TITLE_CARD_HOLD_MS, 'it starts widening as the card starts to fade');
+test('the opening close-up releases under the card and is wide by five seconds in', () => {
+  assert.ok(OPENING_ZOOM_START_MS > 0 && OPENING_ZOOM_START_MS <= TITLE_CARD_HOLD_MS, 'it starts widening under the held card');
+  assert.ok(OPENING_ZOOM_MS >= 4000, 'the pull back is spread over four seconds or more');
   assert.equal(openingZoomRelease01(0), 0);
   assert.equal(openingZoomRelease01(OPENING_ZOOM_START_MS), 0);
   assert.equal(openingZoomRelease01(OPENING_ZOOM_START_MS + OPENING_ZOOM_MS), 1);

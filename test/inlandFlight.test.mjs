@@ -1,3 +1,4 @@
+import { widenLens } from '../src/world/alpine/CameraMotion.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { aimTurn, pathPoseAt } from '../src/world/terrain/ShotPath.js';
@@ -141,7 +142,7 @@ test('ordinary music-timed drawing uses the inland route and authored rails opt 
   }, prepared);
   const flight = read(.54, true);
   assert.equal(flight.pose.songprintOrbit.routeStyle, 'inland');
-  assert.equal(flight.pose.fovYDeg, 34);
+  assert.equal(flight.pose.fovYDeg, widenLens(34), 'a full orbit stands on the wider standing lens');
   assert.equal(read(.54, false).pose.songprintOrbit, undefined);
   const revised = { ...timing, guides: [{ progress01: .2 }, { progress01: .47 }, { progress01: .74 }] };
   const later = read(.54, true, revised).pose.songprintOrbit;

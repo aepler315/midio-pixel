@@ -75,8 +75,8 @@ close-up lets go on its own clock (`src/core/OpeningTimeline.js`):
 
 | Heard time | What shows |
 | --- | --- |
-| 0–2.0 s | Title card (song, artist) over the 18%-built range, in close-up |
-| 2.0–2.7 s | Card fades; the close-up starts widening |
+| 0–2.0 s | Title card (song, artist) over the 18%-built range; the close-up starts widening at 0.8 s |
+| 2.0–2.7 s | Card fades; the close-up keeps widening |
 | from 2.7 s | First place caption, fading in 1.5 s later |
 | 5.0 s | Authored lens; the range keeps building with the music |
 

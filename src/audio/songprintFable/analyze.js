@@ -34,13 +34,6 @@ function mixdown(channels) {
   return { mono, width: mid + side > 0 ? side / (mid + side) : 0 };
 }
 
-function splitWeights(x) {
-  const i = Math.floor(x);
-  const f = x - i;
-  const w1 = Math.sin((Math.PI / 2) * f) ** 2;
-  return [i, 1 - w1, w1];
-}
-
 function estimateTuning(signal, fft, win) {
   const re = new Float64Array(WINDOW), im = new Float64Array(WINDOW);
   const binHz = RATE / WINDOW;
