@@ -420,8 +420,12 @@ writeDisplayPrefs(displayStorage(), displayPrefs);
 // The effective preferences: a URL override applies to this visit only, so
 // it is merged after the saved record is migrated and written back.
 generalQuality = settings.get('maxQuality');
+function songprintSweepPreferences() {
+  return { effect: settings.get('songprintEffect'), periodSec: settings.get('songprintSweepPeriod'),
+    withAudio: settings.get('songprintAudioResponse'), entities: settings.get('songprintEntities') };
+}
 displayPrefs = { ...displayPrefs, pixelGrid: settings.get('pixelGrid'), pixelMotion: settings.get('pixelMotion'), scaling: settings.get('scaling'),
-  buildPixelDetail: settings.get('buildPixelDetail') };
+  buildPixelDetail: settings.get('buildPixelDetail'), songprintSweep: songprintSweepPreferences() };
 let presentation = resolvePresentation(displayPrefs);
 const displayControls = Object.fromEntries(['pixelGrid', 'scaling', 'buildPixelDetail'].map(key => [key, document.getElementById(`display-${key}`)]));
 // HUD pixel-detail label and the every-level snapshot (src/ui/DetailSnapshots.js).
@@ -674,20 +678,24 @@ function syncDisplayControls() {
   for (const id of ['pixelGrid', 'buildPixelDetail', 'pixelMotion', 'scaling']) settingsPanel.syncRow(id);
   const grid = document.getElementById('pixelGridHint');
   const selectedGrid = presentation.grid;
-  if (grid) { grid.hidden = false; grid.textContent = displayPrefs.buildPixelDetail
+  if (grid) { grid.hidden = running && lastTimelineData?.songVisualization === 'songprint2d'; grid.textContent = displayPrefs.buildPixelDetail
     ? 'Classic → Detailed (640 × 360) as the mountains rise' : `${selectedGrid.width} × ${selectedGrid.height} grid`; }
   syncDetailControls();
 }
 
 /** The HUD reports growing detail or the selected fixed preset. */
 function syncDetailControls() {
+  const songprint2D = running && lastTimelineData?.songVisualization === 'songprint2d';
   const level = displayPrefs.pixelGrid;
   const option = displayControls.pixelGrid?.querySelector(`option[value="${level}"]`);
-  if (detailLevelEl) detailLevelEl.textContent = displayPrefs.buildPixelDetail ? 'Building detail' : (option?.textContent || level).split(' — ')[0];
+  if (detailLevelEl) {
+    detailLevelEl.parentElement?.classList.toggle('hidden', songprint2D);
+    detailLevelEl.textContent = displayPrefs.buildPixelDetail ? 'Building detail' : (option?.textContent || level).split(' — ')[0];
+  }
   if (snapshotBtnEl) {
     snapshotBtnEl.disabled = snapshotBusy;
     snapshotBtnEl.setAttribute('aria-busy', snapshotBusy ? 'true' : 'false');
-    const single = /Android/i.test(navigator.userAgent);
+    const single = songprint2D || /Android/i.test(navigator.userAgent);
     snapshotBtnEl.title = single ? 'Save the current frame as a PNG' : 'Save this moment as full-quality PNGs, one at each of the 5 pixel detail levels';
     snapshotBtnEl.setAttribute('aria-label', single ? 'Save the current frame as a PNG' : 'Save snapshots at every detail level');
   }
@@ -896,6 +904,10 @@ const SETTING_APPLIERS = {
   ...Object.fromEntries(CAMERA_STUDIO_SETTING_IDS.map(id => [id, applyCameraStudioPreferences])),
   mp4Resolution: () => syncVideoOutputSettings(),
   mp4Fps: () => syncVideoOutputSettings(),
+  songprintEffect: () => applyDisplayPref('songprintSweep', songprintSweepPreferences()),
+  songprintSweepPeriod: () => applyDisplayPref('songprintSweep', songprintSweepPreferences()),
+  songprintAudioResponse: () => applyDisplayPref('songprintSweep', songprintSweepPreferences()),
+  songprintEntities: () => applyDisplayPref('songprintSweep', songprintSweepPreferences()),
   pixelGrid: value => applyDisplayPref('pixelGrid', value),
   pixelMotion: value => applyDisplayPref('pixelMotion', value),
   buildPixelDetail: value => { if (displayPrefs.buildPixelDetail !== value) applyDisplayPref('buildPixelDetail', value); },
@@ -1082,9 +1094,9 @@ function stepPixelDetail(delta) {
   else if (displayPrefs.buildPixelDetail) settings.set('buildPixelDetail', false, { origin: 'app' });
 }
 
-// Hold the current moment and save lossless PNGs. Desktop captures each
-// detail level at 1920×1080; Android captures the current live-sized frame to
-// avoid the memory and download pressure of five full-HD renders.
+// Hold the current moment and save lossless PNGs. Desktop Landscape captures
+// each detail level at 1920×1080. Songprint 2D and Android save one live-sized
+// frame.
 const isAndroidSnapshot = /Android/i.test(navigator.userAgent);
 if (isAndroidSnapshot && snapshotBtnEl) {
   snapshotBtnEl.title = 'Save the current frame as a PNG';
@@ -1120,7 +1132,9 @@ async function saveDetailSnapshots() {
   const savedPrefs = displayPrefs, savedPresentation = presentation;
   snapshotPlayerPrefs = savedPrefs;
   const stamp = new Date();
-  const plan = snapshotCapturePlan(navigator.userAgent, savedPrefs.pixelGrid);
+  const songprint2D = lastTimelineData?.songVisualization === 'songprint2d';
+  const plan = songprint2D ? { levels: ['songprint2d'], size: null }
+    : snapshotCapturePlan(navigator.userAgent, savedPrefs.pixelGrid);
   const stopped = () => !running || !sim || !renderer;
   let cancelled = false;
   try {
@@ -1128,12 +1142,14 @@ async function saveDetailSnapshots() {
       levels: plan.levels,
       render: async (level) => {
         if (stopped()) { cancelled = true; throw new Error('the song was stopped'); }
-        // Fit scaling: every grid fills the full frame (integer scaling
-        // would letterbox Classic+ and Medium+ inside 1920×1080).
-        displayPrefs = { ...savedPrefs, pixelGrid: level, scaling: 'fit', buildPixelDetail: false };
-        presentation = resolvePresentation(displayPrefs);
-        bulkExportSize = plan.size;
-        fitCanvas();
+        if (!songprint2D) {
+          // Fit scaling gives every grid the full frame, including Classic+
+          // and Medium+.
+          displayPrefs = { ...savedPrefs, pixelGrid: level, scaling: 'fit', buildPixelDetail: false };
+          presentation = resolvePresentation(displayPrefs);
+          bulkExportSize = plan.size;
+          fitCanvas();
+        }
         if (plan.size) {
           if (canvas.width !== plan.size.w || canvas.height !== plan.size.h) {
             throw new Error(`there is no room for a ${plan.size.w}×${plan.size.h} frame right now`);
@@ -1520,7 +1536,7 @@ function offerWorldsThenStart(data, extra = {}) {
     const provisional = !!data.opening;
     const identity = provisional ? provisionalIdentity(data) : buildSongIdentity(data);
     const profile = identity.songProfile;
-    const landscapePrint = data.songprintLandscapeEnabled === false ? null : identity.songprint;
+    const landscapePrint = data.songprintLandscapeEnabled !== false && identity.songprint?.skyline ? identity.songprint : null;
     const features = profile.watch;
     const seed = identity.seed;
     if (provisional) data.provisionalSeed = seed;
@@ -1721,7 +1737,8 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
     cameraTourMode: cameraTourMode ?? currentCameraTourMode(),
     cameraStudioSettings: normalizeCameraStudioSettings(cameraStudio),
     exportSize: size,
-    exportPresentation: override ? { ...resolvePresentation(override), songVisualization: override.songVisualization ?? lastTimelineData.songVisualization ?? 'off' } : { ...effectivePresentation() },
+    exportPresentation: override ? { ...resolvePresentation(override), songprintSweep: override.songprintSweep ?? displayPrefs.songprintSweep,
+      songVisualization: override.songVisualization ?? lastTimelineData.songVisualization ?? 'off' } : { ...effectivePresentation() },
     exportQualityLevel: Number.isInteger(qualityLevel) && qualityLevel >= 0 ? qualityLevel : perfGovernor?.level ?? perfStartLevel,
     startAtMs: 0,
     fitDiagnostic: lastFitDiagnostic,
@@ -1885,6 +1902,10 @@ function applyRangeCaptions(timelineData, exportMode) {
   syncCaptionDetails();
 }
 function syncCaptionDetails() {
+  if (lastTimelineData?.songVisualization === 'songprint2d') {
+    setCaptionDetails(rangeCaptionDetailsEl, null);
+    return;
+  }
   const caption = renderer?.diagnostics.voxelRange ? voxelRangeCaption
     : sim?.biomes?.world?.kind === 'alpine' ? captionAt(sim.rangeCaptions || sim.rangeCaption, sim.timeMs)?.caption : null;
   setCaptionDetails(rangeCaptionDetailsEl, caption || null);
@@ -2231,6 +2252,7 @@ function startTimeline(timelineData, extra = {}) {
 
   const revealPlayback = () => {
     progressEl.classList.add('hidden'); loaderEl.classList.add('hidden');
+    syncDisplayControls();
     hudEl.classList.remove('hidden'); rangeNavigationEl?.classList.remove('hidden');
   };
   if (waitForLandscape) {
@@ -2885,7 +2907,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     // whole-song analysis, ready-made.
     const fileSig = isStemDrop ? null : fileSignature(selectedFiles[0], audioBuffer);
     const hasRequestedPrint = data => !songprint || (Object.hasOwn(data, 'songprint')
-      && (!songprintPhrases || data.songprint === null || data.songprint?.phraseFamilies)
+      && (!songprintPhrases || data.songprint === null || data.songprint?.phraseFamilies || (data.songprint?.fable && !data.songprint.skyline))
       && (!songprintFable || data.songprint === null || data.songprint?.fable));
     const restoreCached = (bundle) => {
       const restored = bundle ? unpackBundle(bundle) : null;
@@ -3526,6 +3548,9 @@ async function startDemoSample() {
     songVisualization,
     ...(printKey ? { songprint: demoSongprints.get(printKey) ?? null } : {}),
     bpm: song.bpm,
+    // Proof's PCM is rendered from this exact bar grid. The sweep can use
+    // its authored beat and phase without running a tempo estimator.
+    ...(fable ? { confidence: 1, phaseConfidence: 1 } : {}),
     durationMs: song.durationMs,
     timeline: song.timeline,
     barGrid: song.barGrid,
@@ -4128,7 +4153,7 @@ function adoptWholeSongIdentity(data) {
   const current = () => lastTimelineData === data && data.terrainToken === token;
   const { seed, songProfile: profile } = identity;
   const signature = dualSummitsSelection({ durationMs: data.durationMs, sourceSha256: data.sourceSha256 });
-  const terrain = prepareSongTerrain(profile, seed, undefined, { songRangeWaitMs: IDENTITY_SONG_RANGE_WAIT_MS, signature, lyricSections: identity.songprint?.timeline && !lyricsDisabled ? terrainLyricSections(data) : null, songprint: data.songprintLandscapeEnabled === false ? null : identity.songprint })
+  const terrain = prepareSongTerrain(profile, seed, undefined, { songRangeWaitMs: IDENTITY_SONG_RANGE_WAIT_MS, signature, lyricSections: identity.songprint?.timeline && !lyricsDisabled ? terrainLyricSections(data) : null, songprint: data.songprintLandscapeEnabled !== false && identity.songprint?.skyline ? identity.songprint : null })
     .then((t) => withSignatureSource(t, data))
     .catch((err) => {
       console.warn('[identity] terrain for the whole-song identity failed; using the stand-in', err);
@@ -4211,7 +4236,7 @@ function commitWholeSongIdentity(data, { seed, songProfile: profile, songprint }
     return;
   }
   const wasPaused = paused;
-  if (songprint && data.songprintLandscapeEnabled !== false) data.songprintAdmittedMs = Math.max(0, sim.heardTimeMs ?? audioEngine.nowMs);
+  if (songprint?.skyline && data.songprintLandscapeEnabled !== false) data.songprintAdmittedMs = Math.max(0, sim.heardTimeMs ?? audioEngine.nowMs);
   startTimeline(data, {
     ...lastStartExtra,
     songSeed: runSeed,

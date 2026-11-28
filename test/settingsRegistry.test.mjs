@@ -44,13 +44,14 @@ test('the Settings menu offers basic presentation settings, including both Songp
   const menu = SETTINGS.filter(isMenuSetting);
   assert.deepEqual(menu.map(def => def.id), [
     'pixelGrid', 'buildPixelDetail', 'pixelMotion', 'scaling', 'cameraStudioEnabled', 'mp4Resolution', 'mp4Fps',
-    'rangeTour', 'rangePace', 'songprintLandscape', 'songprintAtmosphere', 'songVisualization', 'shuffle', 'continuous', 'lyrics', 'btLatency',
+    'rangeTour', 'rangePace', 'songprintLandscape', 'songprintAtmosphere', 'songVisualization',
+    'songprintEffect', 'songprintSweepPeriod', 'songprintAudioResponse', 'songprintEntities', 'shuffle', 'continuous', 'lyrics', 'btLatency',
   ]);
   assert.equal(SETTINGS.length - menu.length, 48, 'every other definition stays registered but hidden');
   for (const def of menu) {
     assert.equal(def.tier, 'basic', def.id);
     const songprint = ['songprintLandscape', 'songprintAtmosphere'].includes(def.id);
-    assert.equal(def.maturity, songprint || ['pixelMotion', 'songVisualization'].includes(def.id) ? 'experimental' : 'stable', def.id);
+    assert.equal(def.maturity, def.id.startsWith('songprint') || ['pixelMotion', 'songVisualization'].includes(def.id) ? 'experimental' : 'stable', def.id);
     if (songprint) {
       assert.equal(def.section, 'landscape');
       assert.equal(def.lifecycle, 'next-song');

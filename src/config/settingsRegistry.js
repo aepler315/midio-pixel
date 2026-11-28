@@ -269,6 +269,7 @@ export const MP4_EXPORT_RESOLUTIONS = Object.freeze([
 
 const TERRAIN_DEBUG_OPTIONS = ['masks', 'slope', 'albedo', 'fill', 'key', 'roughness', 'specular', 'sun'];
 const V2_ONLY = { id: 'rangeRenderer', is: 'v2', reason: 'Needs the 3D landscape renderer.' };
+const SONGPRINT_2D = { id: 'songVisualization', is: 'songprint2d', reason: 'Choose Songprint 2D under Song visualization.' };
 
 /**
  * Field reference (docs/settings.md has the full contract):
@@ -577,9 +578,36 @@ export const SETTINGS = Object.freeze([
   {
     id: 'songVisualization', url: 'songVisualization', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
     label: 'Song visualization', type: 'enum', default: 'off',
-    description: 'Choose Landscape or a 2D artwork that grows in rings as the song plays. Playback and video export use the chosen visualization.',
+    description: 'Choose Landscape or scan a song’s harmonic print into moving ink. Playback and video export use the chosen visualization.',
     options: [{ value: 'off', label: 'Landscape' }, { value: 'songprint2d', label: 'Songprint 2D' }],
     persist: 'saved', storage: unified('songVisualization'), lifecycle: 'next-song',
+  },
+  {
+    id: 'songprintEffect', url: 'songprintEffect', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
+    label: 'Songprint impression', type: 'enum', default: 'apertures',
+    options: [{ value: 'apertures', label: 'Apertures' }, { value: 'fold', label: 'Folded ink' }],
+    description: 'Open gaps between ink blades or fold the same scanned bands into a ribbon.',
+    persist: 'saved', storage: unified('songprintEffect'), lifecycle: 'live', requires: [SONGPRINT_2D],
+  },
+  {
+    id: 'songprintSweepPeriod', url: 'songprintSweepPeriod', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
+    label: 'Time per rotation', type: 'enum', default: 12,
+    options: [8, 12, 24].map(value => ({ value, label: value + ' seconds' })),
+    description: 'Time for the spoke to scan once around the print.',
+    persist: 'saved', storage: unified('songprintSweepPeriod'), lifecycle: 'live', requires: [SONGPRINT_2D],
+  },
+  {
+    id: 'songprintAudioResponse', url: 'songprintAudioResponse', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
+    label: 'Follow the audio', type: 'boolean', default: true,
+    description: 'Let the current passage and audible attacks shape the ink. Switch off to see the sweep alone.',
+    persist: 'saved', storage: unified('songprintAudioResponse'), lifecycle: 'live', requires: [SONGPRINT_2D],
+  },
+  {
+    id: 'songprintEntities', url: 'songprintEntities', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
+    label: 'Beat tracers', type: 'boolean', default: true,
+    description: 'Three marks travel along the ink on independent paths and accent selected beats.',
+    persist: 'saved', storage: unified('songprintEntities'), lifecycle: 'live',
+    requires: [SONGPRINT_2D, { id: 'songprintAudioResponse', is: true, reason: 'Beat tracers follow the audio.' }],
   },
 
   // ---- Audio & playback

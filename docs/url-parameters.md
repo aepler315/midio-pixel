@@ -31,12 +31,20 @@ Lifecycle: when a change reaches a running page.
 | `pixelMotion` | Pixel motion | `free`, `classic` | `free` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `scaling` | Scaling | `fit`, `integer` | `fit` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `songVisualization` | Song visualization | `off`, `songprint2d` | `off` | Next song | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `songprintEffect` | Songprint impression | `apertures`, `fold` | `apertures` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `songprintSweepPeriod` | Time per rotation | `8`, `12`, `24` | `12` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `songprintAudioResponse` | Follow the audio | `1`, `0` | `on` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `songprintEntities` | Beat tracers | `1`, `0` | `on` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 
 - `pixelGrid` — The terrain pixel grid. Larger grids cost more GPU work; Detailed is four times Classic.
 - `buildDetail` — Start at Classic pixels and sharpen to Detailed as the mountains rise. Choosing a fixed Pixel detail turns this off. Inactive unless: The terrain-only pixel experiment draws at a fixed grid. The voxel pilot draws at a fixed grid.
 - `pixelMotion` — Free motion places moving details between grid cells. Classic keeps their positions on the terrain pixel grid. Inactive unless: The standalone voxel pilot uses its own pixel renderer.
 - `scaling` — Fit fills the window and keeps the aspect. Integer uses evenly sized screen pixels, with borders when needed. Fullscreen always covers.
-- `songVisualization` — Choose Landscape or a 2D artwork that grows in rings as the song plays. Playback and video export use the chosen visualization.
+- `songVisualization` — Choose Landscape or scan a song’s harmonic print into moving ink. Playback and video export use the chosen visualization.
+- `songprintEffect` — Open gaps between ink blades or fold the same scanned bands into a ribbon. Inactive unless: Choose Songprint 2D under Song visualization.
+- `songprintSweepPeriod` — Time for the spoke to scan once around the print. Inactive unless: Choose Songprint 2D under Song visualization.
+- `songprintAudioResponse` — Let the current passage and audible attacks shape the ink. Switch off to see the sweep alone. Inactive unless: Choose Songprint 2D under Song visualization.
+- `songprintEntities` — Three marks travel along the ink on independent paths and accent selected beats. Inactive unless: Choose Songprint 2D under Song visualization. Beat tracers follow the audio.
 
 ## Camera
 

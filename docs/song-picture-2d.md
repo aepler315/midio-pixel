@@ -6,12 +6,35 @@ Under **Settings → Appearance → Song visualization**, choose **Songprint 2D*
 before loading a song or starting the sample. The setting applies to the next
 song. Playback, seeking, and MP4 export use that song's selected mode.
 
-The artwork grows from the centre as the song plays. Pitch-class evidence
-shapes its rings, tone sets their colour, and the strip below follows the song's
-energy and section boundaries. Frame time clips one cached raster to the current
-ring contour. The analysis uses Midio Pixel's reduced mono audio. It is an
-adaptation of Songprint Fable, and cannot represent stereo width. A timeline or
-energy-only score supplies the picture when Fable analysis is unavailable.
+The small dial shows the whole print. Each second contributes a layer whose
+width around the dial follows pitch-class emphasis. Recording tone and relative
+level supply the ink colour. A spoke rotates from the growth centre to the rim.
+The dot on it marks the layer corresponding to the sound you hear.
+
+Under **Appearance**, choose **Apertures** for an iris whose blades open where
+the spoke crosses wide bands, or **Folded ink** for a ribbon made from three
+nearby scan times. **Time per rotation** sets an 8-, 12- or 24-second turn.
+**Follow the audio** emphasizes the current layer and responds to measured
+energy and onsets. Turn it off to compare successive revolutions of the
+impression. The small dial continues to indicate your position in the song.
+The impression, rotation, audio response and tracers can all change during playback.
+
+**Beat tracers** adds up to three small tools. A shuttle, roller and split
+stylus follow different edges. They accent staggered two-, three- and
+four-beat intervals, moving the material at the point of contact. They drift
+with their edges when the beat is uncertain and settle in quiet passages.
+Their positions can be reconstructed directly at any playhead time. Switching
+off the tracers also removes their pressure on the ink.
+
+The 2D worker reads the original audio channels into a 22.05 kHz Songprint
+Fable analysis. When the stereo channels cancel in the mix, it can recover
+the tonal evidence from the stronger channel. The scan samples its cached
+radii and colours directly. New prints retain the first audible sample's
+time offset. Older prints use their
+proportional timeline. A provisional or unpitched source can use the coarser
+Songprint timeline or a circular energy score. A refused dial bitmap falls
+back to vector contours. Live playback and frame-by-frame export share the
+same Canvas 2D composition.
 
 The geographic options below are design explorations.
 
