@@ -4,7 +4,7 @@ import { pixelRenderPolicy } from './PixelRenderPolicy.js';
 import { CanvasBuffers } from './CanvasResidency.js';
 import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
-import { drawSongprint2D } from './Songprint2DPresentation.js';
+import { Songprint2DPresentation } from './Songprint2DPresentation.js';
 import { landscapeResolutionPlan, landscapeResolutionAt, landscapeResolutionEndpoint, landscapeQualityRung } from './ProgressiveLandscapeResolution.js';
 
 const SKY_LAYER_KEY = 'range:output-sky';
@@ -34,10 +34,12 @@ export class PresentingRenderer {
     this._sky = null; this._skyFrame = 0;
     this._disposed = false;
     this._requestedPresentation = presentation;
+    this._songprint2D = null;
+    this._songprint2DDraws = 0;
   }
   get backend() { return this.inner.backend || 'canvas'; }
   get canvasRenderer() { return this.inner.canvasRenderer || this.inner; }
-  get drawCount() { return this.inner.drawCount; }
+  get drawCount() { return (this.inner.drawCount ?? 0) + this._songprint2DDraws; }
   get composer() { return this.canvasRenderer.composer; }
   set composer(value) { this.canvasRenderer.composer = value; }
   get rangePresentation() { return this.inner.rangePresentation; }
@@ -81,7 +83,7 @@ export class PresentingRenderer {
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
     this.output.diagnostics.rangePipeline = this._requestedPresentation?.rangePipeline || 'hybrid';
     if (this._requestedPresentation?.songVisualization === 'songprint2d') {
-      return this._drawSongprint2D(sim, alpha, { preparing });
+      return this._drawSongprint2D(sim, { preparing });
     }
     if (this.voxelRange || this._requestedPresentation?.directTerrain === true) {
       this.output.setFrameGrid(); this._growthKey = null;
@@ -417,7 +419,7 @@ export class PresentingRenderer {
     if (this.residency?.release) this.residency.release(SKY_LAYER_KEY);
     if (this._sky) { this._sky.canvas.width = this._sky.canvas.height = 0; this._sky = null; }
   }
-  _drawSongprint2D(sim, alpha, { preparing = false } = {}) {
+  _drawSongprint2D(sim, { preparing = false } = {}) {
     this.output.diagnostics.rangePipeline = 'songprint2d';
     this.output.diagnostics.progressiveDetail = { active: false };
     this.output.diagnostics.directTerrain = false;
@@ -431,7 +433,8 @@ export class PresentingRenderer {
     const ctx = canvas.getContext('2d');
     if (!ctx) return this.output.failFrame('output-context');
     try {
-      drawSongprint2D(ctx, canvas, sim, alpha);
+      this._songprint2D ??= new Songprint2DPresentation(canvas, this.residency ?? undefined);
+      this._songprint2D.draw(ctx, canvas, sim);
     } catch (err) {
       this.output.failFrame('songprint2d-draw');
       throw err;
@@ -439,6 +442,7 @@ export class PresentingRenderer {
     const result = this.output.finishDirectFrame('songprint2d');
     this._directFrame = !!result?.presented;
     this.output.diagnostics.directTerrain = false;
+    if (result?.presented) this._songprint2DDraws++;
     this.output.diagnostics.effectiveLook = 'songprint2d';
     this.output.diagnostics.songVisualization = 'songprint2d';
     if (this.output._capture) {
@@ -455,5 +459,5 @@ export class PresentingRenderer {
     if (!preparing) this.canvasRenderer.discardFrameCaptures?.();
     return result;
   }
-  dispose() { if (this._disposed) return; this._disposed = true; this._releaseSky(); this._releaseDirect(); this._directCinematic?.dispose(); try { this.inner.dispose(); } finally { this.output.dispose(); } }
+  dispose() { if (this._disposed) return; this._disposed = true; this._releaseSky(); this._releaseDirect(); this._directCinematic?.dispose(); this._songprint2D?.dispose(); try { this.inner.dispose(); } finally { this.output.dispose(); } }
 }

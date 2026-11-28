@@ -1,335 +1,209 @@
-import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
-import { smoothstep, clamp01 } from '../utils/math.js';
-import { hexToRgb } from '../utils/color.js';
+import { CanvasBuffers } from './CanvasResidency.js';
+import { clamp01 } from '../utils/math.js';
 import { buildDescriptorFromSongprint, renderFable, revealedSliceIndex } from './SongprintFable.js';
 
 const TAU = Math.PI * 2;
-const NOTE_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const PALETTE = ['#ddaa69', '#89c8ce', '#aab5de', '#c0aa89'];
+const sectionColor = i => PALETTE[i % PALETTE.length];
 
-function rgba(hex, a = 1) {
-  const { r, g, b } = hexToRgb(hex);
-  return `rgba(${r},${g},${b},${a})`;
+function energyAt(sim, timeMs) {
+  return clamp01(sim.energyCurves?.globalEnergyNorm?.(timeMs) ?? 0);
 }
 
-function sampleTimeline(timeline, timeMs) {
-  if (!timeline?.loudness?.length) return null;
-  const stepMs = timeline.stepMs || 2000;
-  const i = timeMs / stepMs;
-  const i0 = Math.max(0, Math.min(timeline.loudness.length - 1, Math.floor(i)));
-  const i1 = Math.max(0, Math.min(timeline.loudness.length - 1, i0 + 1));
-  const t = clamp01(i - i0);
-  const lerpArr = (arr) => (arr?.[i0] ?? 0) * (1 - t) + (arr?.[i1] ?? arr?.[i0] ?? 0) * t;
-  return {
-    loudness: lerpArr(timeline.loudness),
-    brightness: lerpArr(timeline.brightness),
-    tension: lerpArr(timeline.tension),
-    novelty: lerpArr(timeline.novelty),
-    major: lerpArr(timeline.major),
-  };
+function clock(timeMs) {
+  const seconds = Math.floor(timeMs / 1000);
+  return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
 }
 
-function energyAt(curves, timeMs) {
-  if (!curves) return 0.35;
-  if (typeof curves.globalEnergyNorm === 'function') return clamp01(curves.globalEnergyNorm(timeMs));
-  if (typeof curves.globalEnergy === 'function') return clamp01(curves.globalEnergy(timeMs));
-  return 0.35;
-}
-
-function sectionAt(sections, timeMs) {
-  if (!Array.isArray(sections)) return null;
-  for (let i = 0; i < sections.length; i++) {
-    const s = sections[i];
-    if (timeMs >= (s.startMs ?? 0) && timeMs < (s.endMs ?? Infinity)) return s;
+// A neutral ring score gives unpitched or provisional audio a picture too.
+// Only level comes from the energy curve. Chroma remains uniform.
+function energyDescriptor(sim, durationMs) {
+  const slices = Math.min(600, Math.ceil(durationMs / 2000));
+  const chroma = new Float32Array(slices * 12).fill(1 / 12);
+  const tone = new Float32Array(slices * 3);
+  const stepMs = durationMs / slices;
+  for (let i = 0; i < slices; i++) {
+    tone[i * 3] = 2.9;
+    tone[i * 3 + 1] = -1.7;
+    tone[i * 3 + 2] = -42 + 38 * energyAt(sim, (i + .5) * stepMs);
   }
-  return null;
+  return { slices, sliceSeconds: stepMs / 1000, lastFraction: 1, keyAngle: 0, chroma, tone };
 }
 
-function drawBackground(ctx, w, h, score, sample) {
-  const mood = score?.mood || {};
-  const sky = mood.skyTop || '#101726';
-  const mid = mood.skyMid || mood.skyBottom || '#24324d';
-  const glow = mood.accent || '#9ad0ff';
-  const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, rgba(sky, 1));
-  g.addColorStop(0.55, rgba(mid, 1));
-  g.addColorStop(1, rgba('#090c12', 1));
-  ctx.fillStyle = g;
+function drawBackground(ctx, w, h, cx, cy) {
+  ctx.fillStyle = '#0a131a';
   ctx.fillRect(0, 0, w, h);
-
-  const rg = ctx.createRadialGradient(w * 0.5, h * 0.45, 10, w * 0.5, h * 0.45, Math.max(w, h) * 0.7);
-  rg.addColorStop(0, rgba(glow, 0.12 + 0.12 * (sample?.brightness ?? score?.energy01 ?? 0.3)));
-  rg.addColorStop(1, rgba(glow, 0));
-  ctx.fillStyle = rg;
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * .64);
+  glow.addColorStop(0, '#22343a');
+  glow.addColorStop(.6, '#12212a');
+  glow.addColorStop(1, '#0a131a');
+  ctx.fillStyle = glow;
   ctx.fillRect(0, 0, w, h);
+}
 
-  // subtle grid
-  ctx.save();
-  ctx.globalAlpha = 0.08;
-  ctx.strokeStyle = '#ffffff';
+function traceContour(ctx, growth, x, y, size, slice) {
+  const { field, rays, stride, centreX, centreY, width, radius } = growth;
+  const scale = size / width;
+  const lo = Math.floor(slice), hi = Math.min(lo + 1, growth.slices), mix = slice - lo;
+  ctx.beginPath();
+  for (let j = 0; j < rays; j += 2) {
+    const row = j * stride, angle = TAU * j / rays;
+    const r = (field[row + lo] * (1 - mix) + field[row + hi] * mix) * radius;
+    const px = x + (centreX + Math.sin(angle) * r) * scale;
+    const py = y + (centreY - Math.cos(angle) * r) * scale;
+    if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
+function drawRings(ctx, art, cx, cy, size, timeMs, durationMs, accent) {
+  const r = size * .50;
+  ctx.strokeStyle = '#79949a44';
   ctx.lineWidth = 1;
-  const step = Math.max(24, Math.round(Math.min(w, h) / 18));
-  for (let x = 0; x <= w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
-  for (let y = 0; y <= h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
-  ctx.restore();
-
-  // horizon line
-  ctx.strokeStyle = rgba('#ffffff', 0.08);
   ctx.beginPath();
-  ctx.moveTo(0, h * 0.82);
-  ctx.lineTo(w, h * 0.82);
+  ctx.arc(cx, cy, r, 0, TAU);
+  ctx.stroke();
+  const angle = -Math.PI / 2 + TAU * timeMs / durationMs;
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.arc(cx + r * Math.cos(angle), cy + r * Math.sin(angle), Math.max(2, size * .007), 0, TAU);
+  ctx.fill();
+  if (timeMs <= 0) return;
+  if (!art) {
+    const radius = r * timeMs / durationMs;
+    const fill = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    fill.addColorStop(0, '#263a41');
+    fill.addColorStop(.8, '#45616a');
+    fill.addColorStop(1, accent);
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, TAU);
+    ctx.fill();
+    return;
+  }
+
+  const { descriptor, growth, raster } = art;
+  const index = revealedSliceIndex(descriptor, timeMs, durationMs);
+  const startOfTail = descriptor.slices - 1;
+  const slice = index <= startOfTail ? index : startOfTail + (index - startOfTail) / (descriptor.lastFraction ?? 1);
+  const x = cx - size / 2, y = cy - size / 2;
+  ctx.save();
+  traceContour(ctx, growth, x, y, size, Math.min(slice, descriptor.slices));
+  ctx.clip();
+  ctx.drawImage(raster, x, y, size, size);
+  ctx.restore();
+  ctx.strokeStyle = '#ffe1ae99';
+  ctx.lineWidth = Math.max(.75, size * .0025);
   ctx.stroke();
 }
 
-function drawTimeline(ctx, sim, score, rect, timeMs, durationMs) {
-  const { x, y, w, h } = rect;
-  const curves = sim?.energyCurves;
-  const sections = sim?.sections || sim?.biomes?.sections || [];
-  const songprint = sim?.biomes?.songprint || sim?.songprint || null;
-  const timeline = songprint?.timeline || null;
-  const dur = Math.max(1, durationMs || sim?.durationMs || 1);
-  const xAt = (ms) => x + (clamp01(ms / dur) * w);
-  const yAt = (v) => y + h - clamp01(v) * h;
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+function drawTimeline(ctx, points, sections, { x, y, w, h }, timeMs, durationMs) {
+  const at = ms => x + clamp01(ms / durationMs) * w;
+  const head = at(timeMs);
+  ctx.fillStyle = '#0c171d';
   ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-
-  // sections
-  for (const s of sections) {
-    const a = xAt(s.startMs || 0), b = xAt(s.endMs || dur);
-    if (b <= a) continue;
-    const role = String(s.role || s.kind || s.label || '');
-    const active = timeMs >= (s.startMs || 0) && timeMs < (s.endMs || dur);
-    ctx.fillStyle = active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)';
-    ctx.fillRect(a, y, Math.max(1, b - a), h);
-    if (b - a > 40) {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = `${Math.max(9, Math.round(h * 0.14))}px ui-monospace, SFMono-Regular, monospace`;
-      ctx.fillText(role.slice(0, 14), a + 4, y + 12);
+  const trace = () => {
+    ctx.beginPath();
+    for (let i = 0; i < points.length; i++) {
+      const px = x + w * i / (points.length - 1);
+      const py = y + h * (.88 - .67 * points[i]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
-  }
-
-  // energy curve
-  const samples = Math.max(120, Math.floor(w / 4));
-  ctx.beginPath();
-  for (let i = 0; i <= samples; i++) {
-    const ms = (i / samples) * dur;
-    const e = energyAt(curves, ms);
-    const px = x + (i / samples) * w;
-    const py = yAt(e);
-    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-  }
-  ctx.strokeStyle = 'rgba(140,220,255,0.95)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  // timeline curves if present
-  if (timeline?.loudness?.length) {
-    const drawSeries = (arr, color, alpha = 0.7) => {
-      ctx.beginPath();
-      for (let i = 0; i < arr.length; i++) {
-        const ms = i * (timeline.stepMs || 2000);
-        const px = xAt(ms), py = yAt(arr[i] || 0);
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      }
-      ctx.strokeStyle = rgba(color, alpha);
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    };
-    drawSeries(timeline.brightness, '#ffd36f', 0.55);
-    drawSeries(timeline.tension, '#ff8a8a', 0.45);
-    drawSeries(timeline.novelty, '#caa0ff', 0.45);
-  }
-
-  // playhead
-  const px = xAt(timeMs);
-  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(px, y); ctx.lineTo(px, y + h); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.9)';
-  ctx.fillRect(px - 1, y, 2, h);
-
-  // labels
-  ctx.fillStyle = 'rgba(255,255,255,0.72)';
-  ctx.font = `${Math.max(10, Math.round(h * 0.16))}px system-ui, sans-serif`;
-  ctx.fillText('heard-time energy / sections / songprint timeline', x + 8, y + h - 8);
-  ctx.restore();
-}
-
-const fableCache = new WeakMap();
-
-function getFableImage(songprint, durationMs, size) {
-  if (!songprint) return null;
-  let entry = fableCache.get(songprint);
-  const key = `${size}|${durationMs}|${songprint.fable ? 'fable' : 'timeline'}|${songprint.fable?.slices || songprint.timeline?.loudness?.length || 0}`;
-  if (entry?.key === key) return entry;
-  const desc = songprint.fable?.chroma ? songprint.fable : buildDescriptorFromSongprint(songprint, durationMs);
-  if (!desc) return null;
-  const rendered = renderFable(desc, size, { ridges: true });
-  entry = { key, desc, rendered, source: songprint.fable?.chroma ? 'fable' : 'timeline' };
-  fableCache.set(songprint, entry);
-  return entry;
-}
-
-function drawSongprintFable(ctx, sim, score, rect, timeMs, durationMs) {
-  const songprint = sim?.biomes?.songprint || sim?.songprint || null;
-  const timeline = songprint?.timeline || null;
-  const passages = Array.isArray(songprint?.passages) ? songprint.passages : [];
-  const dur = Math.max(1, durationMs || sim?.durationMs || 1);
-  const t01 = clamp01(timeMs / dur);
-  const size = Math.max(256, Math.round(Math.min(rect.w, rect.h) * 0.9));
-  const fable = getFableImage(songprint, dur, Math.min(768, Math.max(384, Math.floor(size / 64) * 64)));
-  const cx = rect.x + rect.w * 0.5;
-  const cy = rect.y + rect.h * 0.52;
-  const r = Math.min(rect.w, rect.h) * 0.42;
-
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.closePath();
+  };
+  trace();
+  ctx.fillStyle = '#3b555d';
+  ctx.fill();
   ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+  ctx.beginPath();
+  ctx.rect(x, y, head - x, h);
+  ctx.clip();
+  trace();
+  ctx.fillStyle = '#ad8e65';
+  ctx.fill();
+  ctx.restore();
 
-  if (fable?.rendered) {
+  for (let i = 0; i < sections.length; i++) {
+    const start = at(sections[i].startMs);
+    const end = at(sections[i + 1]?.startMs ?? durationMs);
+    ctx.fillStyle = sectionColor(i);
+    ctx.fillRect(start, y + h - 2, Math.max(0, end - start - 1), 2);
+  }
+  ctx.fillStyle = '#f0d5ab';
+  ctx.fillRect(head - 1, y, 2, h);
+  if (w < 120) return;
+  ctx.fillStyle = '#adc0c1';
+  ctx.font = Math.max(10, Math.round(h * .26)) + 'px ui-monospace, monospace';
+  ctx.textBaseline = 'bottom';
+  ctx.textAlign = 'left';
+  ctx.fillText(clock(timeMs), x, y - 6);
+  ctx.textAlign = 'right';
+  ctx.fillText(clock(durationMs), x + w, y - 6);
+}
+
+export class Songprint2DPresentation {
+  constructor(canvas, residency) {
+    this.buffers = new CanvasBuffers({ residency, owner: 'songprint-2d-raster',
+      makeCanvas: () => canvas.ownerDocument.createElement('canvas') });
+    this.score = null;
+  }
+
+  draw(ctx, canvas, sim) {
+    const { width: w, height: h } = canvas;
+    const durationMs = Math.max(1, sim.durationMs || sim.biomes?.durationMs || 1);
+    const timeMs = durationMs * clamp01((sim.heardTimeMs ?? (sim.tSec || 0) * 1000) / durationMs);
+    const print = sim.biomes?.songprintWeatherPrint;
+    const sections = sim.sections || sim.biomes?.sections || [];
+    const accent = sectionColor(Math.max(0, sections.findLastIndex(section => section.startMs <= timeMs)));
+    const shortest = Math.min(w, h);
+    const pad = Math.max(1, shortest * .065);
+    const stripHeight = Math.max(1, Math.min(h * .12, 58));
+    const artworkHeight = Math.max(1, h - stripHeight - pad * 3);
+    const size = Math.max(1, Math.min(w - 2 * pad, artworkHeight));
+    const cx = w / 2, cy = pad + artworkHeight / 2;
+    const rasterSize = Math.min(640, Math.max(256, Math.ceil(size / 128) * 128));
+    let score = this.score;
+    if (!score || score.sim !== sim || score.print !== print || score.curves !== sim.energyCurves || score.durationMs !== durationMs) {
+      const descriptor = print?.fable ?? buildDescriptorFromSongprint(print, durationMs) ?? energyDescriptor(sim, durationMs);
+      const points = Array.from({ length: 161 }, (_, i) => energyAt(sim, durationMs * i / 160));
+      this.score = score = { sim, print, curves: sim.energyCurves, durationMs, descriptor, points, art: null, rasterSize: null };
+    }
+    if (score.rasterSize !== rasterSize) {
+      score.rasterSize = rasterSize;
+      const raster = this.buffers.ensure('rings', rasterSize, rasterSize)
+        ?? (rasterSize > 256 ? this.buffers.ensure('rings', 256, 256) : null);
+      const rasterCtx = raster?.getContext('2d');
+      score.art = null;
+      if (rasterCtx) {
+        const { width } = raster;
+        const { data, ...growth } = renderFable(score.descriptor, width, { rays: 240 });
+        const pixels = rasterCtx.createImageData(width, width);
+        pixels.data.set(data);
+        rasterCtx.putImageData(pixels, 0, 0);
+        score.art = { raster, growth, descriptor: score.descriptor };
+      }
+    }
+
+    ctx.save();
     try {
-      const img = ctx.createImageData?.(fable.rendered.width, fable.rendered.height);
-      const doc = ctx.canvas?.ownerDocument || globalThis.document;
-      const c = doc?.createElement?.('canvas');
-      if (img && c?.getContext) {
-        img.data.set(fable.rendered.data);
-        c.width = fable.rendered.width; c.height = fable.rendered.height;
-        c.getContext('2d')?.putImageData?.(img, 0, 0);
-        const drawSize = r * 2.05;
-        ctx.save();
-        ctx.globalAlpha = 0.98;
-        ctx.drawImage(c, cx - drawSize / 2, cy - drawSize / 2, drawSize, drawSize);
-        const reveal = revealedSliceIndex(fable.desc, timeMs, dur) / ((fable.desc.slices - 1) + (fable.desc.lastFraction ?? 1));
-        ctx.globalCompositeOperation = 'source-atop';
-        ctx.fillStyle = `rgba(0,0,0,${0.35 * (1 - clamp01(reveal))})`;
-        ctx.fillRect(cx - drawSize / 2, cy - drawSize / 2, drawSize, drawSize);
-        ctx.restore();
-      }
-    } catch {
-      // Fallback: keep prototype alive in test/mock canvases.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = true;
+      ctx.globalCompositeOperation = 'source-over';
+      drawBackground(ctx, w, h, cx, cy);
+      drawRings(ctx, score.art, cx, cy, size, timeMs, durationMs, accent);
+      const stripWidth = Math.min(w - 2 * pad, Math.max(w * .56, size));
+      drawTimeline(ctx, score.points, sections,
+        { x: (w - stripWidth) / 2, y: h - pad - stripHeight, w: stripWidth, h: stripHeight }, timeMs, durationMs);
+    } finally {
+      ctx.restore();
     }
-    ctx.strokeStyle = 'rgba(255,232,170,0.95)';
-    ctx.lineWidth = Math.max(2, r * 0.01);
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * (0.12 + 0.88 * clamp01(revealedSliceIndex(fable.desc, timeMs, dur) / ((fable.desc.slices - 1) + (fable.desc.lastFraction ?? 1)))), 0, TAU);
-    ctx.stroke();
-  } else {
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.font = '14px system-ui, sans-serif';
-    ctx.fillText('Songprint timeline unavailable; showing fallback.', rect.x + 16, rect.y + 32);
   }
 
-  // passage ticks around the fable
-  for (const p of passages) {
-    const ms = Number(p.timeMs);
-    if (!Number.isFinite(ms)) continue;
-    const a = -Math.PI / 2 + clamp01(ms / dur) * TAU;
-    const near = 1 - smoothstep(1200, 9000, Math.abs(ms - timeMs));
-    const rr = r * (0.95 + 0.08 * clamp01(p.landmark01 ?? 0.5));
-    ctx.strokeStyle = `rgba(255,255,255,${0.08 + 0.45 * near})`;
-    ctx.lineWidth = 1 + 2 * near;
-    ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(a) * r * 0.9, cy + Math.sin(a) * r * 0.9);
-    ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
-    ctx.stroke();
+  dispose() {
+    this.score = null;
+    this.buffers.dispose();
   }
-
-  // playhead line
-  const pa = -Math.PI / 2 + t01 * TAU;
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(cx + Math.cos(pa) * r, cy + Math.sin(pa) * r);
-  ctx.stroke();
-
-  const tonic = Number.isInteger(timeline?.key?.tonic) ? timeline.key.tonic : 0;
-  ctx.fillStyle = 'rgba(255,255,255,0.86)';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = `600 ${Math.max(12, Math.round(r * 0.09))}px system-ui, sans-serif`;
-  ctx.fillText('Songprint Fable', cx, rect.y + 28);
-  ctx.font = `${Math.max(10, Math.round(r * 0.05))}px ui-monospace, SFMono-Regular, monospace`;
-  ctx.fillStyle = 'rgba(255,255,255,0.72)';
-  const source = fable?.source === 'fable' ? 'fable descriptor' : 'timeline fallback';
-  ctx.fillText(`${NOTE_NAMES[tonic]} ${timeline?.key?.major ? 'major' : 'minor'} / ${source} / heard-time reveal`, cx, rect.y + 48);
-  ctx.restore();
-}
-
-export function drawSongprint2D(ctx, canvas, sim) {
-  const w = canvas.width, h = canvas.height;
-  const timeMs = Number.isFinite(sim?.heardTimeMs) ? sim.heardTimeMs : (sim?.tSec || 0) * 1000;
-  const durationMs = Math.max(1, sim?.durationMs || sim?.biomes?.durationMs || 1);
-  const manager = sim?.biomes;
-  const score = manager ? landscapeScoreFor(manager).at(timeMs, { preview: !!manager.terrainPreview }) : null;
-  const sample = sampleTimeline(manager?.songprint?.timeline || sim?.songprint?.timeline, timeMs) || {};
-
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = 'source-over';
-  drawBackground(ctx, w, h, score, sample);
-
-  const pad = Math.max(16, Math.round(Math.min(w, h) * 0.04));
-  const timelineH = Math.max(72, Math.round(h * 0.18));
-  const mainH = h - pad * 3 - timelineH;
-  drawSongprintFable(ctx, sim, score, { x: pad, y: pad, w: w * 0.52 - pad, h: mainH }, timeMs, durationMs);
-
-  // right-side info
-  const infoX = w * 0.56;
-  const infoY = pad;
-  const infoW = w - infoX - pad;
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
-  ctx.fillRect(infoX, infoY, infoW, mainH);
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  ctx.strokeRect(infoX + 0.5, infoY + 0.5, infoW - 1, mainH - 1);
-  ctx.fillStyle = 'rgba(255,255,255,0.86)';
-  ctx.font = `600 ${Math.max(14, Math.round(h * 0.03))}px system-ui, sans-serif`;
-  ctx.fillText('Heard-time song representation (prototype)', infoX + 16, infoY + 30);
-  ctx.font = `${Math.max(11, Math.round(h * 0.02))}px ui-monospace, SFMono-Regular, monospace`;
-  ctx.fillStyle = 'rgba(255,255,255,0.72)';
-  const section = sectionAt(sim?.sections || manager?.sections, timeMs);
-  const lines = [
-    `time ${Math.round(timeMs)} ms / ${Math.round(durationMs)} ms`,
-    `section ${section?.role || section?.label || section?.kind || 'n/a'}`,
-    `energy ${Math.round((score?.energy01 ?? energyAt(sim?.energyCurves, timeMs)) * 100)}%  brightness ${Math.round((sample.brightness ?? 0) * 100)}%`,
-    `tension ${Math.round((sample.tension ?? 0) * 100)}%  novelty ${Math.round((sample.novelty ?? 0) * 100)}%`,
-    `pulse accent ${Math.round((score?.pulse?.accent01 ?? 0) * 100)}%  sign ${score?.pulse?.sign ?? 0}`,
-    `camera ${score?.camera?.shot || 'n/a'}  lens half-angle ${((score?.lens?.halfAngleScale ?? 1) * 100).toFixed(0)}%`,
-  ];
-  lines.forEach((line, i) => ctx.fillText(line, infoX + 16, infoY + 62 + i * 24));
-
-  // small bar meters
-  const meterY = infoY + 62 + lines.length * 24 + 20;
-  const meterW = infoW - 32;
-  const meters = [
-    ['loudness', sample.loudness ?? score?.energy01 ?? 0, '#8fd3ff'],
-    ['brightness', sample.brightness ?? 0, '#ffd36f'],
-    ['tension', sample.tension ?? 0, '#ff8a8a'],
-    ['novelty', sample.novelty ?? 0, '#caa0ff'],
-    ['major', sample.major ?? 0.5, '#9ef0b0'],
-  ];
-  meters.forEach((m, i) => {
-    const y = meterY + i * 28;
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText(m[0], infoX + 16, y);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fillRect(infoX + 110, y - 10, meterW - 110, 10);
-    ctx.fillStyle = rgba(m[2], 0.85);
-    ctx.fillRect(infoX + 110, y - 10, (meterW - 110) * clamp01(m[1]), 10);
-  });
-
-  drawTimeline(ctx, sim, score, { x: pad, y: h - pad - timelineH, w: w - pad * 2, h: timelineH }, timeMs, durationMs);
-
-  // caption
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.font = `${Math.max(10, Math.round(h * 0.018))}px system-ui, sans-serif`;
-  ctx.fillText('Experimental: not geographic Range. Uses heard-time song data.', pad, h - 6);
-  ctx.restore();
-
-  return { presented: true, reason: null };
 }

@@ -286,5 +286,5 @@ export function analyzeSongprintPCM(mono11025, { phrases = true, fable = false }
       }
     } catch { /* optional */ }
   }
-  return print && timeline ? { ...print, timeline, ...(fableDescriptor ? { fable: fableDescriptor } : {}) } : print;
+  return print ? { ...print, ...(timeline ? { timeline } : {}), ...(fableDescriptor ? { fable: fableDescriptor } : {}) } : null;
 }

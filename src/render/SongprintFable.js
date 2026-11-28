@@ -137,9 +137,9 @@ export function sliceColours(desc, cal = TONE_CAL) {
   return out;
 }
 
-export function renderFable(desc, size = 512, { ridges = true } = {}) {
+export function renderFable(desc, size = 512, { ridges = true, rays = 720 } = {}) {
   const data = new Uint8ClampedArray(size * size * 4);
-  const { field, rays, stride, slices } = growthField(desc);
+  const { field, stride, slices } = growthField(desc, { rays });
   const lab = sliceColours(desc);
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (let j = 0; j < rays; j++) {

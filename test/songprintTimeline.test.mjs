@@ -57,3 +57,10 @@ test('the timeline survives a bundle copy and malformed data is dropped', () => 
   assert.equal(copySongprintTimeline(print.timeline, 10000), null, 'longer than the recording');
   assert.equal(copySongprint({ ...print, timeline: { version: 9 } }, 40000).timeline, undefined);
 });
+
+test('the 2D descriptor survives a short recording without a Songprint timeline', () => {
+  const pcm = render([{ seconds: 14, chords: cMajor, level: .4 }]);
+  const print = analyzeSongprintPCM(pcm, { fable: true });
+  assert.equal(print.timeline, undefined);
+  assert.ok(copySongprint(print, 14000)?.fable?.slices > 0);
+});

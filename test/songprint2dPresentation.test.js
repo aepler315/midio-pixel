@@ -12,13 +12,14 @@ function canvas(width = 1280, height = 720) {
     translate(...args) { target.transforms.push(['translate', ...args]); },
     save() { target.calls.push(['save']); },
     restore() { target.calls.push(['restore']); },
-    beginPath() {}, moveTo() {}, lineTo() {}, arc() {}, stroke() {}, fill() {}, closePath() {}, clip() {},
+    beginPath() {}, moveTo() {}, lineTo() {}, arc() {}, stroke() {}, fill() {}, closePath() {}, clip() { target.calls.push(['clip']); },
     rect() {}, strokeRect() {}, fillRect(...args) { target.fills.push(args); },
     fillText(text, x, y) { target.calls.push(['fillText', text, x, y]); },
     createLinearGradient() { return { addColorStop() {} }; },
     createRadialGradient() { return { addColorStop() {} }; },
     measureText(text) { return { width: String(text).length * 7 }; },
     drawImage(...args) { target.calls.push(['drawImage', ...args]); },
+    createImageData(w, h) { return { data: new Uint8ClampedArray(w * h * 4) }; },
     getImageData() { target.reads++; return { width, height, data: new Uint8ClampedArray(width * height * 4) }; },
     putImageData() { target.writes++; },
   };
@@ -34,7 +35,7 @@ function sim(overrides = {}) {
     biomes: {
       world: { kind: 'alpine' },
       sections: [{ startMs: 0, endMs: 60000, role: 'verse' }, { startMs: 60000, endMs: 120000, role: 'chorus' }],
-      songprint: {
+      songprintWeatherPrint: {
         timeline: {
           stepMs: 2000,
           loudness: [0.2, 0.4, 0.6, 0.5],
@@ -71,6 +72,7 @@ test('songprint2d presentation draws a direct 2D frame and skips 3D inner draw',
 
   const result = renderer.draw(sim(), 1);
   assert.equal(innerDraws, 0, '3D scene draw should be skipped');
+  assert.equal(renderer.drawCount, 1, 'the finished 2D frame counts as an export draw');
   assert.equal(result.presented, true);
   assert.equal(renderer.diagnostics.songVisualization, 'songprint2d');
   assert.equal(renderer.diagnostics.effectiveLook, 'songprint2d');
@@ -78,11 +80,11 @@ test('songprint2d presentation draws a direct 2D frame and skips 3D inner draw',
   const capture = renderer.getCaptureSource();
   assert.ok(capture, 'capture source should be available for export');
   assert.equal(capture.canvas, out);
-  assert.ok(out.calls.some(c => c[0] === 'fillText' && String(c[1]).includes('Songprint Fable')), 'fable label drawn');
+  assert.ok(out.calls.some(c => c[0] === 'drawImage'), 'timeline yields a painted ring');
   renderer.dispose();
 });
 
-test('songprint2d presentation prefers faithful fable descriptor when present', () => {
+test('songprint2d presentation reuses a single painted raster from the production descriptor', () => {
   const out = canvas();
   const inner = { canvasRenderer: { discardFrameCaptures() {} }, rangePresentation: { enabled: true }, draw() { throw new Error('should not draw 3D'); }, dispose() {} };
   const renderer = createPresentingRenderer({
@@ -94,11 +96,18 @@ test('songprint2d presentation prefers faithful fable descriptor when present', 
   const chroma = Array.from({ length: slices * 12 }, (_, i) => (i % 12 === 0 ? 1 : 0.1));
   const tone = Array.from({ length: slices * 3 }, (_, i) => (i % 3 === 2 ? -12 : 0));
   const s = sim();
-  s.biomes.songprint.fable = { version: 1, slices, sliceSeconds: 2, lastFraction: 1, keyAngle: 0, chroma, tone };
+  s.biomes.songprintWeatherPrint.fable = { version: 1, slices, sliceSeconds: 2, lastFraction: 1, keyAngle: 0, chroma, tone };
   const result = renderer.draw(s, 1);
   assert.equal(result.presented, true);
-  assert.ok(out.calls.some(c => c[0] === 'fillText' && String(c[1]).includes('fable descriptor')), 'fable descriptor source drawn');
+  s.heardTimeMs = 60000;
+  renderer.draw(s, 1);
+  const images = out.calls.filter(c => c[0] === 'drawImage');
+  assert.equal(images.length, 2, 'both frames paint the production descriptor');
+  assert.equal(images[0][1], images[1][1], 'both frames reuse the same painted raster');
+  assert.equal(images[0][1].writes, 1, 'the cached raster uploads once');
+  assert.equal(out.calls.filter(c => c[0] === 'clip').length, 4, 'each frame clips to the heard contour and timeline');
   renderer.dispose();
+  assert.equal(images[0][1].width, 0, 'disposal releases the raster');
 });
 
 test('songprint2d presentation falls back gracefully with missing song data', () => {
@@ -111,5 +120,24 @@ test('songprint2d presentation falls back gracefully with missing song data', ()
   });
   const result = renderer.draw({ heardTimeMs: 0, durationMs: 1000, biomes: { world: { kind: 'alpine' } } }, 1);
   assert.equal(result.presented, true);
+  renderer.dispose();
+});
+
+test('the 2D raster steps down when the full backing store exceeds the budget', () => {
+  const out = canvas();
+  const inner = { draw() { throw new Error('should not draw 3D'); }, dispose() {} };
+  const renderer = createPresentingRenderer({
+    canvas: out,
+    presentation: { songVisualization: 'songprint2d' },
+    residency: new GraphicsResidency({ budgetBytes: 1024 * 1024 }),
+    rendererFactory: () => inner,
+  });
+  const song = sim();
+  renderer.draw(song, 1);
+  renderer.draw(song, 1);
+  const images = out.calls.filter(c => c[0] === 'drawImage');
+  assert.equal(images.length, 2);
+  assert.equal(images[0][1].width, 256);
+  assert.equal(images[0][1], images[1][1]);
   renderer.dispose();
 });

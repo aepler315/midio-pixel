@@ -66,14 +66,16 @@ test('every presentation composites through the hybrid pipeline, whatever the UR
   const begin = main.indexOf('function effectivePresentation()');
   const code = main.slice(begin, main.indexOf('\n}\n', begin) + 3);
   const context = vm.createContext({ bulkPresentation: null, presentation: { scaling: 'fit', cinematicPixel: true },
-    directTerrainExperiment: () => false, location: { search: '?rangePipeline=single' }, experience: 'landscape',
-    bulkExportSize: null, document: {}, isFullscreen: () => false });
+    directTerrainExperiment: () => false, voxelRangePilot: null, location: { search: '?rangePipeline=single' }, experience: 'landscape',
+    lastTimelineData: null, bulkExportSize: null, document: {}, isFullscreen: () => false });
   vm.runInContext(code, context);
   assert.equal(context.effectivePresentation().rangePipeline, 'hybrid');
   context.location.search = '?rangePipeline=native';
   assert.equal(context.effectivePresentation().rangePipeline, 'hybrid');
   context.bulkExportSize = { w: 3840, h: 2160 };
   assert.equal(context.effectivePresentation().rangePipeline, 'hybrid');
+  context.lastTimelineData = { songVisualization: 'songprint2d' };
+  assert.equal(context.effectivePresentation().pixelated, false);
 });
 
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
@@ -82,7 +84,7 @@ test('fullscreen landscape selects cover and restores the saved fit on exit', ()
   const code = main.slice(start, main.indexOf('\n}\n', start) + 3);
   const context = vm.createContext({ bulkPresentation: null, presentation: { scaling: 'fit' },
     directTerrainExperiment: () => false, location: { search: '' }, experience: 'landscape',
-    bulkExportSize: null, document: {}, isFullscreen: () => true });
+    lastTimelineData: null, bulkExportSize: null, document: {}, isFullscreen: () => true });
   vm.runInContext(code, context);
   assert.equal(context.effectivePresentation().scaling, 'cover');
   context.isFullscreen = () => false;
@@ -166,7 +168,7 @@ test('growing detail fits continuously while preserving the saved fixed integer 
   const context = vm.createContext({ bulkPresentation: null,
     presentation: { scaling: 'integer', buildPixelDetail: true },
     directTerrainExperiment: () => false, voxelRangePilot: null,
-    location: { search: '' }, experience: 'landscape', bulkExportSize: null, document: {}, isFullscreen: () => false });
+    location: { search: '' }, experience: 'landscape', lastTimelineData: null, bulkExportSize: null, document: {}, isFullscreen: () => false });
   vm.runInContext(code, context);
   assert.equal(context.effectivePresentation().scaling, 'fit');
   assert.equal(context.presentation.scaling, 'integer');

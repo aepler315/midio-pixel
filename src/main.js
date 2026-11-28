@@ -717,11 +717,15 @@ let bulkPresentation = null;
 let titlePresentation = null;
 function effectivePresentation() {
   const requested = bulkPresentation || presentation;
+  const songVisualization = bulkPresentation?.songVisualization ?? lastTimelineData?.songVisualization ?? 'off';
+  if (songVisualization === 'songprint2d') {
+    return { ...requested, songVisualization, pixelated: false, cinematicPixel: false, buildPixelDetail: false, scaling: 'fit' };
+  }
   const experimental = directTerrainExperiment();
   const buildPixelDetail = !!requested.buildPixelDetail && !bulkExportSize && !voxelRangePilot && !experimental;
   // Cinematic, the only look, presents through the hybrid composite.
   return { ...requested, buildPixelDetail, rangePipeline: 'hybrid',
-    songVisualization: settings.get('songVisualization'),
+    songVisualization,
     ...(buildPixelDetail && requested.scaling === 'integer' ? { scaling: 'fit' } : {}),
     ...(experimental ? { directTerrain: true } : {}),
     ...(!bulkExportSize && typeof document !== 'undefined' && isFullscreen() ? { scaling: 'cover' } : {}) };
@@ -787,12 +791,13 @@ function fitCanvas() {
   renderer?.setPresentation(active);
   // The title is a legacy illustration; keep optional scene optics out of its
   // hidden buffer when the full landscape starts streaming terrain.
-  titlePresentation?.setPresentation({ ...active, cinematicPixel: false });
+  titlePresentation?.setPresentation({ ...(active.songVisualization === 'songprint2d' ? presentation : active), cinematicPixel: false });
   fitPixelLayout();
   if (perfGovernor) perfGovernor.economy = active.quality === 'economy';
   const worldKind = sim?.biomes?.world?.kind
     || getWorld(lastTimelineData?.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind;
-  const hybrid = worldKind === 'alpine' && !!rangePresentation?.enabled;
+  const songprint2D = active.songVisualization === 'songprint2d';
+  const hybrid = songprint2D || (worldKind === 'alpine' && !!rangePresentation?.enabled);
   const box = canvas.getBoundingClientRect();
   // The quality rung this output was sized for: heavier rungs draw the
   // smooth layers at fewer pixels (the ladder's resolution scale).
@@ -813,7 +818,7 @@ function fitCanvas() {
   canvas.classList.toggle('retro', !hybrid);
   landscapeHintEl?.classList.toggle(
     'is-visible',
-    !bulkExportSize && shouldSuggestLandscape(canvas.clientWidth, canvas.clientHeight),
+    !songprint2D && !bulkExportSize && shouldSuggestLandscape(canvas.clientWidth, canvas.clientHeight),
   );
 }
 
@@ -912,7 +917,6 @@ const SETTING_APPLIERS = {
   dev: value => { DEV_MODE = value; },
   perf: () => { perfStartLevel = currentPerfStartLevel(); },
   directTerrain: () => { perfGovernor?.forgetRecoveryHistory(); fitCanvasAndRedraw(); },
-  songVisualization: () => { if (renderer) renderer.setPresentation(effectivePresentation()); fitCanvasAndRedraw(); },
 };
 
 function applySettingChange({ changes }) {
@@ -1547,7 +1551,8 @@ function offerWorldsThenStart(data, extra = {}) {
       lyricSections: landscapePrint?.timeline && !lyricsDisabled ? terrainLyricSections(data) : null,
     });
     let terrainReady;
-    if (landscapePrint?.timeline && !lyricsDisabled && extra.lyricsReady && !extra.lyricsReady.settled) {
+    if (data.songVisualization === 'songprint2d') terrainReady = Promise.resolve(null);
+    else if (landscapePrint?.timeline && !lyricsDisabled && extra.lyricsReady && !extra.lyricsReady.settled) {
       pendingForRange.waitedForTerrainLyrics = true;
       const lyricWait = exporting ? extra.lyricsReady : Promise.race([
         extra.lyricsReady, new Promise(resolve => setTimeout(resolve, LYRICS_START_WAIT_MS)),
@@ -1716,7 +1721,7 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
     cameraTourMode: cameraTourMode ?? currentCameraTourMode(),
     cameraStudioSettings: normalizeCameraStudioSettings(cameraStudio),
     exportSize: size,
-    exportPresentation: override ? resolvePresentation(override) : { ...effectivePresentation() },
+    exportPresentation: override ? { ...resolvePresentation(override), songVisualization: override.songVisualization ?? lastTimelineData.songVisualization ?? 'off' } : { ...effectivePresentation() },
     exportQualityLevel: Number.isInteger(qualityLevel) && qualityLevel >= 0 ? qualityLevel : perfGovernor?.level ?? perfStartLevel,
     startAtMs: 0,
     fitDiagnostic: lastFitDiagnostic,
@@ -1898,6 +1903,8 @@ function startTimeline(timelineData, extra = {}) {
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
     exportMode: exportModeFlag = false, exportSize = null, keepAudio = false, keepPerfLevel = false,
   } = extra;
+  timelineData.songVisualization ??= settings.get('songVisualization');
+  const songprint2D = (extra.exportPresentation?.songVisualization ?? timelineData.songVisualization) === 'songprint2d';
   const previousPresentation = rangePresentation;
   lastStartExtra = { ...extra, automaticTicket: undefined, continuationWorldId: undefined, onAutomaticStart: undefined,
     cameraSchedule: undefined, cameraTourMode: undefined, cameraStudioSettings: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, keepPerfLevel: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false, heardTours: undefined };
@@ -1909,8 +1916,12 @@ function startTimeline(timelineData, extra = {}) {
   if (!keepAudio && !exportModeFlag) settings.markApplied(['next-song'], {
     songprintLandscape: timelineData.songprintLandscapeEnabled ? 'on' : 'off',
     songprintAtmosphere: timelineData.songprintAtmosphere === true,
+    songVisualization: timelineData.songVisualization,
   });
-  ensureLandscapePresentation();
+  if (songprint2D) {
+    rangePresentation?.dispose();
+    rangePresentation = null;
+  } else ensureLandscapePresentation();
   // Temporary render policy never writes the listener's URL or storage.
   if (extra.cameraTourMode !== undefined && rangePresentation && currentCameraTourMode() !== extra.cameraTourMode) {
     rangePresentation.setTourMode(extra.cameraTourMode === 'off' ? null : extra.cameraTourMode);
@@ -1952,6 +1963,7 @@ function startTimeline(timelineData, extra = {}) {
     && previousPresentation === rangePresentation ? perfGovernor?.level : undefined;
   retainPerformanceScene();
   stopTimeline({ preservePause: preservePause || exportMode, keepAudio });
+  lastTimelineData = timelineData;
   fitCanvas();
   // Guard a degenerate declared duration (<=0): without it, FractureEngine's
   // idle -> about-to-freeze transition never fires and the song never
@@ -1959,7 +1971,6 @@ function startTimeline(timelineData, extra = {}) {
   timelineData.durationMs = resolveDurationMs(timelineData.timeline, timelineData.durationMs);
   timelineData.ridgeResponse ??= getWorld(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID)?.response;
   ensureRidgeMusicSession(timelineData);
-  lastTimelineData = timelineData;
   // Keep lastAudioBuffer across replays (same song, new/same seed). Loaders
   // that switch song type clear it themselves — wiping it here made
   // "New seed" / "Replay seed" start a silent level after any audio drop.
@@ -2033,6 +2044,7 @@ function startTimeline(timelineData, extra = {}) {
       // the bundled Tetons, and uses real terrain only in alpine-kind worlds.
       terrainProfiles: timelineData.terrain?.profiles || null,
       songTerrain: timelineData.terrain || null,
+      prewarmScenery: !songprint2D,
       // Live seeks keep the moments the full print became available. Exports
       // have the full print from frame zero, including on their first draw.
       songprintAdmittedMs: exportMode ? 0 : timelineData.songprintAdmittedMs ?? 0,
@@ -2072,7 +2084,7 @@ function startTimeline(timelineData, extra = {}) {
     const analysis = identityProvisional(timelineData) ? 'opening' : 'full';
     sim.highlightReel.describeMoment = () => ({
       songSeed: runSeed, worldId: runWorldId,
-      displayPrefs: { ...(snapshotPlayerPrefs || displayPrefs) },
+      displayPrefs: { ...(snapshotPlayerPrefs || displayPrefs), songVisualization: timelineData.songVisualization },
       qualityLevel: renderQualityLevel(generalQuality),
       sceneStartMs, continued, analysis, cameraTourMode, cameraSchedule: cameraRun?.scheduleFor(scheduleKey) || null,
       cameraStudioSettings: normalizeCameraStudioSettings(sim.cameraStudioSettings),
@@ -2081,7 +2093,7 @@ function startTimeline(timelineData, extra = {}) {
   // The listener's zoom (scroll wheel, pinch) is live-only: exports and
   // captures draw the authored camera. A new song starts unzoomed; a seek
   // or a mid-song rebuild keeps the zoom where it is.
-  sim.userCameraEnabled = !captureMode;
+  sim.userCameraEnabled = !captureMode && !songprint2D;
   sim.cameraStudioSettings = normalizeCameraStudioSettings(extra.cameraStudioSettings ?? cameraStudioSettings);
   // Seeks (to 0 too) and the mid-song full-analysis rebuild say so with
   // keepUserCamera; a new song or a replay starts unzoomed.
@@ -2130,7 +2142,7 @@ function startTimeline(timelineData, extra = {}) {
   voxelRange?.setSong(loadGen, sim, extra.chapterState?.committedThroughMs ?? startAtMs);
   rendererMode = resolveRendererMode();
   paramBus.rendererMode = rendererMode;
-  renderer = createPresentingRenderer({ canvas, mode: rendererMode, presentation: effectivePresentation(),
+  renderer = createPresentingRenderer({ canvas, mode: songprint2D ? 'canvas' : rendererMode, presentation: effectivePresentation(),
     residency: sharedResidency(), voxelRange });
   if (rangePresentation) {
     rangePresentation.setSong({ terrain: timelineData.terrain || null, mgr: sim.biomes, generation: loadGen, exportMode,
@@ -2211,7 +2223,7 @@ function startTimeline(timelineData, extra = {}) {
   // first frame), so strips for biomes Range v2 covers are adopted as
   // evictable fallback from the start.
   if (rangePresentation?.enabled && sim.biomes) sim.biomes.rangePresentation = rangePresentation;
-  try { if (!rangePresentation?.tourMode) sim.biomes.preparePlaybackStrips(); }
+  try { if (!songprint2D && !rangePresentation?.tourMode) sim.biomes.preparePlaybackStrips(); }
   catch (err) { console.warn('[strip prepare]', err); }
   running = true;
   syncKeepAwake();
@@ -2726,7 +2738,8 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
   const analysisGroove = new GrooveFingerprint(groove.toJSON());
   const songprintLandscapeEnabled = settings.get('songprintLandscape') === 'on';
   const songprintPhrases = settings.get('songprintAtmosphere') === true;
-  const songprintFable = settings.get('songVisualization') === 'songprint2d';
+  const songVisualization = settings.get('songVisualization');
+  const songprintFable = songVisualization === 'songprint2d';
   const songprint = songprintLandscapeEnabled || songprintPhrases || songprintFable;
   showProgress('Reading file…');
   try {
@@ -2964,6 +2977,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
       loadShow?.stop(loadShowSession);
     }
     if (isStale()) return;
+    data.songVisualization = songVisualization;
     data.songprintLandscapeEnabled = songprintLandscapeEnabled;
     data.songprintAtmosphere = songprintPhrases;
     data.sourceTrack = normalizeSourceMetadata(sourceMetadata);
@@ -3453,7 +3467,7 @@ if (fileChooser.isAbsent) {
 // The sample is deterministic (DemoSong is seeded), so its audio is rendered
 // once and every later click replays the same buffer.
 let demoSampleBuffer = null;
-let demoSongprint;
+const demoSongprints = new Map();
 
 async function startDemoSample() {
   const selection = beginAudioSelection('sample');
@@ -3468,6 +3482,8 @@ async function startDemoSample() {
   const song = buildDemoSong();
   const songprintLandscapeEnabled = settings.get('songprintLandscape') === 'on';
   const songprintAtmosphere = settings.get('songprintAtmosphere') === true;
+  const songVisualization = settings.get('songVisualization');
+  const fable = songVisualization === 'songprint2d';
   if (!demoSampleBuffer) {
     // Rendering ~96 s of PCM holds the main thread for about half a second:
     // say so, and let that paint before the render starts.
@@ -3485,10 +3501,13 @@ async function startDemoSample() {
   }
   // Rendered to a buffer, so the sample plays exactly like a recording.
   const playBuffer = demoSampleBuffer;
-  if ((songprintLandscapeEnabled || songprintAtmosphere) && demoSongprint === undefined) {
-    showProgress('Finding repeating phrases…');
+  const phrases = songprintLandscapeEnabled || songprintAtmosphere;
+  const printKey = (fable ? 2 : 0) + (phrases ? 1 : 0);
+  if (printKey && !demoSongprints.has(printKey)) {
+    showProgress('Analysing the sample…');
     try {
-      demoSongprint = await analyzeSongprintOffThread(playBuffer, { signal: selection.signal, phrases: true });
+      const print = await analyzeSongprintOffThread(playBuffer, { signal: selection.signal, phrases, fable });
+      if (print !== undefined && audioSelections.isCurrent(selection)) demoSongprints.set(printKey, print);
     } catch (err) {
       if (err?.name !== 'AbortError') console.warn('[sample] Songprint analysis failed', err);
     }
@@ -3504,7 +3523,8 @@ async function startDemoSample() {
     title: song.title,
     songprintLandscapeEnabled,
     songprintAtmosphere,
-    ...(songprintLandscapeEnabled || songprintAtmosphere ? { songprint: demoSongprint } : {}),
+    songVisualization,
+    ...(printKey ? { songprint: demoSongprints.get(printKey) ?? null } : {}),
     bpm: song.bpm,
     durationMs: song.durationMs,
     timeline: song.timeline,
@@ -4002,7 +4022,7 @@ function titleFrame(tRaf) {
   // was constructed with, so one built for a 1920x1080 buffer draws almost
   // entirely off-frame after a switch to 320x180 -- and the control that
   // makes that switch lives on this very screen.
-  titlePresentation ??= new PixelPresentation({ canvas, presentation: { ...effectivePresentation(), cinematicPixel: false }, residency: sharedResidency() });
+  titlePresentation ??= new PixelPresentation({ canvas, presentation: { ...presentation, cinematicPixel: false }, residency: sharedResidency() });
   titlePresentation.setFrameContext({ worldKind: null });
   const source = titlePresentation.beginFrame();
   if (!source) { titleRafHandle = requestAnimationFrame(titleFrame); return; }
@@ -4097,6 +4117,10 @@ function adoptWholeSongIdentity(data) {
     delete extra.startAtMs;
     stopTimeline();
     offerWorldsThenStart(data, extra);
+    return null;
+  }
+  if (data.songVisualization === 'songprint2d') {
+    commitWholeSongIdentity(data, identity);
     return null;
   }
   data.identityPending = true;
