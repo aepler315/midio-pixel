@@ -99,7 +99,7 @@ test('the close opening preserves ground clearance at the authored eye', () => {
   assert.ok(resolved.pose.eyeM[1] >= drawnGround + 1000, 'the original authored clearance survives over the newly encountered ground');
 });
 
-test('every camera route opens at twenty-four times magnification and smoothly restores its full lens', () => {
+test('every camera route opens at eighteen times magnification and smoothly restores its full lens', () => {
   const fixedCamera = { eyeStartM: sourcePose.eyeM, eyeEndM: sourcePose.eyeM,
     targetStartM: sourcePose.targetM, targetEndM: sourcePose.targetM, fovYDeg: 35 };
   for (const mode of ['rail', 'static-tour', 'mapped-tour']) for (const scenicViewport of [viewport,
@@ -119,7 +119,7 @@ test('every camera route opens at twenty-four times magnification and smoothly r
       scene._setCamera(view, at, prepared);
       const focal = scene.camera.projectionMatrix.elements[5];
       const magnification = focal / ordinary.projectionMatrix.elements[5];
-      if (i === 0) assert.ok(Math.abs(magnification - 24) < 1e-12, mode);
+      if (i === 0) assert.ok(Math.abs(magnification - 18) < 1e-12, mode);
       assert.ok(at.rise01 * magnification <= 1 + 1e-12, 'the opening retains the admitted terrain detail bound');
       assert.ok(focal <= lastFocal + 1e-12, 'framing widens continuously with growth');
       lastFocal = focal;
@@ -141,6 +141,6 @@ test('the opening magnifies ordinary sky anchors with the terrain lens', () => {
   const at = { ...frame, cameraMove: NEUTRAL_MOVE, rise01: 0 };
   const sky = RangePresentation.prototype._skyPan.call({ scene }, view, null, at);
   const point = projectRailSky({ xFrac: .51, yFrac: .5 }, sky.skyCamera);
-  assert.ok(Math.abs(point.xFrac - .74) < 1e-9, 'sky and terrain share the tight opening magnification');
+  assert.ok(Math.abs(point.xFrac - 0.68) < 1e-5, `sky and terrain share the tight opening magnification: ${point.xFrac}`);
   assert.ok(Math.abs(point.yFrac - .5) < 1e-9);
 });

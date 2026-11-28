@@ -48,7 +48,7 @@ export const FINALE_MS = 12000;
 export const MOVE_LIMITS = CAMERA_MOVES.limits;
 // The song opens risen over the dark land and settles in as the sun comes up.
 export const OPENING_MOVE = Object.freeze({ dolly: 0, yaw: 0, crane: 0.03, truck: 0, kind: 'rest' });
-const FINALE = Object.freeze({ dolly: 0, crane: 0.03, truck: 0 });
+const FINALE = Object.freeze({ dolly: -.04, crane: .03 });
 
 // User zoom: fx is the cropped fraction (or rail-distance fraction in dolly mode).
 export const USER_FX_MAX = 0.72;
@@ -131,37 +131,40 @@ export function cameraMoveKeys(sections, durationMs, seed = 0, cadenceMs = null)
       next.crane = 0.008;
       next.dolly = lerp(...CAMERA_MOVES.establishDolly, energy);
     } else if (spans[i].delta >= ENERGY_TURN && energy >= .65) {
-      // A climax opens the entire range: rise and come back to the wide
-      // rail while looking across the same subject, then hold its scale.
+      // A climax opens the entire range: rise, ease back, and keep lateral
+      // swing restrained so the reveal feels expansive rather than frantic.
       next.kind = 'reveal';
-      next.dolly = lerp(.025, 0, energy);
+      next.dolly = lerp(...CAMERA_MOVES.revealDolly, energy);
       next.crane = lerp(.024, MOVE_LIMITS.crane[1], energy);
       next.yaw = side * lerp(...CAMERA_MOVES.revealYaw, energy);
       next.truck = side * lerp(...CAMERA_MOVES.revealTruck, energy);
     } else if (spans[i].delta >= ENERGY_TURN) {
-      // A build leans into the subject before the wider arrival.
+      // A build leans into the subject, but keeps room for land in frame.
       next.kind = 'push';
       next.dolly = lerp(...CAMERA_MOVES.pushDolly, energy);
       next.crane = .012;
-      next.yaw = side * .018;
-      next.truck = side * .006;
+      next.yaw = side * .012;
+      next.truck = side * .004;
     } else if (spans[i].delta <= -ENERGY_TURN) {
-      // Quiet passages return gently to an intimate, still composition.
+      // Quiet passages settle into a wider, still composition.
       next.kind = 'settle';
       next.dolly = lerp(...CAMERA_MOVES.settleDolly, energy);
-      next.crane = .008;
-      next.yaw = cur.yaw * .35;
-      next.truck = cur.truck * .35;
+      next.crane = .012;
+      next.yaw = cur.yaw * .25;
+      next.truck = cur.truck * .25;
     } else {
       next.kind = 'hold';
     }
     keys.push(next);
   }
   // The finale (the sunset): pull back wide and rise, easing the orbit
-  // halfway home, arriving as the music ends and holding through any tail.
+  // toward home, arriving as the music ends and holding through any tail.
   const last = keys.at(-1);
   const finaleFrom = Math.max(finaleAt, last.tMs);
-  keys.push({ fromMs: finaleFrom, tMs: Math.max(finaleFrom, cadence), ...FINALE, yaw: last.yaw * 0.5, kind: 'finale' });
+  keys.push({
+    fromMs: finaleFrom, tMs: Math.max(finaleFrom, cadence),
+    ...FINALE, yaw: last.yaw * .35, truck: last.truck * .35, kind: 'finale',
+  });
   if (Array.isArray(sections)) keyCache.set(sections, { dur, seed, cadence, keys });
   return keys;
 }

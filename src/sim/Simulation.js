@@ -50,6 +50,7 @@ export class Simulation {
     worldId = null,
     terrainProfiles = null,
     songTerrain = null,
+    prewarmScenery = true,
     songprintAdmittedMs = 0,
     songprintAtmosphere = false,
     songprintWeatherPrint = null,
@@ -65,6 +66,7 @@ export class Simulation {
     this.conductor = conductor;
     this.paramBus = paramBus;
     this.energyCurves = energyCurves;
+    this.prewarmScenery = prewarmScenery;
     // Every song plays in Landscape; a missing or retired world id resolves
     // to it.
     this.worldId = resolveWorldId(worldId);
@@ -396,7 +398,7 @@ export class Simulation {
     this.biomes.snowCover = this.snowCover;
     this.biomes.adoptPerf(this.perf);
     this.biomes.update(nowMs, dtSec, this.energyCurves, this.calm.level, this.worldX);
-    this.biomes.pumpStripPrewarm();
+    if (this.prewarmScenery) this.biomes.pumpStripPrewarm();
     this.flood.update(nowMs, dtSec, { rainAccum01: this.weather.rainAccum01 });
     this.filmFinish.update(nowMs, dtSec, this.calm.level, this.biomes.budget, this.hype);
     this.fracture.update(nowMs, dtSec, this.energyCurves, this.camera);

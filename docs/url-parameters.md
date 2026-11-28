@@ -30,11 +30,13 @@ Lifecycle: when a change reaches a running page.
 | `buildDetail` | Build pixel detail | `1`, `0` | `on` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `pixelMotion` | Pixel motion | `free`, `classic` | `free` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `scaling` | Scaling | `fit`, `integer` | `fit` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `songVisualization` | Song visualization | `off`, `songprint2d` | `off` | Next song | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 
 - `pixelGrid` — The terrain pixel grid. Larger grids cost more GPU work; Detailed is four times Classic.
 - `buildDetail` — Start at Classic pixels and sharpen to Detailed as the mountains rise. Choosing a fixed Pixel detail turns this off. Inactive unless: The terrain-only pixel experiment draws at a fixed grid. The voxel pilot draws at a fixed grid.
 - `pixelMotion` — Free motion places moving details between grid cells. Classic keeps their positions on the terrain pixel grid. Inactive unless: The standalone voxel pilot uses its own pixel renderer.
 - `scaling` — Fit fills the window and keeps the aspect. Integer uses evenly sized screen pixels, with borders when needed. Fullscreen always covers.
+- `songVisualization` — Choose Landscape or a 2D artwork that grows in rings as the song plays. Playback and video export use the chosen visualization.
 
 ## Camera
 

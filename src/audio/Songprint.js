@@ -4,6 +4,7 @@ import { clamp01, smoothstep } from '../utils/math.js';
 import { MAX_PHRASE_FAMILIES, MAX_PHRASE_OCCURRENCES, SONGPRINT_PHRASE_VERSION, SONGPRINT_VERSION } from './SongprintData.js';
 import { reflectFrame, songprintChroma } from './SongprintChroma.js';
 import { songprintTimeline } from './SongprintTimeline.js';
+import { analyze as analyzeSongprintFable } from './songprintFable/analyze.js';
 
 export { songprintChroma } from './SongprintChroma.js';
 
@@ -261,9 +262,29 @@ export function songprintFromChroma(frames, { offsetMs = 0, hopMs = 125, phrases
   return { version: SONGPRINT_VERSION, skyline: terrainSkyline(frames), ...passageEvidence(frames, offsetMs, hopMs, phrases) };
 }
 
-export function analyzeSongprintPCM(mono11025, { phrases = true } = {}) {
+export function analyzeSongprintPCM(mono11025, { phrases = true, fable = false } = {}) {
   const { frames, offsetMs, hopMs } = songprintChroma(mono11025);
   const print = songprintFromChroma(frames, { offsetMs, hopMs, phrases });
   const timeline = print && songprintTimeline(mono11025, frames, { offsetMs, hopMs });
-  return print && timeline ? { ...print, timeline } : print;
+  let fableDescriptor = null;
+  if (fable && print) {
+    try {
+      const desc = analyzeSongprintFable([mono11025], 11025);
+      if (desc?.chroma && desc?.tone) {
+        fableDescriptor = {
+          version: 1,
+          slices: desc.slices,
+          sliceSeconds: desc.sliceSeconds,
+          lastFraction: desc.lastFraction,
+          keyAngle: desc.keyAngle,
+          keyStrength: desc.keyStrength,
+          tuningCents: desc.tuningCents,
+          stereoWidth: desc.stereoWidth,
+          chroma: desc.chroma,
+          tone: desc.tone,
+        };
+      }
+    } catch { /* optional */ }
+  }
+  return print ? { ...print, ...(timeline ? { timeline } : {}), ...(fableDescriptor ? { fable: fableDescriptor } : {}) } : null;
 }

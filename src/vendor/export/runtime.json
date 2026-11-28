@@ -1,14 +1,14 @@
 {
   "about": "Static offline H.264/AAC MP4 export. Rebuild with node tools/build-export-runtime.mjs.",
-  "mediabunny": "1.66.0",
+  "mediabunny": "1.66.3",
   "esbuild": "0.28.2",
   "license": "MPL-2.0",
-  "source": "https://registry.npmjs.org/mediabunny/-/mediabunny-1.66.0.tgz",
+  "source": "https://registry.npmjs.org/mediabunny/-/mediabunny-1.66.3.tgz",
   "upstream": "https://github.com/Vanilagy/mediabunny",
   "files": {
     "mediabunny.module.js": {
-      "bytes": 249136,
-      "sha256": "73971cf804dc6462f345af464c68d0860f69d720c542b75dd4d684e352598571"
+      "bytes": 249626,
+      "sha256": "201166d58eed9a22b25ffb7abf3425c1a544ddd355a391d9422c27f6ccadf447"
     },
     "LICENSE-mediabunny.txt": {
       "bytes": 16726,

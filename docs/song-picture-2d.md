@@ -1,6 +1,19 @@
 # A 2D picture of the song (design note, 2026-11-27)
 
-Status: proposal. Nothing here changes the engine yet.
+## Songprint 2D experiment
+
+Under **Settings → Appearance → Song visualization**, choose **Songprint 2D**
+before loading a song or starting the sample. The setting applies to the next
+song. Playback, seeking, and MP4 export use that song's selected mode.
+
+The artwork grows from the centre as the song plays. Pitch-class evidence
+shapes its rings, tone sets their colour, and the strip below follows the song's
+energy and section boundaries. Frame time clips one cached raster to the current
+ring contour. The analysis uses Midio Pixel's reduced mono audio. It is an
+adaptation of Songprint Fable, and cannot represent stereo width. A timeline or
+energy-only score supplies the picture when Fable analysis is unavailable.
+
+The geographic options below are design explorations.
 
 ## The question
 

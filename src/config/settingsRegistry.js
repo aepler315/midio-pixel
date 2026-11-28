@@ -574,6 +574,13 @@ export const SETTINGS = Object.freeze([
     options: [{ value: 'canvas', label: 'Canvas 2D' }, { value: 'webgl', label: 'WebGL overlay' }],
     persist: 'saved', storage: unified('renderer'), lifecycle: 'renderer',
   },
+  {
+    id: 'songVisualization', url: 'songVisualization', section: 'appearance', group: 'Visualization', tier: 'basic', maturity: 'experimental',
+    label: 'Song visualization', type: 'enum', default: 'off',
+    description: 'Choose Landscape or a 2D artwork that grows in rings as the song plays. Playback and video export use the chosen visualization.',
+    options: [{ value: 'off', label: 'Landscape' }, { value: 'songprint2d', label: 'Songprint 2D' }],
+    persist: 'saved', storage: unified('songVisualization'), lifecycle: 'next-song',
+  },
 
   // ---- Audio & playback
   {

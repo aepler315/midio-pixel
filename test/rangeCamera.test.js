@@ -20,7 +20,7 @@ test('moves open risen, end on the wide risen finale, and stay inside their limi
   const last = keys.at(-1);
   assert.equal(last.tMs, DUR);
   assert.equal(last.kind, 'finale');
-  assert.equal(last.dolly, 0);
+  assert.equal(last.dolly, -0.04);
   assert.ok(last.crane > 0);
   for (const k of keys) {
     for (const [name, [lo, hi]] of Object.entries(MOVE_LIMITS)) {
@@ -54,13 +54,15 @@ test('the biggest energy change wins a crowded stretch', () => {
   assert.ok(starts.includes(38000) && !starts.includes(30000), String(starts));
 });
 
-test('a quiet return settles after the climax reveals the range', () => {
+test('a quiet return settles wider after the climax reveals the range', () => {
   const keys = cameraMoveKeys([{ startMs: 0, relEnergy01: 0.5 }, { startMs: 30000, relEnergy01: 1 }, { startMs: 80000, relEnergy01: 0.1 }], DUR, 3);
   const reveal = keys.find((k) => k.fromMs === 30000), back = keys.find((k) => k.fromMs === 80000);
   assert.equal(reveal.kind, 'reveal');
   assert.equal(back.kind, 'settle');
-  assert.ok(back.dolly > reveal.dolly && back.crane < reveal.crane);
+  assert.ok(reveal.dolly < 0, 'climax pulls back to show more land');
+  assert.ok(back.crane < reveal.crane, 'settle drops below reveal crane');
   assert.ok(Math.abs(back.yaw) < Math.abs(reveal.yaw) && Math.abs(back.truck) < Math.abs(reveal.truck));
+  assert.ok(back.dolly <= 0.01, 'quiet settle should not push tightly in');
 });
 
 test('the move is a continuous pure function of heard time', () => {
@@ -153,11 +155,11 @@ test('wheel deltas map to gentle zoom factors in every delta mode', () => {
   assert.equal(wheelZoomFactor({ deltaY: -100000 }), 2);
 });
 
-test('a loud section opens the range at full scale', () => {
+test('a loud section opens the range with pullback and full lift', () => {
   const keys = cameraMoveKeys([{ startMs: 0, relEnergy01: 0.2 }, { startMs: 30000, relEnergy01: 1 }, { startMs: 80000, relEnergy01: 0.2 }], DUR, 3);
   const loud = keys.find((k) => k.fromMs === 30000);
   assert.equal(loud.kind, 'reveal');
-  assert.equal(loud.dolly, 0);
+  assert.ok(loud.dolly < 0, 'reveal pulls back to show more land');
   assert.equal(loud.crane, MOVE_LIMITS.crane[1]);
 });
 
@@ -257,6 +259,15 @@ test('a low view keeps the deformation pad over high ground, not over its floor'
   assert.ok(out.eyeM[1] >= 1300 + 50 + 180 - 1e-9);
   const flat = applyCameraMoves(low, null, { fx: 0.3, rx: 0, uy: 0 }, { heightAt: () => 1000, heightRangeM: [1000, 1300] });
   assert.ok(flat.userScale > 0.9);
+});
+
+test('negative dolly pullback keeps the eye clear and moves farther from target', () => {
+  const D = dist(POSE.eyeM, POSE.targetM);
+  const pull = applyCameraMoves(POSE, { dolly: -0.06, yaw: 0, crane: 0.01, truck: 0 }, null, {
+    heightAt: () => 1000, waterLevelM: 1000, heightRangeM: [800, 3000],
+  });
+  assert.ok(dist(pull.eyeM, pull.targetM) > D, 'pullback should increase eye-target distance');
+  assert.ok(pull.eyeM[1] >= 1000 + 250 - 1e-9, 'pullback must respect clearance');
 });
 
 test('the finale starts FINALE_MS before the music\'s cadence and arrives on it', () => {

@@ -25,19 +25,20 @@ export const CAMERA_FRAME = Object.freeze({ wideLensTan: 1.15 });
  *  accent arrived in 0.9 s and alternated sides, which read as a whip pan. */
 export const CAMERA_ACCENT = Object.freeze({
   leadMs: 3200, holdMs: 900, releaseMs: 5600,
-  dolly: .018, yaw: .03, crane: .012, truck: .01,
+  dolly: .018, yaw: .02, crane: .014, truck: .008,
 });
 
 /** Structural move amplitudes (RangeCamera keys), as fractions of the rail
  *  distance (yaw in radians). Push-ins are kept short of the old values so
- *  the frame keeps more of the range; yaw and truck get a little more room. */
+ *  the frame keeps more of the range. Reveals can pull back. */
 export const CAMERA_MOVES = Object.freeze({
-  limits: Object.freeze({ dolly: [0, .1], yaw: [-.075, .075], crane: [0, .035], truck: [-.03, .03] }),
+  limits: Object.freeze({ dolly: [-.08, .1], yaw: [-.045, .045], crane: [0, .04], truck: [-.018, .018] }),
   establishDolly: Object.freeze([.015, .04]),
   pushDolly: Object.freeze([.035, .08]),
-  settleDolly: Object.freeze([.02, .045]),
-  revealYaw: Object.freeze([.03, .065]),
-  revealTruck: Object.freeze([.01, .024]),
+  settleDolly: Object.freeze([.01, -.03]),
+  revealDolly: Object.freeze([-.01, -.06]),
+  revealYaw: Object.freeze([.014, .03]),
+  revealTruck: Object.freeze([.004, .01]),
 });
 
 /** The reveal lens gathers before a major arrival and opens over five
