@@ -4,6 +4,8 @@ import { Worker } from 'node:worker_threads';
 import { analyzeSongprintOffThread } from '../src/audio/SongprintWorkerClient.js';
 import { analyzeSongprintPCM } from '../src/audio/Songprint.js';
 import { SongprintReducer } from '../src/audio/SongprintReducer.js';
+import { analyze as fableAnalyze } from '../src/audio/songprintFable/analyze.js';
+import { copySongprint, copySongprintSkyline } from '../src/audio/SongprintData.js';
 
 function audio(planes, rate) {
   return { numberOfChannels: planes.length, sampleRate: rate, length: planes[0].length,
@@ -58,6 +60,46 @@ test('a measured silent recording is cacheable and worker failures are retriable
   controller.abort();
   await assert.rejects(pending, { name: 'AbortError' });
   assert.equal(terminated, 2);
+});
+
+test('2D measures the native stereo mix, independent of the geographic duration and bandwidth', async () => {
+  const rate = 48000, length = rate * 6;
+  const channels = [0, 1].map(ch => Float32Array.from({ length }, (_, i) => {
+    const t = i / rate;
+    if (t < .65 || t > 5.4) return 0;
+    return .3 * Math.sin(2 * Math.PI * 220 * t)
+      + (.12 + .1 * ch) * Math.sin(2 * Math.PI * 6800 * t + ch);
+  }));
+  const expected = fableAnalyze(channels, rate);
+  const source = audio(channels, rate);
+  const result = await analyzeSongprintOffThread(source, { workerFactory, fable: true, phrases: true });
+  assert.equal(result.skyline, undefined);
+  assert.equal(copySongprintSkyline(result), null);
+  assert.deepEqual(result.fable.chroma, Array.from(expected.chroma));
+  assert.deepEqual(result.fable.tone, Array.from(expected.tone));
+  assert.ok(result.fable.offsetSeconds > .63 && result.fable.offsetSeconds < .66);
+  assert.ok(Math.abs(result.fable.stereoWidth - expected.stereoWidth) < 1e-9);
+  assert.deepEqual(copySongprint(JSON.parse(JSON.stringify(result)), 6000), result);
+  assert.equal(await analyzeSongprintOffThread(source, { workerFactory, fable: false }), null);
+});
+
+test('a short anti-phase track keeps its Fable-only print and measured stereo width', async () => {
+  const rate = 44100;
+  const left = Float32Array.from({ length: rate * 8 }, (_, i) =>
+    Math.sin(2 * Math.PI * 220 * i / rate) + .3 * Math.sin(2 * Math.PI * 6800 * i / rate));
+  const right = left.map(x => -x);
+  const expected = fableAnalyze([left], rate);
+  // The rear pair is louder, and also cancels. The geographic pass recovers
+  // channel 2 while the front-pair Fable recovers channel 0 on its own pass.
+  const rear = Float32Array.from(left, (_, i) => 3 * Math.sin(2 * Math.PI * 370 * i / rate));
+  for (const planes of [[left, right], [left, right, rear, rear.map(x => -x)]]) {
+    const print = await analyzeSongprintOffThread(audio(planes, rate), { workerFactory, fable: true, phrases: true });
+    assert.equal(print.skyline, undefined);
+    assert.equal(print.fable.stereoWidth, 1);
+    assert.deepEqual(print.fable.chroma, Array.from(expected.chroma));
+    assert.deepEqual(print.fable.tone, Array.from(expected.tone));
+    assert.deepEqual(copySongprint(print, 8000), print);
+  }
 });
 
 test('rate reduction rejects above-Nyquist tones and gives identical samples across arbitrary block cuts', () => {

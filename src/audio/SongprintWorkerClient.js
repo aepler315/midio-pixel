@@ -32,7 +32,7 @@ export async function analyzeSongprintOffThread(buffer, { signal, workerFactory,
       try {
         if (data?.type === 'done') {
           const print = data.songprint === null ? null : copySongprint(data.songprint, buffer.duration * 1000) ?? undefined;
-          finish(resolve, phrases && print && !print.phraseFamilies ? undefined : print);
+          finish(resolve, phrases && print?.skyline && !print.phraseFamilies ? undefined : print);
         } else if (data?.type === 'read') {
           const { start, channel } = data;
           if (!Number.isInteger(start) || start < 0 || start >= buffer.length) return fail();
