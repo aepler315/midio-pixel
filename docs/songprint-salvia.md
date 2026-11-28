@@ -14,4 +14,4 @@ The reports were submitted voluntarily. Everyday uses of words such as “turnin
 
 ## Design reading
 
-The musical equivalent of the zipper is a line that can take the picture apart. Give a listener time to recognize the print, then let one directional pull carry the whole sheet. Repeat a recognizable edge in the next fold. A beat tracer can run along that edge and briefly become the tooth that opens it. As the pull releases, surviving marks help the listener recognize the same print coming back together. The recording supplies the timing and contours. The reports supply the idea of what it feels like for a familiar surface to move.
+The reports suggested a small perceptual change worth trying. If a line slips sideways and leaves part of itself behind, the viewer can briefly lose track of which edge belongs to which surface. Songprint 2D uses that change in both impressions. The print supplies the shapes, and the recording determines when the layers pull apart or happen to line up.

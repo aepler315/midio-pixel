@@ -126,7 +126,7 @@ export function createSweepAudio(sim, descriptor) {
       // MIDI and old caches can have calibrated band activity only.
       out.energy = clamp01(curves.globalEnergy?.(ms) ?? curves.globalEnergyNorm?.(ms));
       // MIDI curves already have an envelope. Average causal positions so a
-      // single note can catch a seam without jerking the whole room sideways.
+      // single note can catch a seam without jerking the whole print sideways.
       for (let i = 0; i < 8; i++) {
         const at = ms - i * 160;
         if (at < 0) continue;

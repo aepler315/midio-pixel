@@ -1,6 +1,6 @@
 import { clamp, clamp01 } from '../utils/math.js';
 import { drawSweepTool, sweepTools } from './SongprintSweepEntities.js';
-import { drawPaperRoom, printChair, roomRegistration } from './SongprintPaperRoom.js';
+import { drawUnderprint, inkRegistration } from './SongprintUnderprint.js';
 
 const TAU = Math.PI * 2;
 const PAPER = [240, 230, 206];
@@ -73,28 +73,38 @@ export function drawSweepEffect(ctx, view, sampleAt, timeSec, { effect = 'apertu
   ctx.translate(view.x, view.y);
   ctx.scale(view.w, view.h);
   ctx.lineJoin = 'round';
-  const room = roomRegistration(now);
-  drawPaperRoom(ctx, view, room, effect);
-  // The paper and the tiny tools ride the same sideways pull. The source
-  // dial is drawn later in screen space, so the listener can find it again.
-  ctx.transform(1, .055 * room.roll, .24 * room.roll, 1 - .14 * room.load,
-    -.076 * room.roll, .044 * room.load - .024 * room.roll);
+  const register = inkRegistration(now);
+  const printPool = drawUnderprint(ctx, view, now, register);
+  ctx.save();
+  ctx.transform(1, .035 * register.roll, .19 * register.roll, 1 - .12 * register.load,
+    -.08 * register.roll, .045 * register.load);
   if (effect === 'fold') {
-    drawFold(ctx, view, sampleAt, now, time, entities, room);
+    drawFold(ctx, view, sampleAt, now, time, entities, register);
   } else {
-    drawAperture(ctx, view, now, entities, room);
+    drawAperture(ctx, view, now, entities, register);
+  }
+  ctx.restore();
+  if (effect === 'fold') {
+    const middle = now.rows[Math.floor(now.rows.length / 2)];
+    const slip = .50 + .50 * Math.tanh(2.8 * middle.bend + 1.8 * (middle.gap - 1) + register.roll);
+    ctx.globalAlpha *= .17 + .82 * slip;
+    printPool();
   }
   ctx.restore();
 }
 
 // Three joined faces carry successively newer impressions of the same ridges.
-function drawFold(ctx, view, sampleAt, now, time, entities, room) {
+function drawFold(ctx, view, sampleAt, now, time, entities, register) {
   const samples = [pastSample(sampleAt, now, time, 0.96), pastSample(sampleAt, now, time, 0.34), now];
   const count = now.rows.length;
   const bands = scanBands(now, clamp(Math.round(view.h / 9), 22, 72));
   const tools = sweepTools(now, bands.length, entities);
-  const pressure = Math.max(...samples.map(sample => clamp01(sample.audible)));
-  const visibility = 0.28 + 0.72 * Math.sqrt(pressure);
+  const visibility = now.withAudio === false ? .92 : .67 + .27 * clamp01(now.sustained);
+  // A narrow reading can leave the three folds nearly in register. Only a
+  // wider reading separates them enough to give the sheet a clear front.
+  const spread = Math.tanh(bands[Math.floor(bands.length * .41)].gap);
+  const relief = clamp(.24 + .48 * spread + .56 * (now.rows[count - 1].r1 - .60)
+    - .22 * register.load, .10, 1);
 
   // Each station samples a different scan instant. The crease connects the
   // same chronological layer while position and aperture follow the ray.
@@ -135,12 +145,10 @@ function drawFold(ctx, view, sampleAt, now, time, entities, room) {
       x: 0.74 - 0.25 * c.u + 0.060 * c.phaseX + 0.24 * (c.outer - 0.67) - 0.065 * c.bend * c.body,
       y: 0.85 - 0.24 * c.u + 0.045 * c.phaseY + 0.13 * c.bite + 0.29 * (c.outer - 0.67)
     };
-    // Like the bottom edge of the room, the two creases tip toward a
-    // common plane. The delay keeps a previous impression on the far face.
-    crest.x += .12 * room.roll * (1 - b.u);
-    crest.y += .18 * room.load;
-    heel.x -= .14 * room.roll * c.u;
-    heel.y -= .13 * room.load;
+    crest.x += .13 * register.roll * (1 - b.u);
+    crest.y = .47 + (crest.y - .47) * relief;
+    heel.x -= .16 * register.roll * c.u;
+    heel.y = .47 + (heel.y - .47) * relief;
     const end = {
       x: 1.08 + 0.04 * c.bite,
       y: 0.11 + 0.38 * c.u + 0.085 * c.phaseY + 0.03 * c.bend * c.body
@@ -167,30 +175,12 @@ function drawFold(ctx, view, sampleAt, now, time, entities, room) {
   rails.push(rail(count));
   ctx.globalAlpha *= visibility;
   const opacity = ctx.globalAlpha;
-  // Print the familiar chair directly onto the moving sheet. Map each cut
-  // through that band's real Bezier rail, including tracer indentations.
-  function printOnFace(face, start, span) {
-    function onFold(x, y) {
-      const across = (.12 + .76 * y) * bands.length;
-      const row = Math.floor(across), blend = across - row;
-      const a = rails[row][face], b = rails[row + 1][face];
-      const u = start + x * span, v = 1 - u;
-      const weights = [v*v*v, 3*u*v*v, 3*u*u*v, u*u*u];
-      let px = 0, py = 0;
-      for (let j = 0; j < 4; j++) {
-        px += weights[j] * (a[j].x + blend * (b[j].x - a[j].x));
-        py += weights[j] * (a[j].y + blend * (b[j].y - a[j].y));
-      }
-      return { x: px, y: py };
-    }
-    printChair(ctx, onFold, '#242431', '#e6c488');
-  }
   for (const face of FACES_BACK_TO_FRONT) {
     for (let k = 0; k < bands.length; k++) {
       const b = bands[k], top = rails[k][face], bottom = rails[k + 1][face];
       const compressed = 1 / (1 + Math.max(0, b.gap));
       const highlight = 0.025 + 0.14 * b.focus;
-      const faceLight = face === 1 ? 0.43 : face === 0 ? 0.82 : 1.02;
+      const faceLight = face === 1 ? .62 : face === 0 ? .78 : .88;
       const gain = faceLight * (0.76 + 0.21 * (1 - compressed) + 0.10 * b.bend);
       ctx.fillStyle = inkLight(b.ink, gain, face === 1 ? 0.01 : highlight);
       ctx.beginPath();
@@ -203,7 +193,7 @@ function drawFold(ctx, view, sampleAt, now, time, entities, room) {
 
       // An incised edge catches light where the print opens, and a dark
       // impression stays under the turned-back face.
-      ctx.globalAlpha = opacity * (face === 1 ? 0.46 : 0.23 + 0.57 * b.focus);
+      ctx.globalAlpha = opacity * (face === 1 ? .30 : .07 + .40 * b.focus + .15 * Math.abs(b.bend));
       ctx.strokeStyle = face === 1 ? '#131424' : inkLight(b.ink, 0.72, 0.5);
       ctx.lineWidth = (0.44 + 0.36 * compressed + 0.9 * b.focus) / view.h;
       ctx.beginPath();
@@ -221,26 +211,16 @@ function drawFold(ctx, view, sampleAt, now, time, entities, room) {
       ctx.stroke();
       ctx.globalAlpha = opacity;
     }
-    if (face !== 1) {
-      ctx.globalAlpha = opacity * (.46 + .44 * room.load);
-      printOnFace(face, .37, .17);
-      // The first impression has a misregistered neighbour under pressure.
-      if (room.load > .01) {
-        ctx.globalAlpha = opacity * .64 * room.load;
-        printOnFace(face, .65, .17);
-      }
-      ctx.globalAlpha = opacity;
-    }
   }
   for (const tool of tools) {
     const path = rails[tool.band][tool.id];
-    drawSweepTool(ctx, view, tool, path, 0.27 + 0.52 * tool.travel, bands[tool.band].ink, room.load);
+    drawSweepTool(ctx, view, tool, path, 0.27 + 0.52 * tool.travel, bands[tool.band].ink, register.load);
   }
 }
 
 // The eye is a hole in one continuous stack of sheets. Neighboring sheets
 // use the same corners, so even a strong contact cannot pull out a free tip.
-function drawAperture(ctx, view, scan, entities, room) {
+function drawAperture(ctx, view, scan, entities, register) {
   const rows = scan.rows;
   const outer = Math.max(0.000001, rows[rows.length - 1].r1);
   const bands = scanBands(scan, Math.round(clamp(view.w / 78, 7, 14)));
@@ -249,14 +229,17 @@ function drawAperture(ctx, view, scan, entities, room) {
   const short = Math.min(view.w, view.h);
   const extent = Math.hypot(view.w, view.h) / short;
   const energy = clamp01(scan.energy), attack = clamp01(scan.attack);
-  const cx = 0.51 + 0.057 * Math.sin(scan.phase);
-  const cy = 0.49 - 0.054 * Math.cos(scan.phase);
+  const inner = rows[Math.floor(rows.length * .32)], middle = rows[Math.floor(rows.length * .63)];
+  const bias = clamp(inner.r1 / outer - .32 + .22 * middle.bend, -.42, .42);
+  const cx = .39 + .31 * bias + .053 * Math.sin(scan.phase);
+  const cy = .53 - .19 * bias - .047 * Math.cos(scan.phase);
   const registration = -1.86 + 0.32 * Math.sin(scan.phase);
+  const bearing = registration + TAU * middle.r1 / outer + .46 * inner.bend;
   const teeth = [];
 
   function polar(angle, radius) {
     const x = 0.5 * radius * Math.cos(angle), y = 0.5 * radius * Math.sin(angle);
-    return { x: cx + short / view.w * (x + 0.12 * y), y: cy + short / view.h * (y - 0.06 * x) };
+    return { x: cx + short / view.w * (1.12 * x + .32 * y), y: cy + short / view.h * (.89 * y - .12 * x) };
   }
   function between(a, b, t) {
     return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
@@ -296,10 +279,15 @@ function drawAperture(ctx, view, scan, entities, room) {
     }
   }
 
-  ctx.globalAlpha *= 0.39 + 0.61 * Math.sqrt(clamp01(scan.audible));
+  const opacity = ctx.globalAlpha * (scan.withAudio === false ? .91 : .71 + .21 * clamp01(scan.sustained));
   for (let i = 0; i < teeth.length; i++) {
     const left = teeth[i], right = teeth[(i + 1) % teeth.length];
     const { band, tool, open } = left;
+    // The far edges share nearly the same ink as the ground. Just part of
+    // the boundary reads as an opening, and which part follows the print.
+    const side = .5 + .5 * Math.cos(left.angle - bearing);
+    const cover = clamp01(.09 + .86 * side * side + .16 * band.bend + .14 * band.focus);
+    ctx.globalAlpha = opacity * cover;
     const light = 0.5 + 0.5 * Math.cos(left.angle - 0.58);
     const mouth = inkLight(band.ink, 0.71 + 0.15 * light, 0.08 + 0.05 * band.focus);
     const gradient = ctx.createLinearGradient(left.back.x, left.back.y, left.outside.x, left.outside.y);
@@ -309,34 +297,26 @@ function drawAperture(ctx, view, scan, entities, room) {
 
     // Each page turns through a diagonal crease. Its darker underside gives
     // the next page an edge to slide under as the scanned interval expands.
-    plate(inkLight(band.ink, 0.52 + 0.16 * light, 0.035), left.back, right.back, right.hinge);
+    plate(inkLight(band.ink, 0.67 + 0.12 * light, 0.035), left.back, right.back, right.hinge);
     plate(inkLight(band.ink, 0.79 + 0.18 * light, 0.05), left.back, right.hinge, left.hinge);
     plate(mouth, left.hinge, right.hinge, right.eye, left.eye);
     // A cast shadow gradually slips out from under the neighboring edge. It
     // dies at the inner fold so the opening keeps its uninterrupted boundary.
-    const slip = 0.045 + 0.15 * open + 0.11 * attack * band.focus;
+    const slip = .012 + .10 * open + .09 * attack * band.focus;
     plate(inkLight(band.ink, 0.25 + 0.08 * light), left.outside,
       between(left.outside, right.outside, slip), between(left.back, right.back, slip * 0.78),
       between(left.hinge, right.hinge, slip * 0.35), left.eye, left.hinge, left.back);
-    const stack = 0.11 + 0.14 * open + 0.17 * attack * band.focus + 0.09 * (tool?.strike ?? 0);
+    const stack = .06 + .12 * open + .14 * attack * band.focus + .08 * (tool?.strike ?? 0);
     const lowerLeft = between(left.hinge, left.eye, stack);
     const lowerRight = between(right.hinge, right.eye, stack * 0.32);
-    plate(inkLight(band.ink, 0.26 + 0.11 * light), left.hinge, right.hinge, lowerRight, lowerLeft);
-    for (let leaf = 1; leaf < 4; leaf++) {
-      const depth = leaf / 4;
-      const l = between(left.hinge, lowerLeft, depth), r = between(right.hinge, lowerRight, depth);
-      ctx.strokeStyle = inkLight(band.ink, 0.58, 0.19);
-      ctx.lineWidth = (0.65 + 0.5 * band.focus) / short;
-      ctx.beginPath();
-      ctx.moveTo(l.x, l.y);
-      ctx.lineTo(r.x, r.y);
-      ctx.stroke();
-    }
+    ctx.globalAlpha *= cover * (.38 + .48 * open);
+    plate(inkLight(band.ink, .34 + .11 * light), left.hinge, right.hinge, lowerRight, lowerLeft);
     // The tool's cubic is a straight line coincident with this very crease.
     if (tool) tool.path = [left.hinge, between(left.hinge, right.hinge, 1 / 3),
       between(left.hinge, right.hinge, 2 / 3), right.hinge];
   }
+  ctx.globalAlpha = opacity;
   for (const tool of tools) {
-    drawSweepTool(ctx, view, tool, tool.path, 0.15 + 0.7 * tool.travel, bands[tool.band].ink, room.load);
+    drawSweepTool(ctx, view, tool, tool.path, 0.15 + 0.7 * tool.travel, bands[tool.band].ink, register.load);
   }
 }

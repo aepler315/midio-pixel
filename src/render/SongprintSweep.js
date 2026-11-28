@@ -53,8 +53,7 @@ export function createSongprintSweep(descriptor, growth, sim, lab) {
     const elapsed = clamp((time - offset) / seconds, 0, total);
     const active = Math.min(slices, elapsed <= slices - 1 ? elapsed : slices - 1 + (elapsed - slices + 1) / last);
     const activeSlice = Math.min(slices - 1, Math.floor(active));
-    const songPosition = clamp(time / (recordingMs > 0 ? recordingMs / 1000 : offset + sourceDuration), 0, 1);
-    Object.assign(out, { time, periodSec: period, phase: turn * TAU, activeIndex: active, songPosition, withAudio });
+    Object.assign(out, { time, periodSec: period, phase: turn * TAU, activeIndex: active, withAudio });
     if (withAudio) audioAt(out, time * 1000, time >= offset && time <= offset + sourceDuration, activeSlice);
     else Object.assign(out, { attack: 0, energy: .5, audible: 1, sustained: 0, beatPosition: null, beatConfidence: 0 });
     let r0 = 0, left = 0, right = 0;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { drawSweepEffect } from '../src/render/SongprintSweepEffects.js';
-import { roomRegistration } from '../src/render/SongprintPaperRoom.js';
+import { drawUnderprint, inkRegistration } from '../src/render/SongprintUnderprint.js';
 
 const view = { x: 8, y: 11, w: 793, h: 432 };
 
@@ -43,27 +43,43 @@ function frame(effect, t, overrides = {}, entities = true) {
   return { commands: ctx.commands, sampled };
 }
 
-test('both impressions carry the room and its ink sideways and return at the cadence', () => {
+test('sustained sound shifts both impressions at any position in the song', () => {
   const held = { sustained: .7, songPosition: .54 };
   for (const effect of ['apertures', 'fold']) {
     const draw = overrides => frame(effect, 5, { ...held, ...overrides }, false).commands;
     const resting = draw({sustained: 0});
     const pulling = draw({});
-    assert.deepEqual(draw({songPosition: 0}), resting);
-    assert.deepEqual(draw({songPosition: 1}), resting);
-    const transform = pulling.find(([kind]) => kind === 'transform');
-    assert.ok(Math.abs(transform[3]) > .08 && transform[4] < .9, 'the entire sheet shears and flattens');
+    assert.deepEqual(draw({songPosition: 0}), pulling);
+    assert.deepEqual(draw({songPosition: 1}), pulling);
     assert.notDeepEqual(pulling, resting);
-    assert.deepEqual(draw({}), pulling, 'scrubbing back restores the same room and ink');
+    assert.deepEqual(draw({}), pulling, 'scrubbing back restores the same ink');
     const raw = {withAudio: false, sustained: .99};
     assert.deepEqual(draw({...raw, songPosition: .1}), draw({...raw, songPosition: .7}));
   }
-  assert.equal(roomRegistration(field(5, {...held, withAudio: false})).load, 0);
+  assert.equal(inkRegistration(field(5, {...held, withAudio: false})).load, 0);
   // The aperture boundary and its cut edges stay polygonal at both extremes.
   for (const sustained of [0, 1]) {
     const { commands } = frame('apertures', 5, {...held, sustained}, false);
     assert.equal(commands.some(([kind]) => kind === 'bezierCurveTo' || kind === 'arc'), false);
   }
+});
+
+test('the underprint follows the measured crossings and keeps its own palette and pressure on replay', () => {
+  function draw(scan) {
+    const ctx = recordingContext(), colors = [];
+    ctx.createLinearGradient = () => ({addColorStop(_fraction, color) { colors.push(color); }});
+    drawUnderprint(ctx, view, scan, inkRegistration(scan));
+    return { paths: ctx.commands, colors };
+  }
+  const scan = field(5, {sustained: .56});
+  const before = draw(scan);
+  const looser = {...scan, rows: scan.rows.map((row, i) =>
+    ({...row, r0: row.r0 ** 2, r1: row.r1 ** 2, bend: row.bend + i / 160}))};
+  assert.notDeepEqual(draw(looser).paths, before.paths);
+  const recolored = {...scan, rows: scan.rows.map(row => ({...row, color: [139, 70, 42]}))};
+  assert.notDeepEqual(draw(recolored).colors, before.colors);
+  assert.deepEqual(draw({...scan, beatPosition: 15}), before, 'a single beat never pops the entire underprint');
+  assert.deepEqual(draw(scan), before);
 });
 
 for (const effect of ['fold', 'apertures']) {
